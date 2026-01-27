@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { ImageStorage } from './storage/image.storage';
 
 export interface AgentDescription {
   name: string;
@@ -15,9 +16,16 @@ export interface RuntimeInfo {
   audioFileTranscriptionEnabled: boolean;
 }
 
+interface MessageAttachment {
+  url: string;
+  mimeType?: string;
+  name?: string;
+}
+
 interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  attachments?: MessageAttachment[];
 }
 
 interface RunAgentInput {
@@ -40,7 +48,10 @@ export class CopilotKitService {
   private readonly thinkingConfig: ThinkingConfig;
   private readonly activeRuns = new Map<string, AbortController>();
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly imageStorage: ImageStorage,
+  ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
 
@@ -62,6 +73,32 @@ export class CopilotKitService {
 
   private get runtimeVersion(): string {
     return this.configService.getOrThrow<string>('COPILOTKIT_RUNTIME_VERSION');
+  }
+
+  private async fetchImageAsBase64(url: string): Promise<string> {
+    try {
+      // Handle data URLs directly
+      if (url.startsWith('data:')) {
+        const base64Match = url.match(/^data:image\/[a-zA-Z]+;base64,(.+)$/);
+        if (base64Match) {
+          return base64Match[1];
+        }
+        throw new Error('Invalid data URL format');
+      }
+
+      // Fetch from URL
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      return buffer.toString('base64');
+    } catch (error) {
+      this.logger.error(`Error fetching image from ${url}:`, error);
+      throw error;
+    }
   }
 
   getRuntimeInfo(): RuntimeInfo {
@@ -92,7 +129,6 @@ export class CopilotKitService {
     const threadId = input.threadId || crypto.randomUUID();
     const runId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
-    const thinkingId = crypto.randomUUID();
 
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -110,10 +146,54 @@ export class CopilotKitService {
       const systemMessage = input.messages.find((m) => m.role === 'system');
       const conversationMessages = input.messages
         .filter((m) => m.role !== 'system')
-        .map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }));
+        .map((m) => {
+          // Check for image ID references like [IMG:uuid]
+          const imageIdPattern = /\[IMG:([a-f0-9-]+)\]/g;
+          const imageIds = Array.from(m.content.matchAll(imageIdPattern)).map(match => match[1]);
+          
+          if (imageIds.length === 0) {
+            // No images, return as-is
+            return {
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            };
+          }
+
+          // Has images - build multimodal content
+          const contentBlocks: Anthropic.MessageParam['content'] = [];
+          
+          // Remove image markers and get clean text
+          const cleanText = m.content.replace(imageIdPattern, '').trim();
+          if (cleanText) {
+            contentBlocks.push({
+              type: 'text',
+              text: cleanText,
+            });
+          }
+
+          // Retrieve and add images
+          for (const imageId of imageIds) {
+            const image = this.imageStorage.get(imageId);
+            if (image) {
+              contentBlocks.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                  data: image.data,
+                },
+              });
+              this.logger.log(`Including image ${imageId} in request`);
+            } else {
+              this.logger.warn(`Image ${imageId} not found in storage`);
+            }
+          }
+
+          return {
+            role: m.role as 'user' | 'assistant',
+            content: contentBlocks.length > 0 ? contentBlocks : m.content,
+          };
+        });
 
       // Emit RUN_STARTED event (AG-UI protocol)
       this.sendSSEEvent(res, {

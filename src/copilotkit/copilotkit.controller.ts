@@ -7,9 +7,14 @@ import {
   Res,
   Headers,
   BadRequestException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CopilotKitService } from './copilotkit.service';
+import { ImageStorage } from './storage/image.storage';
+import type { UploadImageResponseDto } from './dto/upload-image.dto';
 
 interface SingleEndpointParams {
   agentId?: string;
@@ -33,7 +38,10 @@ type MethodHandler = (
 export class CopilotKitController {
   private readonly methodHandlers: Map<string, MethodHandler>;
 
-  constructor(private readonly copilotKitService: CopilotKitService) {
+  constructor(
+    private readonly copilotKitService: CopilotKitService,
+    private readonly imageStorage: ImageStorage,
+  ) {
     this.methodHandlers = new Map<string, MethodHandler>([
       ['info', this.handleInfo.bind(this)],
       ['agent/run', this.handleAgentRun.bind(this)],
@@ -137,5 +145,36 @@ export class CopilotKitController {
     @Param('threadId') threadId: string,
   ): Promise<{ success: boolean }> {
     return this.copilotKitService.stopAgent(agentId, threadId);
+  }
+
+  @Post('upload-image')
+  @UseInterceptors(FileInterceptor('image'))
+  async uploadImage(
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<UploadImageResponseDto> {
+    if (!file) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid image type. Allowed: JPEG, PNG, GIF, WebP');
+    }
+
+    // Check size (5MB limit for Claude)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new BadRequestException('Image too large. Maximum size: 5MB');
+    }
+
+    const imageId = crypto.randomUUID();
+    const base64Data = file.buffer.toString('base64');
+
+    this.imageStorage.store(imageId, base64Data, file.mimetype);
+
+    return {
+      imageId,
+      mimeType: file.mimetype,
+    };
   }
 }
