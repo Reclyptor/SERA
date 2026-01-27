@@ -186,4 +186,28 @@ export class EventsEmitter {
       message,
     });
   }
+
+  // Thinking convenience methods (extended thinking / Claude)
+
+  thinkingStart(res: Response, thinkingId: string): void {
+    this.emitHITL(res, {
+      name: 'thinking_start',
+      thinkingId,
+    });
+  }
+
+  thinkingContent(res: Response, thinkingId: string, delta: string): void {
+    this.emitHITL(res, {
+      name: 'thinking_content',
+      thinkingId,
+      delta,
+    });
+  }
+
+  thinkingEnd(res: Response, thinkingId: string): void {
+    this.emitHITL(res, {
+      name: 'thinking_end',
+      thinkingId,
+    });
+  }
 }

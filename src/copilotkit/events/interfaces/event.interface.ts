@@ -145,7 +145,32 @@ export interface ProgressUpdateEvent {
   message?: string;
 }
 
+/**
+ * Thinking events for extended thinking (Claude)
+ */
+export interface ThinkingStartEvent {
+  name: 'thinking_start';
+  thinkingId: string;
+}
+
+export interface ThinkingContentEvent {
+  name: 'thinking_content';
+  thinkingId: string;
+  delta: string;
+}
+
+export interface ThinkingEndEvent {
+  name: 'thinking_end';
+  thinkingId: string;
+}
+
+export type ThinkingEvent =
+  | ThinkingStartEvent
+  | ThinkingContentEvent
+  | ThinkingEndEvent;
+
 export type HITLEvent =
   | ConfirmationRequestEvent
   | ConfirmationResponseEvent
-  | ProgressUpdateEvent;
+  | ProgressUpdateEvent
+  | ThinkingEvent;

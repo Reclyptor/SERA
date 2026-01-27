@@ -27,16 +27,37 @@ interface RunAgentInput {
   forwardedProps?: Record<string, unknown>;
 }
 
+interface ThinkingConfig {
+  enabled: boolean;
+  budgetTokens: number;
+}
+
 @Injectable()
 export class CopilotKitService {
   private readonly logger = new Logger(CopilotKitService.name);
   private readonly anthropic: Anthropic;
   private readonly model: string;
+  private readonly thinkingConfig: ThinkingConfig;
   private readonly activeRuns = new Map<string, AbortController>();
 
   constructor(private readonly configService: ConfigService) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
+
+    // Extended thinking configuration
+    this.thinkingConfig = {
+      enabled: this.configService.get<string>('ANTHROPIC_THINKING_ENABLED', 'true') === 'true',
+      budgetTokens: parseInt(
+        this.configService.get<string>('ANTHROPIC_THINKING_BUDGET', '10000'),
+        10,
+      ),
+    };
+
+    if (this.thinkingConfig.enabled) {
+      this.logger.log(
+        `Extended thinking enabled with budget: ${this.thinkingConfig.budgetTokens} tokens`,
+      );
+    }
   }
 
   private get runtimeVersion(): string {
@@ -71,6 +92,7 @@ export class CopilotKitService {
     const threadId = input.threadId || crypto.randomUUID();
     const runId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
+    const thinkingId = crypto.randomUUID();
 
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -100,30 +122,91 @@ export class CopilotKitService {
         runId,
       });
 
-      // Emit TEXT_MESSAGE_START event
-      this.sendSSEEvent(res, {
-        type: 'TEXT_MESSAGE_START',
-        messageId,
-        role: 'assistant',
-      });
-
-      // Stream from Claude
-      const stream = this.anthropic.messages.stream({
+      // Build request options
+      const requestOptions: Anthropic.MessageCreateParams = {
         model: this.model,
-        max_tokens: 4096,
-        system: systemMessage?.content || 'You are Sera, a helpful AI assistant.',
+        max_tokens: this.thinkingConfig.enabled ? 16000 : 4096,
+        system: systemMessage?.content || 'You are SERA, a helpful AI assistant.',
         messages: conversationMessages,
+      };
+
+      // Add thinking configuration if enabled
+      if (this.thinkingConfig.enabled) {
+        (requestOptions as Anthropic.MessageCreateParams & {
+          thinking: { type: 'enabled'; budget_tokens: number };
+        }).thinking = {
+          type: 'enabled',
+          budget_tokens: this.thinkingConfig.budgetTokens,
+        };
+      }
+
+      // Stream using the SDK's built-in events
+      const stream = this.anthropic.messages.stream(requestOptions, {
+        headers: this.thinkingConfig.enabled
+          ? { 'anthropic-beta': 'interleaved-thinking-2025-05-14' }
+          : undefined,
       });
 
-      stream.on('text', (text) => {
-        if (abortController.signal.aborted) return;
+      let textStarted = false;
+      let thinkingStarted = false;
 
-        // Emit TEXT_MESSAGE_CONTENT event
-        this.sendSSEEvent(res, {
-          type: 'TEXT_MESSAGE_CONTENT',
-          messageId,
-          delta: text,
-        });
+      // Handle thinking events - stream in real-time
+      stream.on('thinking', (thinkingDelta) => {
+        if (abortController.signal.aborted || !thinkingDelta) return;
+
+        // Start message and thinking marker on first delta
+        if (!thinkingStarted) {
+          thinkingStarted = true;
+          this.sendSSEEvent(res, {
+            type: 'TEXT_MESSAGE_START',
+            messageId,
+            role: 'assistant',
+          });
+          this.sendSSEEvent(res, {
+            type: 'TEXT_MESSAGE_CONTENT',
+            messageId,
+            delta: '[THINKING]\n' + thinkingDelta,
+          });
+        } else {
+          // Stream subsequent thinking deltas
+          this.sendSSEEvent(res, {
+            type: 'TEXT_MESSAGE_CONTENT',
+            messageId,
+            delta: thinkingDelta,
+          });
+        }
+      });
+
+      // Handle text events
+      stream.on('text', (textDelta) => {
+        if (abortController.signal.aborted || !textDelta) return;
+
+        // Close thinking and start text
+        if (thinkingStarted && !textStarted) {
+          textStarted = true;
+          this.sendSSEEvent(res, {
+            type: 'TEXT_MESSAGE_CONTENT',
+            messageId,
+            delta: '\n[/THINKING]\n\n' + textDelta,
+          });
+        } else {
+          // Start message if no thinking occurred
+          if (!thinkingStarted && !textStarted) {
+            textStarted = true;
+            this.sendSSEEvent(res, {
+              type: 'TEXT_MESSAGE_START',
+              messageId,
+              role: 'assistant',
+            });
+          }
+
+          // Stream text content
+          this.sendSSEEvent(res, {
+            type: 'TEXT_MESSAGE_CONTENT',
+            messageId,
+            delta: textDelta,
+          });
+        }
       });
 
       stream.on('error', (error) => {
@@ -134,13 +217,16 @@ export class CopilotKitService {
         });
       });
 
+      // Wait for stream to complete
       await stream.finalMessage();
 
-      // Emit TEXT_MESSAGE_END event
-      this.sendSSEEvent(res, {
-        type: 'TEXT_MESSAGE_END',
-        messageId,
-      });
+      // End text message if started
+      if (textStarted) {
+        this.sendSSEEvent(res, {
+          type: 'TEXT_MESSAGE_END',
+          messageId,
+        });
+      }
 
       // Emit RUN_FINISHED event
       this.sendSSEEvent(res, {
