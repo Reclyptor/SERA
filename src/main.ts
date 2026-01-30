@@ -7,6 +7,8 @@ const requiredEnvVars = [
   'ANTHROPIC_MODEL',
   'COPILOTKIT_RUNTIME_VERSION',
   'CORS_ORIGIN',
+  'AUTHENTIK_ISSUER',
+  'AUTHENTIK_CLIENT_ID',
 ] as const;
 
 function validateEnv(): void {
