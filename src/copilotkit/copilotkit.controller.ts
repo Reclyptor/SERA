@@ -167,13 +167,13 @@ export class CopilotKitController {
       throw new BadRequestException('Image too large. Maximum size: 5MB');
     }
 
-    const imageId = crypto.randomUUID();
+    const imageID = crypto.randomUUID();
     const base64Data = file.buffer.toString('base64');
 
-    this.imageStorage.store(imageId, base64Data, file.mimetype);
+    this.imageStorage.store(imageID, base64Data, file.mimetype);
 
     return {
-      imageId,
+      imageID,
       mimeType: file.mimetype,
     };
   }

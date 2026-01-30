@@ -148,10 +148,10 @@ export class CopilotKitService {
         .filter((m) => m.role !== 'system')
         .map((m) => {
           // Check for image ID references like [IMG:uuid]
-          const imageIdPattern = /\[IMG:([a-f0-9-]+)\]/g;
-          const imageIds = Array.from(m.content.matchAll(imageIdPattern)).map(match => match[1]);
+          const imageIDPattern = /\[IMG:([a-f0-9-]+)\]/g;
+          const imageIDs = Array.from(m.content.matchAll(imageIDPattern)).map(match => match[1]);
           
-          if (imageIds.length === 0) {
+          if (imageIDs.length === 0) {
             // No images, return as-is
             return {
               role: m.role as 'user' | 'assistant',
@@ -163,7 +163,7 @@ export class CopilotKitService {
           const contentBlocks: Anthropic.MessageParam['content'] = [];
           
           // Remove image markers and get clean text
-          const cleanText = m.content.replace(imageIdPattern, '').trim();
+          const cleanText = m.content.replace(imageIDPattern, '').trim();
           if (cleanText) {
             contentBlocks.push({
               type: 'text',
@@ -172,8 +172,8 @@ export class CopilotKitService {
           }
 
           // Retrieve and add images
-          for (const imageId of imageIds) {
-            const image = this.imageStorage.get(imageId);
+          for (const imageID of imageIDs) {
+            const image = this.imageStorage.get(imageID);
             if (image) {
               contentBlocks.push({
                 type: 'image',
@@ -183,9 +183,9 @@ export class CopilotKitService {
                   data: image.data,
                 },
               });
-              this.logger.log(`Including image ${imageId} in request`);
+              this.logger.log(`Including image ${imageID} in request`);
             } else {
-              this.logger.warn(`Image ${imageId} not found in storage`);
+              this.logger.warn(`Image ${imageID} not found in storage`);
             }
           }
 

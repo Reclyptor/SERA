@@ -1,4 +1,4 @@
 export interface UploadImageResponseDto {
-  imageId: string;
+  imageID: string;
   mimeType: string;
 }
