@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { ImageStorage } from './storage/image.storage';
+import { StateService } from './state/state.service';
 
 export interface AgentDescription {
   name: string;
@@ -51,6 +52,7 @@ export class CopilotKitService {
   constructor(
     private readonly configService: ConfigService,
     private readonly imageStorage: ImageStorage,
+    private readonly stateService: StateService,
   ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
@@ -73,32 +75,6 @@ export class CopilotKitService {
 
   private get runtimeVersion(): string {
     return this.configService.getOrThrow<string>('COPILOTKIT_RUNTIME_VERSION');
-  }
-
-  private async fetchImageAsBase64(url: string): Promise<string> {
-    try {
-      // Handle data URLs directly
-      if (url.startsWith('data:')) {
-        const base64Match = url.match(/^data:image\/[a-zA-Z]+;base64,(.+)$/);
-        if (base64Match) {
-          return base64Match[1];
-        }
-        throw new Error('Invalid data URL format');
-      }
-
-      // Fetch from URL
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      return buffer.toString('base64');
-    } catch (error) {
-      this.logger.error(`Error fetching image from ${url}:`, error);
-      throw error;
-    }
   }
 
   getRuntimeInfo(): RuntimeInfo {
@@ -141,6 +117,9 @@ export class CopilotKitService {
     const abortController = new AbortController();
     this.activeRuns.set(threadId, abortController);
 
+    // Track run in state
+    await this.stateService.startRun(threadId, runId);
+
     try {
       // Convert messages to Anthropic format
       const systemMessage = input.messages.find((m) => m.role === 'system');
@@ -152,7 +131,6 @@ export class CopilotKitService {
           const imageIDs = Array.from(m.content.matchAll(imageIDPattern)).map(match => match[1]);
           
           if (imageIDs.length === 0) {
-            // No images, return as-is
             return {
               role: m.role as 'user' | 'assistant',
               content: m.content,
@@ -234,7 +212,6 @@ export class CopilotKitService {
       stream.on('thinking', (thinkingDelta) => {
         if (abortController.signal.aborted || !thinkingDelta) return;
 
-        // Start message and thinking marker on first delta
         if (!thinkingStarted) {
           thinkingStarted = true;
           this.sendSSEEvent(res, {
@@ -248,7 +225,6 @@ export class CopilotKitService {
             delta: '[THINKING]\n' + thinkingDelta,
           });
         } else {
-          // Stream subsequent thinking deltas
           this.sendSSEEvent(res, {
             type: 'TEXT_MESSAGE_CONTENT',
             messageId,
@@ -261,7 +237,6 @@ export class CopilotKitService {
       stream.on('text', (textDelta) => {
         if (abortController.signal.aborted || !textDelta) return;
 
-        // Close thinking and start text
         if (thinkingStarted && !textStarted) {
           textStarted = true;
           this.sendSSEEvent(res, {
@@ -270,7 +245,6 @@ export class CopilotKitService {
             delta: '\n[/THINKING]\n\n' + textDelta,
           });
         } else {
-          // Start message if no thinking occurred
           if (!thinkingStarted && !textStarted) {
             textStarted = true;
             this.sendSSEEvent(res, {
@@ -280,7 +254,6 @@ export class CopilotKitService {
             });
           }
 
-          // Stream text content
           this.sendSSEEvent(res, {
             type: 'TEXT_MESSAGE_CONTENT',
             messageId,
@@ -308,6 +281,9 @@ export class CopilotKitService {
         });
       }
 
+      // Mark run as completed
+      await this.stateService.completeRun(runId);
+
       // Emit RUN_FINISHED event
       this.sendSSEEvent(res, {
         type: 'RUN_FINISHED',
@@ -316,6 +292,10 @@ export class CopilotKitService {
       });
     } catch (error) {
       this.logger.error('Run error:', error);
+
+      // Mark run as failed
+      await this.stateService.failRun(runId, error instanceof Error ? error.message : 'Unknown error');
+
       this.sendSSEEvent(res, {
         type: 'RUN_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -335,14 +315,10 @@ export class CopilotKitService {
       throw new NotFoundException(`Agent '${agentId}' not found`);
     }
 
-    // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
-
-    // Connect endpoint - just acknowledge and keep alive
-    // No specific event needed, just end the response
     res.end();
   }
 

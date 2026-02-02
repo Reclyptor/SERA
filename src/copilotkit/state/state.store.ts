@@ -8,7 +8,6 @@ import {
   ThreadState,
   RunState,
   AgentState,
-  Message,
   ToolCall,
   StateSnapshot,
 } from './interfaces/state.interface';
@@ -28,7 +27,6 @@ export class StateStore {
   async createThread(threadId: string): Promise<ThreadState> {
     const thread = await this.threadModel.create({
       threadId,
-      messages: [],
       toolCalls: [],
       metadata: {},
     });
@@ -53,32 +51,6 @@ export class StateStore {
     return result.deletedCount > 0;
   }
 
-  // Message operations
-
-  async addMessage(threadId: string, message: Omit<Message, 'id' | 'timestamp'>): Promise<Message> {
-    const fullMessage: Message = {
-      ...message,
-      id: crypto.randomUUID(),
-      timestamp: new Date(),
-    };
-
-    await this.threadModel.findOneAndUpdate(
-      { threadId },
-      {
-        $push: { messages: fullMessage },
-        $setOnInsert: { threadId, toolCalls: [], metadata: {} },
-      },
-      { upsert: true },
-    ).exec();
-
-    return fullMessage;
-  }
-
-  async getMessages(threadId: string): Promise<Message[]> {
-    const thread = await this.threadModel.findOne({ threadId }).exec();
-    return thread?.messages as Message[] ?? [];
-  }
-
   // Tool call operations
 
   async addToolCall(threadId: string, toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>): Promise<ToolCall> {
@@ -93,7 +65,7 @@ export class StateStore {
       { threadId },
       {
         $push: { toolCalls: fullToolCall },
-        $setOnInsert: { threadId, messages: [], metadata: {} },
+        $setOnInsert: { threadId, metadata: {} },
       },
       { upsert: true },
     ).exec();
@@ -230,7 +202,6 @@ export class StateStore {
   private toThreadState(doc: ThreadDocument): ThreadState {
     return {
       threadId: doc.threadId,
-      messages: doc.messages as Message[],
       toolCalls: doc.toolCalls as ToolCall[],
       metadata: doc.metadata as Record<string, unknown>,
       createdAt: doc.createdAt,

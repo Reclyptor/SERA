@@ -1,11 +1,3 @@
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: Date;
-  metadata?: Record<string, unknown>;
-}
-
 export interface ToolCall {
   id: string;
   name: string;
@@ -17,7 +9,6 @@ export interface ToolCall {
 
 export interface ThreadState {
   threadId: string;
-  messages: Message[];
   toolCalls: ToolCall[];
   metadata: Record<string, unknown>;
   createdAt: Date;

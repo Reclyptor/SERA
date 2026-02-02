@@ -4,7 +4,6 @@ import {
   ThreadState,
   RunState,
   AgentState,
-  Message,
   ToolCall,
   StateSnapshot,
 } from './interfaces/state.interface';
@@ -33,24 +32,6 @@ export class StateService {
   async deleteThread(threadId: string): Promise<boolean> {
     this.logger.log(`Deleting thread: ${threadId}`);
     return this.store.deleteThread(threadId);
-  }
-
-  // Message management
-
-  async addUserMessage(threadId: string, content: string): Promise<Message> {
-    return this.store.addMessage(threadId, { role: 'user', content });
-  }
-
-  async addAssistantMessage(threadId: string, content: string): Promise<Message> {
-    return this.store.addMessage(threadId, { role: 'assistant', content });
-  }
-
-  async addSystemMessage(threadId: string, content: string): Promise<Message> {
-    return this.store.addMessage(threadId, { role: 'system', content });
-  }
-
-  async getMessages(threadId: string): Promise<Message[]> {
-    return this.store.getMessages(threadId);
   }
 
   // Tool call management

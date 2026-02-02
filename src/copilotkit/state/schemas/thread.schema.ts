@@ -4,26 +4,6 @@ import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 export type ThreadDocument = HydratedDocument<Thread>;
 
 @Schema()
-export class Message {
-  @Prop({ required: true })
-  id: string;
-
-  @Prop({ required: true, enum: ['user', 'assistant', 'system'] })
-  role: string;
-
-  @Prop({ required: true })
-  content: string;
-
-  @Prop({ default: Date.now })
-  timestamp: Date;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  metadata?: Record<string, unknown>;
-}
-
-export const MessageSchema = SchemaFactory.createForClass(Message);
-
-@Schema()
 export class ToolCall {
   @Prop({ required: true })
   id: string;
@@ -50,9 +30,6 @@ export const ToolCallSchema = SchemaFactory.createForClass(ToolCall);
 export class Thread {
   @Prop({ required: true, unique: true, index: true })
   threadId: string;
-
-  @Prop({ type: [MessageSchema], default: [] })
-  messages: Message[];
 
   @Prop({ type: [ToolCallSchema], default: [] })
   toolCalls: ToolCall[];
