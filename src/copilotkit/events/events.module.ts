@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventsEmitter } from './events.emitter';
 import { EventsService } from './events.service';
-import { StateModule } from '../state';
+import { StateModule } from '../state/state.module';
 
 @Module({
   imports: [StateModule],

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { EventsEmitter } from './events.emitter';
-import { StateService } from '../state';
+import { StateService } from '../state/state.service';
 
 @Injectable()
 export class EventsService {

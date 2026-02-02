@@ -3,9 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
-import { CopilotKitModule } from './copilotkit';
-import { AuthModule, JwtAuthGuard } from './auth';
-import { ChatsModule } from './chats';
+import { CopilotKitModule } from './copilotkit/copilotkit.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt.guard';
+import { ChatsModule } from './chats/chats.module';
 
 @Module({
   imports: [
