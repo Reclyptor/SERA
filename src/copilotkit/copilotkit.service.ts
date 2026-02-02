@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { ImageStorage } from './storage/image.storage';
 import { StateService } from './state/state.service';
+import { MemoryService } from './memory/memory.service';
 
 export interface AgentDescription {
   name: string;
@@ -53,6 +54,7 @@ export class CopilotKitService {
     private readonly configService: ConfigService,
     private readonly imageStorage: ImageStorage,
     private readonly stateService: StateService,
+    private readonly memoryService: MemoryService,
   ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
@@ -96,6 +98,7 @@ export class CopilotKitService {
     body: unknown,
     headers: Record<string, string>,
     res: Response,
+    userId?: string,
   ): Promise<void> {
     if (agentId !== 'SERA') {
       throw new NotFoundException(`Agent '${agentId}' not found`);
@@ -120,7 +123,26 @@ export class CopilotKitService {
     // Track run in state
     await this.stateService.startRun(threadId, runId);
 
+    // Accumulate response for memory extraction
+    let fullAssistantResponse = '';
+
     try {
+      // Get the latest user message for memory retrieval
+      const latestUserMessage = [...input.messages].reverse().find((m) => m.role === 'user');
+      
+      // Retrieve relevant memories for context
+      let memoryContext = '';
+      if (userId && latestUserMessage) {
+        try {
+          memoryContext = await this.memoryService.getContextForQuery(userId, latestUserMessage.content);
+          if (memoryContext) {
+            this.logger.debug(`Retrieved memory context for user ${userId}`);
+          }
+        } catch (error) {
+          this.logger.warn('Failed to retrieve memories:', error);
+        }
+      }
+
       // Convert messages to Anthropic format
       const systemMessage = input.messages.find((m) => m.role === 'system');
       const conversationMessages = input.messages
@@ -173,6 +195,12 @@ export class CopilotKitService {
           };
         });
 
+      // Build system prompt with memory context
+      let systemPrompt = systemMessage?.content || 'You are SERA, a helpful AI assistant.';
+      if (memoryContext) {
+        systemPrompt = `${systemPrompt}\n\n${memoryContext}`;
+      }
+
       // Emit RUN_STARTED event (AG-UI protocol)
       this.sendSSEEvent(res, {
         type: 'RUN_STARTED',
@@ -184,7 +212,7 @@ export class CopilotKitService {
       const requestOptions: Anthropic.MessageCreateParams = {
         model: this.model,
         max_tokens: this.thinkingConfig.enabled ? 16000 : 4096,
-        system: systemMessage?.content || 'You are SERA, a helpful AI assistant.',
+        system: systemPrompt,
         messages: conversationMessages,
       };
 
@@ -237,6 +265,9 @@ export class CopilotKitService {
       stream.on('text', (textDelta) => {
         if (abortController.signal.aborted || !textDelta) return;
 
+        // Accumulate response for memory extraction (only actual text, not thinking)
+        fullAssistantResponse += textDelta;
+
         if (thinkingStarted && !textStarted) {
           textStarted = true;
           this.sendSSEEvent(res, {
@@ -281,6 +312,11 @@ export class CopilotKitService {
         });
       }
 
+      // Extract and store memories from conversation (async, don't block response)
+      if (userId && latestUserMessage) {
+        this.extractMemoriesAsync(userId, latestUserMessage.content, fullAssistantResponse);
+      }
+
       // Mark run as completed
       await this.stateService.completeRun(runId);
 
@@ -304,6 +340,17 @@ export class CopilotKitService {
       this.activeRuns.delete(threadId);
       res.end();
     }
+  }
+
+  /**
+   * Extract memories from conversation asynchronously
+   */
+  private extractMemoriesAsync(userId: string, userMessage: string, assistantResponse: string): void {
+    const conversation = `User: ${userMessage}\n\nAssistant: ${assistantResponse}`;
+    
+    this.memoryService.extractAndStore(userId, conversation).catch((error) => {
+      this.logger.warn('Failed to extract memories:', error);
+    });
   }
 
   async connectAgent(

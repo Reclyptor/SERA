@@ -7,6 +7,7 @@ import { ActionsModule } from './actions/actions.module';
 import { StateModule } from './state/state.module';
 import { EventsModule } from './events/events.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { MemoryModule } from './memory/memory.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
     StateModule,
     EventsModule,
     KnowledgeModule,
+    MemoryModule,
   ],
   controllers: [CopilotKitController],
   providers: [CopilotKitService, ImageStorage],
@@ -26,6 +28,7 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
     StateModule,
     EventsModule,
     KnowledgeModule,
+    MemoryModule,
   ],
 })
 export class CopilotKitModule {}

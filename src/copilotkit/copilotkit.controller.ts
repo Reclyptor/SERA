@@ -9,12 +9,14 @@ import {
   BadRequestException,
   UploadedFile,
   UseInterceptors,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Response, Request } from 'express';
 import { CopilotKitService } from './copilotkit.service';
 import { ImageStorage } from './storage/image.storage';
 import type { UploadImageResponseDto } from './dto/upload-image.dto';
+import type { JwtPayload } from '../auth/jwt.strategy';
 
 interface SingleEndpointParams {
   agentId?: string;
@@ -32,6 +34,7 @@ type MethodHandler = (
   body: unknown,
   headers: Record<string, string>,
   res: Response,
+  user?: JwtPayload,
 ) => Promise<void> | void;
 
 @Controller('copilotkit')
@@ -55,15 +58,17 @@ export class CopilotKitController {
     @Body() request: SingleEndpointRequest,
     @Headers() headers: Record<string, string>,
     @Res() res: Response,
+    @Req() req: Request,
   ): Promise<void> {
     const { method, params = {}, body } = request;
+    const user = req.user as JwtPayload | undefined;
 
     const handler = this.methodHandlers.get(method);
     if (!handler) {
       throw new BadRequestException(`Unknown method: ${method}`);
     }
 
-    await handler(params, body, headers, res);
+    await handler(params, body, headers, res, user);
   }
 
   private handleInfo(
@@ -80,11 +85,12 @@ export class CopilotKitController {
     body: unknown,
     headers: Record<string, string>,
     res: Response,
+    user?: JwtPayload,
   ): Promise<void> {
     if (!params.agentId) {
       throw new BadRequestException('Missing agentId');
     }
-    await this.copilotKitService.runAgent(params.agentId, body, headers, res);
+    await this.copilotKitService.runAgent(params.agentId, body, headers, res, user?.sub);
   }
 
   private async handleAgentConnect(
@@ -126,8 +132,10 @@ export class CopilotKitController {
     @Body() body: unknown,
     @Headers() headers: Record<string, string>,
     @Res() res: Response,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.copilotKitService.runAgent(agentId, body, headers, res);
+    const user = req.user as JwtPayload | undefined;
+    await this.copilotKitService.runAgent(agentId, body, headers, res, user?.sub);
   }
 
   @Post('agent/:agentId/connect')
