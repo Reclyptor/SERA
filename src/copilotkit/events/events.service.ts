@@ -26,8 +26,8 @@ export class EventsService {
   /**
    * Start a new run and emit the RUN_STARTED event
    */
-  startRun(res: Response, threadId: string, runId: string): void {
-    this.stateService.startRun(threadId, runId);
+  async startRun(res: Response, threadId: string, runId: string): Promise<void> {
+    await this.stateService.startRun(threadId, runId);
     this.emitter.runStarted(res, threadId, runId);
     this.logger.debug(`Run started: ${runId} for thread: ${threadId}`);
   }
@@ -35,8 +35,8 @@ export class EventsService {
   /**
    * Complete a run and emit the RUN_FINISHED event
    */
-  finishRun(res: Response, threadId: string, runId: string): void {
-    this.stateService.completeRun(runId);
+  async finishRun(res: Response, threadId: string, runId: string): Promise<void> {
+    await this.stateService.completeRun(runId);
     this.emitter.runFinished(res, threadId, runId);
     this.logger.debug(`Run finished: ${runId}`);
   }
@@ -44,8 +44,8 @@ export class EventsService {
   /**
    * Fail a run and emit the RUN_ERROR event
    */
-  failRun(res: Response, runId: string, error: string): void {
-    this.stateService.failRun(runId, error);
+  async failRun(res: Response, runId: string, error: string): Promise<void> {
+    await this.stateService.failRun(runId, error);
     this.emitter.runError(res, error);
     this.logger.error(`Run failed: ${runId} - ${error}`);
   }
@@ -74,8 +74,8 @@ export class EventsService {
   /**
    * Start a tool call
    */
-  startToolCall(res: Response, threadId: string, toolCallId: string, toolName: string): void {
-    this.stateService.recordToolCall(threadId, toolName, {});
+  async startToolCall(res: Response, threadId: string, toolCallId: string, toolName: string): Promise<void> {
+    await this.stateService.recordToolCall(threadId, toolName, {});
     this.emitter.toolCallStart(res, toolCallId, toolName);
     this.logger.debug(`Tool call started: ${toolName} (${toolCallId})`);
   }
@@ -99,14 +99,14 @@ export class EventsService {
   /**
    * Request human confirmation for an action
    */
-  requestConfirmation(
+  async requestConfirmation(
     res: Response,
     threadId: string,
     actionName: string,
     args: Record<string, unknown>,
     message: string,
-  ): string {
-    const confirmationId = this.stateService.addPendingConfirmation(
+  ): Promise<string> {
+    const confirmationId = await this.stateService.addPendingConfirmation(
       threadId,
       actionName,
       args,
@@ -127,8 +127,8 @@ export class EventsService {
   /**
    * Send current state snapshot
    */
-  sendStateSnapshot(res: Response, threadId: string): void {
-    const state = this.stateService.getAgentState(threadId);
+  async sendStateSnapshot(res: Response, threadId: string): Promise<void> {
+    const state = await this.stateService.getAgentState(threadId);
     this.emitter.stateSnapshot(res, state.custom);
   }
 

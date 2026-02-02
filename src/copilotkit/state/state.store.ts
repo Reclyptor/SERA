@@ -1,4 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Thread, ThreadDocument } from './schemas/thread.schema';
+import { Run, RunDocument } from './schemas/run.schema';
+import { AgentState as AgentStateDoc, AgentStateDocument } from './schemas/agent-state.schema';
 import {
   ThreadState,
   RunState,
@@ -8,161 +13,247 @@ import {
   StateSnapshot,
 } from './interfaces/state.interface';
 
-/**
- * In-memory state store
- * TODO: Replace with persistent storage (Redis, PostgreSQL, etc.)
- */
 @Injectable()
 export class StateStore {
   private readonly logger = new Logger(StateStore.name);
-  private readonly threads = new Map<string, ThreadState>();
-  private readonly runs = new Map<string, RunState>();
-  private readonly agentStates = new Map<string, AgentState>();
+
+  constructor(
+    @InjectModel(Thread.name) private threadModel: Model<ThreadDocument>,
+    @InjectModel(Run.name) private runModel: Model<RunDocument>,
+    @InjectModel(AgentStateDoc.name) private agentStateModel: Model<AgentStateDocument>,
+  ) {}
 
   // Thread operations
 
-  createThread(threadId: string): ThreadState {
-    const thread: ThreadState = {
+  async createThread(threadId: string): Promise<ThreadState> {
+    const thread = await this.threadModel.create({
       threadId,
       messages: [],
       toolCalls: [],
       metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.threads.set(threadId, thread);
+    });
     this.logger.debug(`Created thread: ${threadId}`);
-    return thread;
+    return this.toThreadState(thread);
   }
 
-  getThread(threadId: string): ThreadState | undefined {
-    return this.threads.get(threadId);
+  async getThread(threadId: string): Promise<ThreadState | undefined> {
+    const thread = await this.threadModel.findOne({ threadId }).exec();
+    return thread ? this.toThreadState(thread) : undefined;
   }
 
-  getOrCreateThread(threadId: string): ThreadState {
-    return this.getThread(threadId) ?? this.createThread(threadId);
+  async getOrCreateThread(threadId: string): Promise<ThreadState> {
+    const existing = await this.getThread(threadId);
+    if (existing) return existing;
+    return this.createThread(threadId);
   }
 
-  deleteThread(threadId: string): boolean {
-    this.agentStates.delete(threadId);
-    return this.threads.delete(threadId);
+  async deleteThread(threadId: string): Promise<boolean> {
+    await this.agentStateModel.deleteOne({ threadId }).exec();
+    const result = await this.threadModel.deleteOne({ threadId }).exec();
+    return result.deletedCount > 0;
   }
 
   // Message operations
 
-  addMessage(threadId: string, message: Omit<Message, 'id' | 'timestamp'>): Message {
-    const thread = this.getOrCreateThread(threadId);
+  async addMessage(threadId: string, message: Omit<Message, 'id' | 'timestamp'>): Promise<Message> {
     const fullMessage: Message = {
       ...message,
       id: crypto.randomUUID(),
       timestamp: new Date(),
     };
-    thread.messages.push(fullMessage);
-    thread.updatedAt = new Date();
+
+    await this.threadModel.findOneAndUpdate(
+      { threadId },
+      {
+        $push: { messages: fullMessage },
+        $setOnInsert: { threadId, toolCalls: [], metadata: {} },
+      },
+      { upsert: true },
+    ).exec();
+
     return fullMessage;
   }
 
-  getMessages(threadId: string): Message[] {
-    return this.getThread(threadId)?.messages ?? [];
+  async getMessages(threadId: string): Promise<Message[]> {
+    const thread = await this.threadModel.findOne({ threadId }).exec();
+    return thread?.messages as Message[] ?? [];
   }
 
   // Tool call operations
 
-  addToolCall(threadId: string, toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>): ToolCall {
-    const thread = this.getOrCreateThread(threadId);
+  async addToolCall(threadId: string, toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>): Promise<ToolCall> {
     const fullToolCall: ToolCall = {
       ...toolCall,
       id: crypto.randomUUID(),
       status: 'pending',
       timestamp: new Date(),
     };
-    thread.toolCalls.push(fullToolCall);
-    thread.updatedAt = new Date();
+
+    await this.threadModel.findOneAndUpdate(
+      { threadId },
+      {
+        $push: { toolCalls: fullToolCall },
+        $setOnInsert: { threadId, messages: [], metadata: {} },
+      },
+      { upsert: true },
+    ).exec();
+
     return fullToolCall;
   }
 
-  updateToolCall(
+  async updateToolCall(
     threadId: string,
     toolCallId: string,
     update: Partial<Pick<ToolCall, 'status' | 'result'>>,
-  ): ToolCall | undefined {
-    const thread = this.getThread(threadId);
+  ): Promise<ToolCall | undefined> {
+    const updateFields: Record<string, unknown> = {};
+    if (update.status !== undefined) {
+      updateFields['toolCalls.$.status'] = update.status;
+    }
+    if (update.result !== undefined) {
+      updateFields['toolCalls.$.result'] = update.result;
+    }
+
+    const thread = await this.threadModel.findOneAndUpdate(
+      { threadId, 'toolCalls.id': toolCallId },
+      { $set: updateFields },
+      { new: true },
+    ).exec();
+
     if (!thread) return undefined;
-
-    const toolCall = thread.toolCalls.find((tc) => tc.id === toolCallId);
-    if (!toolCall) return undefined;
-
-    Object.assign(toolCall, update);
-    thread.updatedAt = new Date();
-    return toolCall;
+    return thread.toolCalls.find((tc) => tc.id === toolCallId) as ToolCall | undefined;
   }
 
   // Run operations
 
-  createRun(runId: string, threadId: string): RunState {
-    const run: RunState = {
+  async createRun(runId: string, threadId: string): Promise<RunState> {
+    const run = await this.runModel.create({
       runId,
       threadId,
       status: 'pending',
       startedAt: new Date(),
-    };
-    this.runs.set(runId, run);
+    });
     this.logger.debug(`Created run: ${runId} for thread: ${threadId}`);
-    return run;
+    return this.toRunState(run);
   }
 
-  getRun(runId: string): RunState | undefined {
-    return this.runs.get(runId);
+  async getRun(runId: string): Promise<RunState | undefined> {
+    const run = await this.runModel.findOne({ runId }).exec();
+    return run ? this.toRunState(run) : undefined;
   }
 
-  updateRun(runId: string, update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error'>>): RunState | undefined {
-    const run = this.runs.get(runId);
-    if (!run) return undefined;
-
-    Object.assign(run, update);
-    return run;
+  async updateRun(
+    runId: string,
+    update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error'>>,
+  ): Promise<RunState | undefined> {
+    const run = await this.runModel.findOneAndUpdate(
+      { runId },
+      { $set: update },
+      { new: true },
+    ).exec();
+    return run ? this.toRunState(run) : undefined;
   }
 
   // Agent state operations
 
-  getAgentState(threadId: string): AgentState {
-    let state = this.agentStates.get(threadId);
+  async getAgentState(threadId: string): Promise<AgentState> {
+    let state = await this.agentStateModel.findOne({ threadId }).exec();
     if (!state) {
-      state = {
+      state = await this.agentStateModel.create({
+        threadId,
         custom: {},
         pendingConfirmations: [],
-      };
-      this.agentStates.set(threadId, state);
+      });
     }
-    return state;
+    return this.toAgentState(state);
   }
 
-  updateAgentState(threadId: string, update: Partial<AgentState>): AgentState {
-    const state = this.getAgentState(threadId);
-    Object.assign(state, update);
-    return state;
+  async updateAgentState(threadId: string, update: Partial<AgentState>): Promise<AgentState> {
+    const state = await this.agentStateModel.findOneAndUpdate(
+      { threadId },
+      { $set: update },
+      { new: true, upsert: true },
+    ).exec();
+    return this.toAgentState(state!);
   }
 
-  setCustomState(threadId: string, key: string, value: unknown): void {
-    const state = this.getAgentState(threadId);
-    state.custom[key] = value;
+  async setCustomState(threadId: string, key: string, value: unknown): Promise<void> {
+    await this.agentStateModel.findOneAndUpdate(
+      { threadId },
+      { $set: { [`custom.${key}`]: value } },
+      { upsert: true },
+    ).exec();
   }
 
-  getCustomState<T>(threadId: string, key: string): T | undefined {
-    const state = this.getAgentState(threadId);
-    return state.custom[key] as T | undefined;
+  async getCustomState<T>(threadId: string, key: string): Promise<T | undefined> {
+    const state = await this.agentStateModel.findOne({ threadId }).exec();
+    return state?.custom?.[key] as T | undefined;
+  }
+
+  async addPendingConfirmation(
+    threadId: string,
+    confirmation: AgentState['pendingConfirmations'][0],
+  ): Promise<void> {
+    await this.agentStateModel.findOneAndUpdate(
+      { threadId },
+      {
+        $push: { pendingConfirmations: confirmation },
+        $setOnInsert: { threadId, custom: {} },
+      },
+      { upsert: true },
+    ).exec();
+  }
+
+  async removePendingConfirmation(threadId: string, confirmationId: string): Promise<boolean> {
+    const result = await this.agentStateModel.findOneAndUpdate(
+      { threadId },
+      { $pull: { pendingConfirmations: { id: confirmationId } } },
+    ).exec();
+    return result !== null;
   }
 
   // Snapshot
 
-  getSnapshot(threadId: string, runId?: string): StateSnapshot | undefined {
-    const thread = this.getThread(threadId);
+  async getSnapshot(threadId: string, runId?: string): Promise<StateSnapshot | undefined> {
+    const thread = await this.getThread(threadId);
     if (!thread) return undefined;
 
     return {
       thread,
-      run: runId ? this.getRun(runId) : undefined,
-      agent: this.getAgentState(threadId),
+      run: runId ? await this.getRun(runId) : undefined,
+      agent: await this.getAgentState(threadId),
+    };
+  }
+
+  // Helpers
+
+  private toThreadState(doc: ThreadDocument): ThreadState {
+    return {
+      threadId: doc.threadId,
+      messages: doc.messages as Message[],
+      toolCalls: doc.toolCalls as ToolCall[],
+      metadata: doc.metadata as Record<string, unknown>,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  }
+
+  private toRunState(doc: RunDocument): RunState {
+    return {
+      runId: doc.runId,
+      threadId: doc.threadId,
+      status: doc.status as RunState['status'],
+      startedAt: doc.startedAt,
+      completedAt: doc.completedAt,
+      error: doc.error,
+    };
+  }
+
+  private toAgentState(doc: AgentStateDocument): AgentState {
+    return {
+      custom: doc.custom as Record<string, unknown>,
+      currentStep: doc.currentStep,
+      pendingConfirmations: doc.pendingConfirmations as AgentState['pendingConfirmations'],
     };
   }
 }
