@@ -3,12 +3,15 @@ import { AppModule } from './app.module';
 import * as express from 'express';
 
 const requiredEnvVars = [
+  'AUTH_SECRET',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_MODEL',
   'COPILOTKIT_RUNTIME_VERSION',
   'CORS_ORIGIN',
   'AUTHENTIK_ISSUER',
   'AUTHENTIK_CLIENT_ID',
+  'MONGODB_URI',
+  'OPENAI_API_KEY',
 ] as const;
 
 function validateEnv(): void {
@@ -29,8 +32,8 @@ async function bootstrap() {
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Cookie'],
     credentials: true,
   });
 

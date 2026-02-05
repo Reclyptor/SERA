@@ -16,7 +16,7 @@ import type { Response, Request } from 'express';
 import { CopilotKitService } from './copilotkit.service';
 import { ImageStorage } from './storage/image.storage';
 import type { UploadImageResponseDto } from './dto/upload-image.dto';
-import type { JwtPayload } from '../auth/jwt.strategy';
+import type { SessionUser } from '../auth/session.strategy';
 
 interface SingleEndpointParams {
   agentId?: string;
@@ -34,7 +34,7 @@ type MethodHandler = (
   body: unknown,
   headers: Record<string, string>,
   res: Response,
-  user?: JwtPayload,
+  user?: SessionUser,
 ) => Promise<void> | void;
 
 @Controller('copilotkit')
@@ -61,7 +61,7 @@ export class CopilotKitController {
     @Req() req: Request,
   ): Promise<void> {
     const { method, params = {}, body } = request;
-    const user = req.user as JwtPayload | undefined;
+    const user = (req as Request & { user?: SessionUser }).user;
 
     const handler = this.methodHandlers.get(method);
     if (!handler) {
@@ -85,7 +85,7 @@ export class CopilotKitController {
     body: unknown,
     headers: Record<string, string>,
     res: Response,
-    user?: JwtPayload,
+    user?: SessionUser,
   ): Promise<void> {
     if (!params.agentId) {
       throw new BadRequestException('Missing agentId');
@@ -134,7 +134,7 @@ export class CopilotKitController {
     @Res() res: Response,
     @Req() req: Request,
   ): Promise<void> {
-    const user = req.user as JwtPayload | undefined;
+    const user = (req as Request & { user?: SessionUser }).user;
     await this.copilotKitService.runAgent(agentId, body, headers, res, user?.sub);
   }
 

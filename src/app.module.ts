@@ -5,7 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { CopilotKitModule } from './copilotkit/copilotkit.module';
 import { AuthModule } from './auth/auth.module';
-import { JwtAuthGuard } from './auth/jwt.guard';
+import { SessionAuthGuard } from './auth/session.guard';
 import { ChatsModule } from './chats/chats.module';
 
 @Module({
@@ -28,7 +28,7 @@ import { ChatsModule } from './chats/chats.module';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useClass: SessionAuthGuard,
     },
   ],
 })
