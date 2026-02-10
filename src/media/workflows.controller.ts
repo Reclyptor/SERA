@@ -27,6 +27,11 @@ export class WorkflowsController {
     return this.workflowsService.getWorkflowProgress(workflowId);
   }
 
+  @Get(':workflowId/staging-tree')
+  getStagingTree(@Param('workflowId') workflowId: string) {
+    return this.workflowsService.getStagingTree(workflowId);
+  }
+
   @Get('folder/:workflowId/progress')
   getFolderProgress(@Param('workflowId') workflowId: string) {
     return this.workflowsService.getFolderProgress(workflowId);
@@ -87,14 +92,14 @@ export class WorkflowsController {
     return this.workflowsService.finalizeWorkflow(threadId, workflowId);
   }
 
-  // Convenience endpoint if you want to trigger a dummy workflow without chat.
-  @Post('dummy/start')
-  startDummyWorkflow() {
-    const workflowId = this.workflowsService.startDummyWorkflow();
-    return {
-      workflowId,
-      message: `Dummy workflow started. Workflow ID: ${workflowId}`,
-    };
+  @Post('thread/:threadId/:workflowId/sync')
+  async syncWorkflowProgress(
+    @Param('threadId') threadId: string,
+    @Param('workflowId') workflowId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.chatsService.findOne(threadId, user.sub);
+    await this.workflowsService.syncWorkflowProgress(threadId, workflowId);
+    return { success: true };
   }
 }
-

@@ -5,7 +5,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ImageStorage } from './storage/image.storage';
 import { StateService } from './state/state.service';
 import { MemoryService } from './memory/memory.service';
-import { WorkflowsService } from '../media/workflows.service';
 
 export interface AgentDescription {
   name: string;
@@ -31,9 +30,17 @@ interface Message {
   attachments?: MessageAttachment[];
 }
 
+interface CopilotKitTool {
+  name: string;
+  description: string;
+  jsonSchema?: string;
+  parameters?: Record<string, unknown>;
+}
+
 interface RunAgentInput {
   threadId: string;
   messages: Message[];
+  tools?: CopilotKitTool[];
   state?: Record<string, unknown>;
   forwardedProps?: Record<string, unknown>;
 }
@@ -56,7 +63,6 @@ export class CopilotKitService {
     private readonly imageStorage: ImageStorage,
     private readonly stateService: StateService,
     private readonly memoryService: MemoryService,
-    private readonly workflowsService: WorkflowsService,
   ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
@@ -132,58 +138,6 @@ export class CopilotKitService {
       // Get the latest user message for memory retrieval
       const latestUserMessage = [...input.messages].reverse().find((m) => m.role === 'user');
 
-      // Workflow orchestration helper:
-      // if user asks to organize media/chat, return available series roots
-      // and ask them to pick one in the UI workflow picker.
-      if (
-        latestUserMessage &&
-        this.shouldStartDummyWorkflow(latestUserMessage.content)
-      ) {
-        this.sendSSEEvent(res, {
-          type: 'RUN_STARTED',
-          threadId,
-          runId,
-        });
-
-        const roots = await this.workflowsService.listSeriesRoots().catch(
-          () => [],
-        );
-        const rootPreview =
-          roots.length === 0
-            ? 'No series roots found in the configured input mount.'
-            : roots
-                .slice(0, 10)
-                .map((root) => `- ${root.name}`)
-                .join('\n');
-        const assistantText =
-          `Ready to organize your media.\n\n` +
-          `Select a series root from the workflow picker in chat, then start the workflow.\n\n` +
-          `Detected series roots:\n${rootPreview}`;
-
-        this.sendSSEEvent(res, {
-          type: 'TEXT_MESSAGE_START',
-          messageId,
-          role: 'assistant',
-        });
-        this.sendSSEEvent(res, {
-          type: 'TEXT_MESSAGE_CONTENT',
-          messageId,
-          delta: assistantText,
-        });
-        this.sendSSEEvent(res, {
-          type: 'TEXT_MESSAGE_END',
-          messageId,
-        });
-
-        await this.stateService.completeRun(runId);
-        this.sendSSEEvent(res, {
-          type: 'RUN_FINISHED',
-          threadId,
-          runId,
-        });
-        return;
-      }
-      
       // Retrieve relevant memories for context
       let memoryContext = '';
       if (userId && latestUserMessage) {
@@ -270,6 +224,29 @@ export class CopilotKitService {
         messages: conversationMessages,
       };
 
+      // Convert CopilotKit frontend actions to Anthropic tool definitions
+      const frontendTools = input.tools || [];
+      if (frontendTools.length > 0) {
+        requestOptions.tools = frontendTools.map((tool) => {
+          let inputSchema: Anthropic.Tool['input_schema'] = { type: 'object' as const, properties: {} };
+          if (tool.jsonSchema) {
+            try {
+              inputSchema = JSON.parse(tool.jsonSchema);
+            } catch {
+              // Fall back to empty schema
+            }
+          } else if (tool.parameters) {
+            inputSchema = tool.parameters as Anthropic.Tool['input_schema'];
+          }
+          return {
+            name: tool.name,
+            description: tool.description,
+            input_schema: inputSchema,
+          };
+        });
+        this.logger.debug(`Registered ${frontendTools.length} frontend tools: ${frontendTools.map(t => t.name).join(', ')}`);
+      }
+
       // Add thinking configuration if enabled
       if (this.thinkingConfig.enabled) {
         (requestOptions as Anthropic.MessageCreateParams & {
@@ -287,63 +264,88 @@ export class CopilotKitService {
           : undefined,
       });
 
-      let textStarted = false;
-      let thinkingStarted = false;
+      // Unified stream handler for thinking, text, and tool_use blocks
+      let textMessageActive = false;
+      let insideThinkingBlock = false;
+      const activeToolCalls = new Map<number, { id: string; name: string }>();
 
-      // Handle thinking events - stream in real-time
-      stream.on('thinking', (thinkingDelta) => {
-        if (abortController.signal.aborted || !thinkingDelta) return;
+      stream.on('streamEvent', (event) => {
+        if (abortController.signal.aborted) return;
 
-        if (!thinkingStarted) {
-          thinkingStarted = true;
-          this.sendSSEEvent(res, {
-            type: 'TEXT_MESSAGE_START',
-            messageId,
-            role: 'assistant',
-          });
-          this.sendSSEEvent(res, {
-            type: 'TEXT_MESSAGE_CONTENT',
-            messageId,
-            delta: '[THINKING]\n' + thinkingDelta,
-          });
-        } else {
-          this.sendSSEEvent(res, {
-            type: 'TEXT_MESSAGE_CONTENT',
-            messageId,
-            delta: thinkingDelta,
-          });
-        }
-      });
+        switch (event.type) {
+          case 'content_block_start': {
+            const block = event.content_block;
 
-      // Handle text events
-      stream.on('text', (textDelta) => {
-        if (abortController.signal.aborted || !textDelta) return;
-
-        // Accumulate response for memory extraction (only actual text, not thinking)
-        fullAssistantResponse += textDelta;
-
-        if (thinkingStarted && !textStarted) {
-          textStarted = true;
-          this.sendSSEEvent(res, {
-            type: 'TEXT_MESSAGE_CONTENT',
-            messageId,
-            delta: '\n[/THINKING]\n\n' + textDelta,
-          });
-        } else {
-          if (!thinkingStarted && !textStarted) {
-            textStarted = true;
-            this.sendSSEEvent(res, {
-              type: 'TEXT_MESSAGE_START',
-              messageId,
-              role: 'assistant',
-            });
+            if (block.type === 'thinking') {
+              // Start a text message if not active (thinking content is wrapped in [THINKING] markers)
+              if (!textMessageActive) {
+                textMessageActive = true;
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_START', messageId, role: 'assistant' });
+              }
+              insideThinkingBlock = true;
+              this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: '[THINKING]\n' });
+            } else if (block.type === 'text') {
+              // Close thinking block if active
+              if (insideThinkingBlock) {
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: '\n[/THINKING]\n\n' });
+                insideThinkingBlock = false;
+              }
+              // Start text message if not active
+              if (!textMessageActive) {
+                textMessageActive = true;
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_START', messageId, role: 'assistant' });
+              }
+            } else if (block.type === 'tool_use') {
+              // Close thinking/text before tool call
+              if (insideThinkingBlock) {
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: '\n[/THINKING]\n' });
+                insideThinkingBlock = false;
+              }
+              if (textMessageActive) {
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_END', messageId });
+                textMessageActive = false;
+              }
+              // Emit action execution start
+              activeToolCalls.set(event.index, { id: block.id, name: block.name });
+              this.sendSSEEvent(res, {
+                type: 'ActionExecutionStart',
+                actionExecutionId: block.id,
+                actionName: block.name,
+              });
+            }
+            break;
           }
+          case 'content_block_delta': {
+            const delta = event.delta;
 
-          this.sendSSEEvent(res, {
-            type: 'TEXT_MESSAGE_CONTENT',
-            messageId,
-            delta: textDelta,
-          });
+            if (delta.type === 'thinking_delta') {
+              this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.thinking });
+            } else if (delta.type === 'text_delta') {
+              fullAssistantResponse += delta.text;
+              this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.text });
+            } else if (delta.type === 'input_json_delta') {
+              const toolCall = activeToolCalls.get(event.index);
+              if (toolCall) {
+                this.sendSSEEvent(res, {
+                  type: 'ActionExecutionArgs',
+                  actionExecutionId: toolCall.id,
+                  args: delta.partial_json,
+                });
+              }
+            }
+            break;
+          }
+          case 'content_block_stop': {
+            const toolCall = activeToolCalls.get(event.index);
+            if (toolCall) {
+              this.sendSSEEvent(res, {
+                type: 'ActionExecutionEnd',
+                actionExecutionId: toolCall.id,
+              });
+              activeToolCalls.delete(event.index);
+            }
+            break;
+          }
         }
       });
 
@@ -358,12 +360,12 @@ export class CopilotKitService {
       // Wait for stream to complete
       await stream.finalMessage();
 
-      // End text message if started
-      if (textStarted) {
-        this.sendSSEEvent(res, {
-          type: 'TEXT_MESSAGE_END',
-          messageId,
-        });
+      // Close any remaining thinking/text blocks
+      if (insideThinkingBlock) {
+        this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: '\n[/THINKING]\n' });
+      }
+      if (textMessageActive) {
+        this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_END', messageId });
       }
 
       // Extract and store memories from conversation (async, don't block response)
@@ -439,17 +441,5 @@ export class CopilotKitService {
   private sendSSEEvent(res: Response, data: unknown): void {
     const eventData = JSON.stringify(data);
     res.write(`data: ${eventData}\n\n`);
-  }
-
-  private shouldStartDummyWorkflow(content: string): boolean {
-    const normalized = content.toLowerCase();
-    return (
-      normalized.includes('/dummy-workflow') ||
-      normalized.includes('dummy workflow') ||
-      normalized.includes('organize my chat') ||
-      normalized.includes('organize my media') ||
-      normalized.includes('hil test workflow') ||
-      normalized.includes('test hitl flow')
-    );
   }
 }

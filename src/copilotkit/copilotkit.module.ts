@@ -8,7 +8,6 @@ import { StateModule } from './state/state.module';
 import { EventsModule } from './events/events.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
-import { MediaModule } from '../media/media.module';
 
 @Module({
   imports: [
@@ -18,7 +17,6 @@ import { MediaModule } from '../media/media.module';
     EventsModule,
     KnowledgeModule,
     MemoryModule,
-    MediaModule,
   ],
   controllers: [CopilotKitController],
   providers: [CopilotKitService, ImageStorage],

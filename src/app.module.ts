@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session.guard';
 import { ChatsModule } from './chats/chats.module';
 import { MediaModule } from './media/media.module';
+import { TemporalModule } from './temporal/temporal.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { MediaModule } from './media/media.module';
       }),
       inject: [ConfigService],
     }),
+    TemporalModule,
     AuthModule,
     CopilotKitModule,
     ChatsModule,
