@@ -7,6 +7,7 @@ import { CopilotKitModule } from './copilotkit/copilotkit.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session.guard';
 import { ChatsModule } from './chats/chats.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ChatsModule } from './chats/chats.module';
     AuthModule,
     CopilotKitModule,
     ChatsModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [

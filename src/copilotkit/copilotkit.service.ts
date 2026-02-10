@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ImageStorage } from './storage/image.storage';
 import { StateService } from './state/state.service';
 import { MemoryService } from './memory/memory.service';
+import { MediaWorkflowsService } from '../media/media-workflows.service';
 
 export interface AgentDescription {
   name: string;
@@ -55,6 +56,7 @@ export class CopilotKitService {
     private readonly imageStorage: ImageStorage,
     private readonly stateService: StateService,
     private readonly memoryService: MemoryService,
+    private readonly mediaWorkflowsService: MediaWorkflowsService,
   ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
@@ -129,6 +131,49 @@ export class CopilotKitService {
     try {
       // Get the latest user message for memory retrieval
       const latestUserMessage = [...input.messages].reverse().find((m) => m.role === 'user');
+
+      // Deterministic local test harness:
+      // if user asks for a dummy workflow, bypass LLM and emit a workflow ID
+      // that drives seraui's workflow banner + HITL cards.
+      if (
+        latestUserMessage &&
+        this.shouldStartDummyWorkflow(latestUserMessage.content)
+      ) {
+        this.sendSSEEvent(res, {
+          type: 'RUN_STARTED',
+          threadId,
+          runId,
+        });
+
+        const workflowId = this.mediaWorkflowsService.startDummyWorkflow(threadId);
+        const assistantText =
+          `Started a dummy workflow for UI/HITL testing.\n\n` +
+          `Workflow ID: ${workflowId}\n\n` +
+          `This run will transition to pending review shortly.`;
+
+        this.sendSSEEvent(res, {
+          type: 'TEXT_MESSAGE_START',
+          messageId,
+          role: 'assistant',
+        });
+        this.sendSSEEvent(res, {
+          type: 'TEXT_MESSAGE_CONTENT',
+          messageId,
+          delta: assistantText,
+        });
+        this.sendSSEEvent(res, {
+          type: 'TEXT_MESSAGE_END',
+          messageId,
+        });
+
+        await this.stateService.completeRun(runId);
+        this.sendSSEEvent(res, {
+          type: 'RUN_FINISHED',
+          threadId,
+          runId,
+        });
+        return;
+      }
       
       // Retrieve relevant memories for context
       let memoryContext = '';
@@ -385,5 +430,16 @@ export class CopilotKitService {
   private sendSSEEvent(res: Response, data: unknown): void {
     const eventData = JSON.stringify(data);
     res.write(`data: ${eventData}\n\n`);
+  }
+
+  private shouldStartDummyWorkflow(content: string): boolean {
+    const normalized = content.toLowerCase();
+    return (
+      normalized.includes('/dummy-workflow') ||
+      normalized.includes('dummy workflow') ||
+      normalized.includes('organize my media') ||
+      normalized.includes('hil test workflow') ||
+      normalized.includes('test hitl flow')
+    );
   }
 }

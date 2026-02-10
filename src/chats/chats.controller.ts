@@ -10,6 +10,7 @@ import {
 import { ChatsService } from './chats.service';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
+import { UpdateWorkflowStateDto } from './dto/update-workflow-state.dto';
 import { CurrentUser } from '../auth/user.decorator';
 import type { SessionUser } from '../auth/session.strategy';
 
@@ -42,6 +43,19 @@ export class ChatsController {
     @Body() updateChatDto: UpdateChatDto,
   ) {
     return this.chatsService.update(id, user.sub, updateChatDto);
+  }
+
+  @Patch(':id/workflow-state')
+  updateWorkflowState(
+    @Param('id') id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() updateWorkflowStateDto: UpdateWorkflowStateDto,
+  ) {
+    return this.chatsService.updateWorkflowState(
+      id,
+      user.sub,
+      updateWorkflowStateDto,
+    );
   }
 
   @Delete(':id')

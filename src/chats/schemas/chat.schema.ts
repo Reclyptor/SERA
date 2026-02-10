@@ -20,6 +20,30 @@ export class Message {
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
 
+@Schema({ _id: false })
+export class WorkflowStateEntry {
+  @Prop({ required: true })
+  workflowId: string;
+
+  @Prop({ required: true, enum: ['running', 'completed', 'failed', 'unknown'] })
+  status: string;
+
+  @Prop({ type: Object, default: null })
+  progress: Record<string, unknown> | null;
+
+  @Prop({ type: [String], default: [] })
+  pendingReviewWorkflows: string[];
+
+  @Prop({ required: true })
+  startedAt: Date;
+
+  @Prop({ required: true })
+  lastSyncedAt: Date;
+}
+
+export const WorkflowStateEntrySchema =
+  SchemaFactory.createForClass(WorkflowStateEntry);
+
 @Schema({ timestamps: true })
 export class Chat {
   @Prop({ required: true, index: true })
@@ -30,6 +54,9 @@ export class Chat {
 
   @Prop({ type: [MessageSchema], default: [] })
   messages: Message[];
+
+  @Prop({ type: [WorkflowStateEntrySchema], default: [] })
+  workflowState: WorkflowStateEntry[];
 
   createdAt: Date;
   updatedAt: Date;
