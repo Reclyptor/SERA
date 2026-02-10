@@ -11,8 +11,9 @@ import {
 import type { Server, Socket } from 'socket.io';
 
 export interface WorkflowUpdateEvent {
+  threadId: string;
   workflowId: string;
-  status: 'running' | 'completed' | 'failed' | 'unknown';
+  status: 'running' | 'completed' | 'failed' | 'unknown' | 'canceled';
   progress: unknown | null;
   pendingReviewWorkflows: string[];
   lastSyncedAt: string;
@@ -33,50 +34,66 @@ export class MediaWorkflowsGateway
   @WebSocketServer()
   server!: Server;
 
-  private readonly subscriptions = new Map<string, Set<string>>();
+  private readonly threadSubscriptions = new Map<string, string>();
 
   handleConnection(client: Socket): void {
-    this.subscriptions.set(client.id, new Set());
     this.logger.debug(`Workflow WS client connected: ${client.id}`);
   }
 
   handleDisconnect(client: Socket): void {
-    this.subscriptions.delete(client.id);
+    const threadId = this.threadSubscriptions.get(client.id);
+    if (threadId) {
+      client.leave(this.threadRoom(threadId));
+      this.threadSubscriptions.delete(client.id);
+    }
     this.logger.debug(`Workflow WS client disconnected: ${client.id}`);
   }
 
-  @SubscribeMessage('subscribe_workflows')
-  subscribeWorkflows(
+  @SubscribeMessage('subscribe_thread')
+  subscribeThread(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { workflowIds: string[] },
-  ): { ok: true; count: number } {
-    const current = this.subscriptions.get(client.id) ?? new Set<string>();
-    const next = new Set<string>(payload?.workflowIds ?? []);
-    this.subscriptions.set(client.id, next);
+    @MessageBody() payload: { threadId: string },
+  ): { ok: true; threadId: string } {
+    const nextThreadId = payload?.threadId?.trim();
+    if (!nextThreadId) {
+      return { ok: true, threadId: '' };
+    }
+
+    const previous = this.threadSubscriptions.get(client.id);
+    if (previous && previous !== nextThreadId) {
+      client.leave(this.threadRoom(previous));
+    }
+
+    client.join(this.threadRoom(nextThreadId));
+    this.threadSubscriptions.set(client.id, nextThreadId);
     this.logger.debug(
-      `Workflow subscriptions updated for ${client.id}: ${current.size} -> ${next.size}`,
+      `Workflow thread subscription updated for ${client.id}: ${nextThreadId}`,
     );
-    return { ok: true, count: next.size };
+    return { ok: true, threadId: nextThreadId };
   }
 
-  @SubscribeMessage('unsubscribe_workflows')
-  unsubscribeWorkflows(
+  @SubscribeMessage('unsubscribe_thread')
+  unsubscribeThread(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { workflowIds: string[] },
-  ): { ok: true; count: number } {
-    const current = this.subscriptions.get(client.id) ?? new Set<string>();
-    for (const id of payload?.workflowIds ?? []) {
-      current.delete(id);
+    @MessageBody() payload: { threadId: string },
+  ): { ok: true } {
+    const threadId = payload?.threadId?.trim();
+    if (!threadId) return { ok: true };
+
+    const current = this.threadSubscriptions.get(client.id);
+    if (current === threadId) {
+      client.leave(this.threadRoom(threadId));
+      this.threadSubscriptions.delete(client.id);
     }
-    this.subscriptions.set(client.id, current);
-    return { ok: true, count: current.size };
+    return { ok: true };
   }
 
   emitWorkflowUpdate(event: WorkflowUpdateEvent): void {
-    for (const [socketId, workflowIds] of this.subscriptions.entries()) {
-      if (!workflowIds.has(event.workflowId)) continue;
-      this.server.to(socketId).emit('workflow_update', event);
-    }
+    this.server.to(this.threadRoom(event.threadId)).emit('workflow_update', event);
+  }
+
+  private threadRoom(threadId: string): string {
+    return `thread:${threadId}`;
   }
 }
 

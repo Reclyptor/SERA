@@ -12,6 +12,7 @@ import { Chat, ChatDocument } from './schemas/chat.schema';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { UpdateWorkflowStateDto } from './dto/update-workflow-state.dto';
+import { WorkflowStateEntryDto } from './dto/create-chat.dto';
 
 @Injectable()
 export class ChatsService {
@@ -153,6 +154,33 @@ export class ChatsService {
     );
 
     return chat.save();
+  }
+
+  async upsertWorkflowStateForChat(
+    chatID: string,
+    entry: WorkflowStateEntryDto,
+  ): Promise<void> {
+    const chat = await this.chatModel.findById(chatID).exec();
+    if (!chat) return;
+
+    const nextEntry = {
+      workflowId: entry.workflowId,
+      status: entry.status,
+      progress: entry.progress ?? null,
+      pendingReviewWorkflows: entry.pendingReviewWorkflows ?? [],
+      startedAt: entry.startedAt ?? new Date(),
+      lastSyncedAt: entry.lastSyncedAt ?? new Date(),
+    };
+
+    const idx = chat.workflowState.findIndex(
+      (w) => w.workflowId === entry.workflowId,
+    );
+    if (idx === -1) {
+      chat.workflowState.push(nextEntry);
+    } else {
+      chat.workflowState[idx] = nextEntry;
+    }
+    await chat.save();
   }
 
   async remove(chatID: string, userID: string): Promise<void> {

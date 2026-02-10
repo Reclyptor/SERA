@@ -25,7 +25,7 @@ export class WorkflowStateEntry {
   @Prop({ required: true })
   workflowId: string;
 
-  @Prop({ required: true, enum: ['running', 'completed', 'failed', 'unknown'] })
+  @Prop({ required: true, enum: ['running', 'completed', 'failed', 'unknown', 'canceled'] })
   status: string;
 
   @Prop({ type: Object, default: null })

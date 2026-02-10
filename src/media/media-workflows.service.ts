@@ -3,6 +3,7 @@ import {
   MediaWorkflowsGateway,
   type WorkflowUpdateEvent,
 } from './media-workflows.gateway';
+import { ChatsService } from '../chats/chats.service';
 
 type WorkflowRuntimeStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
 type FolderStatus =
@@ -66,6 +67,7 @@ export interface ReviewDecisionDto {
 }
 
 interface DummyWorkflowState {
+  threadId: string;
   workflowId: string;
   status: WorkflowRuntimeStatus;
   startTime: string;
@@ -83,10 +85,14 @@ interface DummyWorkflowState {
 export class MediaWorkflowsService {
   private readonly workflows = new Map<string, DummyWorkflowState>();
 
-  constructor(private readonly workflowsGateway: MediaWorkflowsGateway) {}
+  constructor(
+    private readonly workflowsGateway: MediaWorkflowsGateway,
+    private readonly chatsService: ChatsService,
+  ) {}
 
   startDummyWorkflow(parentThreadId?: string): string {
-    const workflowId = this.generateWorkflowId(parentThreadId);
+    const threadId = this.resolveThreadId(parentThreadId);
+    const workflowId = this.generateWorkflowId();
     const folderName = 'Dummy Anime Season 1';
     const folderWorkflowId = `process-folder-${workflowId}-${this.sanitizeWorkflowId(folderName)}`;
     const now = new Date().toISOString();
@@ -119,6 +125,7 @@ export class MediaWorkflowsService {
     ];
 
     const state: DummyWorkflowState = {
+      threadId,
       workflowId,
       status: 'RUNNING',
       startTime: now,
@@ -243,14 +250,20 @@ export class MediaWorkflowsService {
       .slice(0, 200);
   }
 
-  private generateWorkflowId(parentThreadId?: string): string {
-    // Keep workflow IDs in the same UUID-style convention as thread IDs.
-    void parentThreadId;
+  private generateWorkflowId(): string {
+    return crypto.randomUUID();
+  }
+
+  private resolveThreadId(parentThreadId?: string): string {
+    if (parentThreadId && /^[a-f0-9-]{36}$/i.test(parentThreadId)) {
+      return parentThreadId;
+    }
     return crypto.randomUUID();
   }
 
   private emitWorkflowUpdate(wf: DummyWorkflowState): void {
     const event: WorkflowUpdateEvent = {
+      threadId: wf.threadId,
       workflowId: wf.workflowId,
       status:
         wf.status === 'RUNNING'
@@ -264,6 +277,31 @@ export class MediaWorkflowsService {
       lastSyncedAt: new Date().toISOString(),
     };
     this.workflowsGateway.emitWorkflowUpdate(event);
+    this.syncWorkflowStateToChat(wf);
+  }
+
+  private syncWorkflowStateToChat(wf: DummyWorkflowState): void {
+    void this.chatsService
+      .upsertWorkflowStateForChat(wf.threadId, {
+        workflowId: wf.workflowId,
+        status:
+          wf.status === 'RUNNING'
+            ? 'running'
+            : wf.status === 'COMPLETED'
+              ? 'completed'
+              : 'failed',
+        progress: this.getWorkflowProgress(wf.workflowId) as unknown as Record<
+          string,
+          unknown
+        >,
+        pendingReviewWorkflows:
+          wf.folderStatus === 'awaiting_review' ? [wf.folderWorkflowId] : [],
+        startedAt: new Date(wf.startTime),
+        lastSyncedAt: new Date(),
+      })
+      .catch(() => {
+        // Chat may not exist in local testing paths.
+      });
   }
 }
 

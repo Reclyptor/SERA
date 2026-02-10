@@ -7,7 +7,7 @@ export class MessageDto {
 
 export class WorkflowStateEntryDto {
   workflowId: string;
-  status: 'running' | 'completed' | 'failed' | 'unknown';
+  status: 'running' | 'completed' | 'failed' | 'unknown' | 'canceled';
   progress: Record<string, unknown> | null;
   pendingReviewWorkflows: string[];
   startedAt: Date;
