@@ -26,10 +26,10 @@ export interface WorkflowUpdateEvent {
     credentials: true,
   },
 })
-export class MediaWorkflowsGateway
+export class WorkflowsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-  private readonly logger = new Logger(MediaWorkflowsGateway.name);
+  private readonly logger = new Logger(WorkflowsGateway.name);
 
   @WebSocketServer()
   server!: Server;

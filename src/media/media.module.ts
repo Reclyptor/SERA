@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { MediaWorkflowsController } from './media-workflows.controller';
-import { MediaWorkflowsService } from './media-workflows.service';
-import { MediaWorkflowsGateway } from './media-workflows.gateway';
+import { WorkflowsController } from './workflows.controller';
+import { WorkflowsService } from './workflows.service';
+import { WorkflowsGateway } from './workflows.gateway';
 import { ChatsModule } from '../chats/chats.module';
 import { Workflow, WorkflowSchema } from './schemas/workflow.schema';
 
@@ -11,9 +11,9 @@ import { Workflow, WorkflowSchema } from './schemas/workflow.schema';
     ChatsModule,
     MongooseModule.forFeature([{ name: Workflow.name, schema: WorkflowSchema }]),
   ],
-  controllers: [MediaWorkflowsController],
-  providers: [MediaWorkflowsService, MediaWorkflowsGateway],
-  exports: [MediaWorkflowsService],
+  controllers: [WorkflowsController],
+  providers: [WorkflowsService, WorkflowsGateway],
+  exports: [WorkflowsService],
 })
 export class MediaModule {}
 

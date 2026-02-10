@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ImageStorage } from './storage/image.storage';
 import { StateService } from './state/state.service';
 import { MemoryService } from './memory/memory.service';
-import { MediaWorkflowsService } from '../media/media-workflows.service';
+import { WorkflowsService } from '../media/workflows.service';
 
 export interface AgentDescription {
   name: string;
@@ -56,7 +56,7 @@ export class CopilotKitService {
     private readonly imageStorage: ImageStorage,
     private readonly stateService: StateService,
     private readonly memoryService: MemoryService,
-    private readonly mediaWorkflowsService: MediaWorkflowsService,
+    private readonly workflowsService: WorkflowsService,
   ) {
     this.model = this.configService.getOrThrow<string>('ANTHROPIC_MODEL');
     this.anthropic = new Anthropic();
@@ -132,9 +132,9 @@ export class CopilotKitService {
       // Get the latest user message for memory retrieval
       const latestUserMessage = [...input.messages].reverse().find((m) => m.role === 'user');
 
-      // Deterministic local test harness:
-      // if user asks for a dummy workflow, bypass LLM and emit a workflow ID
-      // that drives seraui's workflow banner + HITL cards.
+      // Workflow orchestration helper:
+      // if user asks to organize media/chat, return available series roots
+      // and ask them to pick one in the UI workflow picker.
       if (
         latestUserMessage &&
         this.shouldStartDummyWorkflow(latestUserMessage.content)
@@ -145,11 +145,20 @@ export class CopilotKitService {
           runId,
         });
 
-        const workflowId = this.mediaWorkflowsService.startDummyWorkflow(threadId);
+        const roots = await this.workflowsService.listSeriesRoots().catch(
+          () => [],
+        );
+        const rootPreview =
+          roots.length === 0
+            ? 'No series roots found in the configured input mount.'
+            : roots
+                .slice(0, 10)
+                .map((root) => `- ${root.name}`)
+                .join('\n');
         const assistantText =
-          `Started a dummy workflow for UI/HITL testing.\n\n` +
-          `Workflow ID: ${workflowId}\n\n` +
-          `This run will transition to pending review shortly.`;
+          `Ready to organize your media.\n\n` +
+          `Select a series root from the workflow picker in chat, then start the workflow.\n\n` +
+          `Detected series roots:\n${rootPreview}`;
 
         this.sendSSEEvent(res, {
           type: 'TEXT_MESSAGE_START',
@@ -437,6 +446,7 @@ export class CopilotKitService {
     return (
       normalized.includes('/dummy-workflow') ||
       normalized.includes('dummy workflow') ||
+      normalized.includes('organize my chat') ||
       normalized.includes('organize my media') ||
       normalized.includes('hil test workflow') ||
       normalized.includes('test hitl flow')

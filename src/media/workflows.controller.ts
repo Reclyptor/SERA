@@ -1,35 +1,40 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { MediaWorkflowsService } from './media-workflows.service';
-import type { ReviewDecisionDto } from './media-workflows.service';
+import { WorkflowsService } from './workflows.service';
+import type { ReviewDecisionDto } from './workflows.service';
 import { ChatsService } from '../chats/chats.service';
 import { CurrentUser } from '../auth/user.decorator';
 import type { SessionUser } from '../auth/session.strategy';
 
 @Controller('workflows')
-export class MediaWorkflowsController {
+export class WorkflowsController {
   constructor(
-    private readonly mediaWorkflowsService: MediaWorkflowsService,
+    private readonly workflowsService: WorkflowsService,
     private readonly chatsService: ChatsService,
   ) {}
 
+  @Get('series-roots')
+  listSeriesRoots() {
+    return this.workflowsService.listSeriesRoots();
+  }
+
   @Get(':workflowId')
   getWorkflowDescription(@Param('workflowId') workflowId: string) {
-    return this.mediaWorkflowsService.getWorkflowDescription(workflowId);
+    return this.workflowsService.getWorkflowDescription(workflowId);
   }
 
   @Get(':workflowId/progress')
   getWorkflowProgress(@Param('workflowId') workflowId: string) {
-    return this.mediaWorkflowsService.getWorkflowProgress(workflowId);
+    return this.workflowsService.getWorkflowProgress(workflowId);
   }
 
   @Get('folder/:workflowId/progress')
   getFolderProgress(@Param('workflowId') workflowId: string) {
-    return this.mediaWorkflowsService.getFolderProgress(workflowId);
+    return this.workflowsService.getFolderProgress(workflowId);
   }
 
   @Get('folder/:workflowId/reviews')
   getPendingReviews(@Param('workflowId') workflowId: string) {
-    return this.mediaWorkflowsService.getPendingReviews(workflowId);
+    return this.workflowsService.getPendingReviews(workflowId);
   }
 
   @Post('folder/:workflowId/reviews')
@@ -37,7 +42,7 @@ export class MediaWorkflowsController {
     @Param('workflowId') workflowId: string,
     @Body() decision: ReviewDecisionDto,
   ) {
-    return this.mediaWorkflowsService.submitReviewDecision(workflowId, decision);
+    return this.workflowsService.submitReviewDecision(workflowId, decision);
   }
 
   @Get('thread/:threadId/state')
@@ -46,7 +51,7 @@ export class MediaWorkflowsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.chatsService.findOne(threadId, user.sub);
-    return this.mediaWorkflowsService.getThreadWorkflowState(threadId);
+    return this.workflowsService.getThreadWorkflowState(threadId);
   }
 
   @Post('thread/:threadId/:workflowId/cancel')
@@ -56,13 +61,36 @@ export class MediaWorkflowsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.chatsService.findOne(threadId, user.sub);
-    return this.mediaWorkflowsService.cancelWorkflow(threadId, workflowId);
+    return this.workflowsService.cancelWorkflow(threadId, workflowId);
+  }
+
+  @Post('thread/:threadId/start')
+  async startWorkflowForThread(
+    @Param('threadId') threadId: string,
+    @Body() payload: { seriesRootPath: string },
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.chatsService.findOne(threadId, user.sub);
+    return this.workflowsService.startWorkflowForThread(
+      threadId,
+      payload.seriesRootPath,
+    );
+  }
+
+  @Post('thread/:threadId/:workflowId/finalize')
+  async finalizeWorkflowForThread(
+    @Param('threadId') threadId: string,
+    @Param('workflowId') workflowId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.chatsService.findOne(threadId, user.sub);
+    return this.workflowsService.finalizeWorkflow(threadId, workflowId);
   }
 
   // Convenience endpoint if you want to trigger a dummy workflow without chat.
   @Post('dummy/start')
   startDummyWorkflow() {
-    const workflowId = this.mediaWorkflowsService.startDummyWorkflow();
+    const workflowId = this.workflowsService.startDummyWorkflow();
     return {
       workflowId,
       message: `Dummy workflow started. Workflow ID: ${workflowId}`,
