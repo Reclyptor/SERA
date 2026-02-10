@@ -1,11 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import {
   MediaWorkflowsGateway,
   type WorkflowUpdateEvent,
 } from './media-workflows.gateway';
-import { ChatsService } from '../chats/chats.service';
+import { Workflow, WorkflowDocument } from './schemas/workflow.schema';
 
-type WorkflowRuntimeStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
+type WorkflowRuntimeStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
 type FolderStatus =
   | 'pending'
   | 'scanning'
@@ -66,6 +68,15 @@ export interface ReviewDecisionDto {
   correctedEpisodeNumber?: number;
 }
 
+export interface PersistedWorkflowStateDto {
+  workflowId: string;
+  status: 'running' | 'completed' | 'failed' | 'unknown' | 'canceled';
+  progress: Record<string, unknown> | null;
+  pendingReviewWorkflows: string[];
+  startedAt: string;
+  lastSyncedAt: string;
+}
+
 interface DummyWorkflowState {
   threadId: string;
   workflowId: string;
@@ -87,7 +98,8 @@ export class MediaWorkflowsService {
 
   constructor(
     private readonly workflowsGateway: MediaWorkflowsGateway,
-    private readonly chatsService: ChatsService,
+    @InjectModel(Workflow.name)
+    private readonly workflowModel: Model<WorkflowDocument>,
   ) {}
 
   startDummyWorkflow(parentThreadId?: string): string {
@@ -224,6 +236,65 @@ export class MediaWorkflowsService {
     return { success: true };
   }
 
+  async getThreadWorkflowState(
+    threadId: string,
+  ): Promise<PersistedWorkflowStateDto[]> {
+    const docs = await this.workflowModel
+      .find({ threadId })
+      .sort({ startedAt: 1 })
+      .lean()
+      .exec();
+
+    return docs.map((doc) => ({
+      workflowId: doc.workflowId,
+      status: doc.status as PersistedWorkflowStateDto['status'],
+      progress: (doc.progress as Record<string, unknown> | null) ?? null,
+      pendingReviewWorkflows: doc.pendingReviewWorkflows ?? [],
+      startedAt: new Date(doc.startedAt).toISOString(),
+      lastSyncedAt: new Date(doc.lastSyncedAt).toISOString(),
+    }));
+  }
+
+  async cancelWorkflow(
+    threadId: string,
+    workflowId: string,
+  ): Promise<{ success: boolean }> {
+    await this.workflowModel
+      .updateOne(
+        { threadId, workflowId },
+        {
+          $set: {
+            status: 'canceled',
+            pendingReviewWorkflows: [],
+            lastSyncedAt: new Date(),
+          },
+        },
+      )
+      .exec();
+
+    const wf = this.workflows.get(workflowId);
+    if (wf && wf.threadId === threadId && wf.status === 'RUNNING') {
+      wf.status = 'CANCELED';
+      wf.folderStatus = 'failed';
+      wf.closeTime = new Date().toISOString();
+      this.emitWorkflowUpdate(wf);
+    } else {
+      const doc = await this.workflowModel.findOne({ threadId, workflowId }).lean();
+      if (doc) {
+        this.workflowsGateway.emitWorkflowUpdate({
+          threadId,
+          workflowId,
+          status: 'canceled',
+          progress: (doc.progress as Record<string, unknown> | null) ?? null,
+          pendingReviewWorkflows: [],
+          lastSyncedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    return { success: true };
+  }
+
   private requireWorkflow(workflowId: string): DummyWorkflowState {
     const wf = this.workflows.get(workflowId);
     if (!wf) {
@@ -262,46 +333,41 @@ export class MediaWorkflowsService {
   }
 
   private emitWorkflowUpdate(wf: DummyWorkflowState): void {
+    const mappedStatus: WorkflowUpdateEvent['status'] =
+      wf.status === 'RUNNING'
+        ? 'running'
+        : wf.status === 'COMPLETED'
+          ? 'completed'
+          : wf.status === 'CANCELED'
+            ? 'canceled'
+            : 'failed';
+
     const event: WorkflowUpdateEvent = {
       threadId: wf.threadId,
       workflowId: wf.workflowId,
-      status:
-        wf.status === 'RUNNING'
-          ? 'running'
-          : wf.status === 'COMPLETED'
-            ? 'completed'
-            : 'failed',
+      status: mappedStatus,
       progress: this.getWorkflowProgress(wf.workflowId),
       pendingReviewWorkflows:
         wf.folderStatus === 'awaiting_review' ? [wf.folderWorkflowId] : [],
       lastSyncedAt: new Date().toISOString(),
     };
     this.workflowsGateway.emitWorkflowUpdate(event);
-    this.syncWorkflowStateToChat(wf);
-  }
-
-  private syncWorkflowStateToChat(wf: DummyWorkflowState): void {
-    void this.chatsService
-      .upsertWorkflowStateForChat(wf.threadId, {
-        workflowId: wf.workflowId,
-        status:
-          wf.status === 'RUNNING'
-            ? 'running'
-            : wf.status === 'COMPLETED'
-              ? 'completed'
-              : 'failed',
-        progress: this.getWorkflowProgress(wf.workflowId) as unknown as Record<
-          string,
-          unknown
-        >,
-        pendingReviewWorkflows:
-          wf.folderStatus === 'awaiting_review' ? [wf.folderWorkflowId] : [],
-        startedAt: new Date(wf.startTime),
-        lastSyncedAt: new Date(),
-      })
-      .catch(() => {
-        // Chat may not exist in local testing paths.
-      });
+    void this.workflowModel
+      .updateOne(
+        { threadId: wf.threadId, workflowId: wf.workflowId },
+        {
+          $set: {
+            status: mappedStatus,
+            progress: this.getWorkflowProgress(wf.workflowId),
+            pendingReviewWorkflows:
+              wf.folderStatus === 'awaiting_review' ? [wf.folderWorkflowId] : [],
+            startedAt: new Date(wf.startTime),
+            lastSyncedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      )
+      .exec();
   }
 }
 

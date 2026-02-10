@@ -1,10 +1,16 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { MediaWorkflowsService } from './media-workflows.service';
 import type { ReviewDecisionDto } from './media-workflows.service';
+import { ChatsService } from '../chats/chats.service';
+import { CurrentUser } from '../auth/user.decorator';
+import type { SessionUser } from '../auth/session.strategy';
 
-@Controller('media/workflows')
+@Controller('workflows')
 export class MediaWorkflowsController {
-  constructor(private readonly mediaWorkflowsService: MediaWorkflowsService) {}
+  constructor(
+    private readonly mediaWorkflowsService: MediaWorkflowsService,
+    private readonly chatsService: ChatsService,
+  ) {}
 
   @Get(':workflowId')
   getWorkflowDescription(@Param('workflowId') workflowId: string) {
@@ -32,6 +38,25 @@ export class MediaWorkflowsController {
     @Body() decision: ReviewDecisionDto,
   ) {
     return this.mediaWorkflowsService.submitReviewDecision(workflowId, decision);
+  }
+
+  @Get('thread/:threadId/state')
+  async getThreadWorkflowState(
+    @Param('threadId') threadId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.chatsService.findOne(threadId, user.sub);
+    return this.mediaWorkflowsService.getThreadWorkflowState(threadId);
+  }
+
+  @Post('thread/:threadId/:workflowId/cancel')
+  async cancelWorkflow(
+    @Param('threadId') threadId: string,
+    @Param('workflowId') workflowId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.chatsService.findOne(threadId, user.sub);
+    return this.mediaWorkflowsService.cancelWorkflow(threadId, workflowId);
   }
 
   // Convenience endpoint if you want to trigger a dummy workflow without chat.

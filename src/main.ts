@@ -25,6 +25,7 @@ async function bootstrap() {
   validateEnv();
 
   const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api/v1');
 
   // Increase body size limit for image uploads (50MB)
   app.use(express.json({ limit: '50mb' }));
@@ -39,6 +40,6 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  console.log(`Sera backend running on http://localhost:${port}`);
+  console.log(`Sera backend running on http://localhost:${port}/api/v1`);
 }
 bootstrap();

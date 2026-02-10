@@ -20,7 +20,7 @@ export interface WorkflowUpdateEvent {
 }
 
 @WebSocketGateway({
-  namespace: '/media-workflows',
+  namespace: '/workflows',
   cors: {
     origin: true,
     credentials: true,
