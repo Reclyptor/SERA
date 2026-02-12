@@ -22,10 +22,6 @@ export class ToolsService {
     return this.registry.getDefinitions();
   }
 
-  getAnthropicTools(): ReturnType<ToolsRegistry['toAnthropicFormat']> {
-    return this.registry.toAnthropicFormat();
-  }
-
   async executeTool(
     name: string,
     args: Record<string, unknown>,

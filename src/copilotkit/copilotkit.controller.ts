@@ -1,158 +1,59 @@
 import {
   Controller,
-  Get,
   Post,
-  Param,
-  Body,
   Res,
-  Headers,
+  Req,
   BadRequestException,
   UploadedFile,
   UseInterceptors,
-  Req,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response, Request } from 'express';
 import { CopilotKitService } from './copilotkit.service';
 import { ImageStorage } from './storage/image.storage';
+import { MemoryService } from './memory/memory.service';
 import type { UploadImageResponseDto } from './dto/upload-image.dto';
 import type { SessionUser } from '../auth/session.strategy';
 
-interface SingleEndpointParams {
-  agentId?: string;
-  threadId?: string;
-}
-
-interface SingleEndpointRequest {
-  method: string;
-  params?: SingleEndpointParams;
-  body?: unknown;
-}
-
-type MethodHandler = (
-  params: SingleEndpointParams,
-  body: unknown,
-  headers: Record<string, string>,
-  res: Response,
-  user?: SessionUser,
-) => Promise<void> | void;
-
 @Controller('copilotkit')
 export class CopilotKitController {
-  private readonly methodHandlers: Map<string, MethodHandler>;
+  private readonly logger = new Logger(CopilotKitController.name);
 
   constructor(
     private readonly copilotKitService: CopilotKitService,
     private readonly imageStorage: ImageStorage,
-  ) {
-    this.methodHandlers = new Map<string, MethodHandler>([
-      ['info', this.handleInfo.bind(this)],
-      ['agent/run', this.handleAgentRun.bind(this)],
-      ['agent/connect', this.handleAgentConnect.bind(this)],
-      ['agent/stop', this.handleAgentStop.bind(this)],
-    ]);
-  }
+    private readonly memoryService: MemoryService,
+  ) {}
 
+  /**
+   * Single endpoint that delegates to the CopilotKit runtime.
+   * The runtime handles AG-UI routing, SSE, tool calls, etc.
+   *
+   * Controller responsibilities:
+   *  1. Inject userId into forwardedProps (for middleware access)
+   *  2. Inject memory context into the system/instructions message
+   */
   @Post()
-  async handleSingleEndpoint(
-    @Body() request: SingleEndpointRequest,
-    @Headers() headers: Record<string, string>,
-    @Res() res: Response,
+  async handleCopilotKit(
     @Req() req: Request,
-  ): Promise<void> {
-    const { method, params = {}, body } = request;
-    const user = (req as Request & { user?: SessionUser }).user;
-
-    const handler = this.methodHandlers.get(method);
-    if (!handler) {
-      throw new BadRequestException(`Unknown method: ${method}`);
-    }
-
-    await handler(params, body, headers, res, user);
-  }
-
-  private handleInfo(
-    _params: SingleEndpointParams,
-    _body: unknown,
-    _headers: Record<string, string>,
-    res: Response,
-  ): void {
-    res.json(this.copilotKitService.getRuntimeInfo());
-  }
-
-  private async handleAgentRun(
-    params: SingleEndpointParams,
-    body: unknown,
-    headers: Record<string, string>,
-    res: Response,
-    user?: SessionUser,
-  ): Promise<void> {
-    if (!params.agentId) {
-      throw new BadRequestException('Missing agentId');
-    }
-    await this.copilotKitService.runAgent(params.agentId, body, headers, res, user?.sub);
-  }
-
-  private async handleAgentConnect(
-    params: SingleEndpointParams,
-    body: unknown,
-    _headers: Record<string, string>,
-    res: Response,
-  ): Promise<void> {
-    if (!params.agentId) {
-      throw new BadRequestException('Missing agentId');
-    }
-    await this.copilotKitService.connectAgent(params.agentId, body, res);
-  }
-
-  private async handleAgentStop(
-    params: SingleEndpointParams,
-    _body: unknown,
-    _headers: Record<string, string>,
-    res: Response,
-  ): Promise<void> {
-    if (!params.agentId || !params.threadId) {
-      throw new BadRequestException('Missing agentId or threadId');
-    }
-    const result = await this.copilotKitService.stopAgent(
-      params.agentId,
-      params.threadId,
-    );
-    res.json(result);
-  }
-
-  @Get('info')
-  getInfo() {
-    return this.copilotKitService.getRuntimeInfo();
-  }
-
-  @Post('agent/:agentId/run')
-  async runAgent(
-    @Param('agentId') agentId: string,
-    @Body() body: unknown,
-    @Headers() headers: Record<string, string>,
     @Res() res: Response,
-    @Req() req: Request,
   ): Promise<void> {
     const user = (req as Request & { user?: SessionUser }).user;
-    await this.copilotKitService.runAgent(agentId, body, headers, res, user?.sub);
-  }
+    const userId = user?.sub;
 
-  @Post('agent/:agentId/connect')
-  async connectAgent(
-    @Param('agentId') agentId: string,
-    @Body() body: unknown,
-    @Res() res: Response,
-  ): Promise<void> {
-    await this.copilotKitService.connectAgent(agentId, body, res);
-  }
+    if (userId && req.body) {
+      // Inject userId into forwardedProps so runtime middleware can access it
+      const body = req.body.body ?? req.body;
+      if (body && typeof body === 'object') {
+        body.forwardedProps = { ...body.forwardedProps, userId };
+      }
 
-  @Post('agent/:agentId/stop/:threadId')
-  async stopAgent(
-    @Param('agentId') agentId: string,
-    @Param('threadId') threadId: string,
-  ): Promise<{ success: boolean }> {
-    return this.copilotKitService.stopAgent(agentId, threadId);
+      // Inject memory context into the instructions/system message
+      await this.injectMemoryContext(body, userId);
+    }
+
+    await this.copilotKitService.handleRequest(req, res);
   }
 
   @Post('upload-image')
@@ -164,12 +65,18 @@ export class CopilotKitController {
       throw new BadRequestException('No image file provided');
     }
 
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+    ];
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Invalid image type. Allowed: JPEG, PNG, GIF, WebP');
+      throw new BadRequestException(
+        'Invalid image type. Allowed: JPEG, PNG, GIF, WebP',
+      );
     }
 
-    // Check size (5MB limit for Claude)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       throw new BadRequestException('Image too large. Maximum size: 5MB');
@@ -184,5 +91,47 @@ export class CopilotKitController {
       imageID,
       mimeType: file.mimetype,
     };
+  }
+
+  /**
+   * Find the latest user message and prepend relevant memories
+   * into the system/instructions message so the LLM has context.
+   */
+  private async injectMemoryContext(
+    body: Record<string, unknown>,
+    userId: string,
+  ): Promise<void> {
+    try {
+      const messages = body.messages as
+        | Array<{ role?: string; content?: string }>
+        | undefined;
+      if (!Array.isArray(messages)) return;
+
+      const latestUserMsg = [...messages]
+        .reverse()
+        .find((m) => m.role === 'user');
+      const userContent =
+        typeof latestUserMsg?.content === 'string'
+          ? latestUserMsg.content
+          : '';
+      if (!userContent) return;
+
+      const memoryContext = await this.memoryService.getContextForQuery(
+        userId,
+        userContent,
+      );
+      if (!memoryContext) return;
+
+      // The first message is the system/instructions prompt
+      const sysMsg = messages.find(
+        (m) => m.role === 'system' || m.role === 'developer',
+      );
+      if (sysMsg && typeof sysMsg.content === 'string') {
+        sysMsg.content = `${sysMsg.content}\n\n${memoryContext}`;
+        this.logger.debug(`Injected memory context for user ${userId}`);
+      }
+    } catch {
+      // Never fail the request because of memory retrieval errors
+    }
   }
 }

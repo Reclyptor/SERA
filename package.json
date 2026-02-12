@@ -37,7 +37,7 @@
     "passport": "^0.7.0",
     "passport-custom": "^1.1.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
+    "rxjs": "7.8.1",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
@@ -65,6 +65,12 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
+  },
+  "overrides": {
+    "@ag-ui/client": "0.0.42",
+    "@ag-ui/core": "0.0.42",
+    "@ag-ui/encoder": "0.0.42",
+    "@ag-ui/proto": "0.0.42"
   },
   "jest": {
     "moduleFileExtensions": [
