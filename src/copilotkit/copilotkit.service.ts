@@ -319,10 +319,14 @@ export class CopilotKitService {
             const delta = event.delta;
 
             if (delta.type === 'thinking_delta') {
-              this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.thinking });
+              if (delta.thinking) {
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.thinking });
+              }
             } else if (delta.type === 'text_delta') {
               fullAssistantResponse += delta.text;
-              this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.text });
+              if (delta.text) {
+                this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: delta.text });
+              }
             } else if (delta.type === 'input_json_delta') {
               const toolCall = activeToolCalls.get(event.index);
               if (toolCall) {
