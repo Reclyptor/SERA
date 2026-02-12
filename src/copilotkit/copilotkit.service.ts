@@ -305,12 +305,12 @@ export class CopilotKitService {
                 this.sendSSEEvent(res, { type: 'TEXT_MESSAGE_END', messageId });
                 textMessageActive = false;
               }
-              // Emit action execution start
+              // Emit tool call start
               activeToolCalls.set(event.index, { id: block.id, name: block.name });
               this.sendSSEEvent(res, {
-                type: 'ActionExecutionStart',
-                actionExecutionId: block.id,
-                actionName: block.name,
+                type: 'TOOL_CALL_START',
+                toolCallId: block.id,
+                toolCallName: block.name,
               });
             }
             break;
@@ -331,9 +331,9 @@ export class CopilotKitService {
               const toolCall = activeToolCalls.get(event.index);
               if (toolCall) {
                 this.sendSSEEvent(res, {
-                  type: 'ActionExecutionArgs',
-                  actionExecutionId: toolCall.id,
-                  args: delta.partial_json,
+                  type: 'TOOL_CALL_ARGS',
+                  toolCallId: toolCall.id,
+                  delta: delta.partial_json,
                 });
               }
             }
@@ -343,8 +343,8 @@ export class CopilotKitService {
             const toolCall = activeToolCalls.get(event.index);
             if (toolCall) {
               this.sendSSEEvent(res, {
-                type: 'ActionExecutionEnd',
-                actionExecutionId: toolCall.id,
+                type: 'TOOL_CALL_END',
+                toolCallId: toolCall.id,
               });
               activeToolCalls.delete(event.index);
             }
