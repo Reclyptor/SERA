@@ -25,7 +25,9 @@ async function bootstrap() {
   validateEnv();
 
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['health'],
+  });
 
   // Increase body size limit for image uploads (50MB)
   app.use(express.json({ limit: '50mb' }));
