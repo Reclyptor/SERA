@@ -4,6 +4,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -18,6 +20,7 @@ import { Workflow, WorkflowDocument } from './schemas/workflow.schema';
 // ── Constants ───────────────────────────────────────────────────────
 
 const TASK_QUEUE = process.env.TEMPORAL_TASK_QUEUE ?? 'SERA';
+const SYNC_INTERVAL_MS = 5_000;
 
 // ── DTOs ────────────────────────────────────────────────────────────
 
@@ -29,18 +32,15 @@ type FolderStatus =
   | 'extracting'
   | 'matching'
   | 'renaming'
+  | 'awaiting_detection_review'
   | 'awaiting_review'
-  | 'moving'
   | 'completed'
   | 'failed';
 
 type WorkflowStage =
   | 'copying'
-  | 'detecting'
-  | 'extracting'
-  | 'matching'
-  | 'awaiting_review'
-  | 'renaming'
+  | 'fetching_metadata'
+  | 'processing_folders'
   | 'structuring'
   | 'awaiting_finalize'
   | 'finalizing'
@@ -56,14 +56,47 @@ export interface WorkflowDescriptionDto {
   taskQueue: string;
 }
 
+export interface CopyProgressDto {
+  totalFiles: number;
+  filesCopied: number;
+  totalBytes: number;
+  bytesCopied: number;
+  currentFiles: string[];
+  currentFileSizes: number[];
+}
+
+export interface MetadataSummaryDto {
+  status: 'searching' | 'found' | 'traversing' | 'fetching_episodes' | 'complete';
+  seriesName?: string;
+  seasonCount?: number;
+  seasons?: Array<{ seasonNumber: number; title: string; episodeCount: number }>;
+  totalEpisodes?: number;
+}
+
+export interface StructuringProgressDto {
+  totalFiles: number;
+  filesStructured: number;
+  currentFile?: string;
+}
+
+export interface OutputProgressDto {
+  totalFiles: number;
+  filesCopied: number;
+  currentFiles: string[];
+}
+
 export interface OrganizeLibraryProgressDto {
+  workflowStage: WorkflowStage;
+  copyProgress?: CopyProgressDto;
+  metadataSummary?: MetadataSummaryDto;
+  structuringProgress?: StructuringProgressDto;
+  outputProgress?: OutputProgressDto;
   totalFolders: number;
   foldersCompleted: number;
   foldersFailed: number;
   foldersInProgress: number;
   foldersPendingReview: number;
   folderStatuses: Record<string, FolderStatus>;
-  workflowStage: WorkflowStage;
   expectedCoreEpisodeCount: number;
   resolvedCoreEpisodeCount: number;
   unresolvedCoreEpisodeCount: number;
@@ -92,9 +125,23 @@ export interface ReviewItemDto {
 export interface ProcessFolderProgressDto {
   folderName: string;
   status: FolderStatus;
-  totalFiles: number;
-  filesProcessed: number;
+  totalVideoFiles?: number;
+  detectedEpisodeCount?: number;
+  detectionConfidence?: 'high' | 'medium' | 'low';
+  totalEpisodeFiles?: number;
+  subtitlesExtracted?: number;
+  currentFile?: string;
+  matchesFound?: number;
+  totalToMatch?: number;
+  episodesCopied?: number;
+  totalEpisodesToCopy?: number;
   pendingReviews: ReviewItemDto[];
+}
+
+export interface DetectionConfirmationDto {
+  confirmed: boolean;
+  addedPaths?: string[];
+  removedPaths?: string[];
 }
 
 export interface ReviewDecisionDto {
@@ -121,8 +168,9 @@ export interface SeriesRootDto {
 // ── Service ─────────────────────────────────────────────────────────
 
 @Injectable()
-export class WorkflowsService {
+export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WorkflowsService.name);
+  private syncTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @Inject(TEMPORAL_CLIENT)
@@ -131,6 +179,44 @@ export class WorkflowsService {
     @InjectModel(Workflow.name)
     private readonly workflowModel: Model<WorkflowDocument>,
   ) {}
+
+  onModuleInit(): void {
+    this.syncTimer = setInterval(() => {
+      void this.syncAllRunningWorkflows();
+    }, SYNC_INTERVAL_MS);
+    this.logger.log(
+      `Started workflow progress sync loop (every ${SYNC_INTERVAL_MS / 1000}s)`,
+    );
+  }
+
+  onModuleDestroy(): void {
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+  }
+
+  private async syncAllRunningWorkflows(): Promise<void> {
+    let docs: Array<{ threadId: string; workflowId: string }>;
+    try {
+      docs = await this.workflowModel
+        .find({ status: 'running' })
+        .select('threadId workflowId')
+        .lean()
+        .exec();
+    } catch (err) {
+      this.logger.warn('Failed to query running workflows for sync', err);
+      return;
+    }
+
+    for (const doc of docs) {
+      try {
+        await this.syncWorkflowProgress(doc.threadId, doc.workflowId);
+      } catch {
+        // Individual failures are logged inside syncWorkflowProgress
+      }
+    }
+  }
 
   // ── Series Roots (via Temporal → SERAEX) ────────────────────────
 
@@ -163,7 +249,14 @@ export class WorkflowsService {
     await this.temporal.workflow.start('organizeLibrary', {
       taskQueue: TASK_QUEUE,
       workflowId,
-      args: [{ sourceDir: seriesRootPath }],
+      args: [
+        {
+          sourceDir: seriesRootPath,
+          processingRoot: process.env.MEDIA_PROCESSING_ROOT ?? '/mnt/media/processing',
+          stagingRoot: process.env.MEDIA_STAGING_ROOT ?? '/mnt/media/staging',
+          outputRoot: process.env.MEDIA_OUTPUT_ROOT ?? '/mnt/media/output',
+        },
+      ],
     });
 
     this.logger.log(
@@ -464,13 +557,13 @@ export class WorkflowsService {
     return { success: true };
   }
 
-  // ── Finalize Workflow (signals parent workflow) ──────────────────
+  // ── Finalize / Reject Workflow (signals parent workflow) ─────────
 
   async finalizeWorkflow(
     threadId: string,
     workflowId: string,
+    approved: boolean = true,
   ): Promise<{ success: boolean }> {
-    // Verify the workflow belongs to this thread
     const doc = await this.workflowModel
       .findOne({ threadId, workflowId })
       .lean()
@@ -480,35 +573,58 @@ export class WorkflowsService {
     }
     if (doc.status !== 'running') {
       throw new BadRequestException(
-        'Only running workflows can be finalized',
+        'Only running workflows can be finalized or rejected',
       );
     }
 
     try {
       const handle = this.temporal.workflow.getHandle(workflowId);
 
-      // Check if the workflow is actually ready to finalize
-      const progress = await handle.query<OrganizeLibraryProgressDto>(
-        'getProgress',
-      );
-      if (!progress.canFinalize || progress.unresolvedCoreEpisodeCount > 0) {
-        throw new BadRequestException(
-          'Finalize blocked: unresolved core episodes remain',
+      if (approved) {
+        const progress = await handle.query<OrganizeLibraryProgressDto>(
+          'getProgress',
         );
+        if (!progress.canFinalize || progress.unresolvedCoreEpisodeCount > 0) {
+          throw new BadRequestException(
+            'Finalize blocked: unresolved core episodes remain',
+          );
+        }
       }
 
-      // Send finalize signal
-      await handle.signal('finalize', { approved: true });
-      this.logger.log(`Sent finalize signal to workflow ${workflowId}`);
+      await handle.signal('finalize', { approved });
+      this.logger.log(
+        `Sent ${approved ? 'finalize' : 'reject'} signal to workflow ${workflowId}`,
+      );
 
       return { success: true };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       this.logger.error(
-        `Failed to finalize workflow ${workflowId}`,
+        `Failed to ${approved ? 'finalize' : 'reject'} workflow ${workflowId}`,
         err,
       );
-      throw new BadRequestException('Failed to finalize workflow');
+      throw new BadRequestException(
+        `Failed to ${approved ? 'finalize' : 'reject'} workflow`,
+      );
+    }
+  }
+
+  // ── Confirm Detection (signals child workflow) ─────────────────
+
+  async confirmDetection(
+    folderWorkflowId: string,
+    confirmation: DetectionConfirmationDto,
+  ): Promise<{ success: boolean }> {
+    try {
+      const handle = this.temporal.workflow.getHandle(folderWorkflowId);
+      await handle.signal('detectionConfirmation', confirmation);
+      return { success: true };
+    } catch (err) {
+      this.logger.error(
+        `Failed to signal detection confirmation to ${folderWorkflowId}`,
+        err,
+      );
+      throw new BadRequestException('Failed to confirm detection');
     }
   }
 
@@ -538,7 +654,10 @@ export class WorkflowsService {
         for (const [folderName, folderStatus] of Object.entries(
           progress.folderStatuses,
         )) {
-          if (folderStatus === 'awaiting_review') {
+          if (
+            folderStatus === 'awaiting_review' ||
+            folderStatus === 'awaiting_detection_review'
+          ) {
             pendingReviewWorkflows.push(
               `${workflowId}/process-folder/${this.sanitizeWorkflowId(folderName)}`,
             );

@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { WorkflowsService } from './workflows.service';
-import type { ReviewDecisionDto } from './workflows.service';
+import type {
+  ReviewDecisionDto,
+  DetectionConfirmationDto,
+} from './workflows.service';
 import { ChatsService } from '../chats/chats.service';
 import { CurrentUser } from '../auth/user.decorator';
 import type { SessionUser } from '../auth/session.strategy';
@@ -86,10 +89,23 @@ export class WorkflowsController {
   async finalizeWorkflowForThread(
     @Param('threadId') threadId: string,
     @Param('workflowId') workflowId: string,
+    @Body() body: { approved?: boolean },
     @CurrentUser() user: SessionUser,
   ) {
     await this.chatsService.findOne(threadId, user.sub);
-    return this.workflowsService.finalizeWorkflow(threadId, workflowId);
+    return this.workflowsService.finalizeWorkflow(
+      threadId,
+      workflowId,
+      body.approved ?? true,
+    );
+  }
+
+  @Post('folder/:workflowId/confirm-detection')
+  confirmDetection(
+    @Param('workflowId') workflowId: string,
+    @Body() confirmation: DetectionConfirmationDto,
+  ) {
+    return this.workflowsService.confirmDetection(workflowId, confirmation);
   }
 
   @Post('thread/:threadId/:workflowId/sync')
