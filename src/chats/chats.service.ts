@@ -11,8 +11,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Chat, ChatDocument } from './schemas/chat.schema';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
-import { UpdateWorkflowStateDto } from './dto/update-workflow-state.dto';
-import { WorkflowStateEntryDto } from './dto/create-chat.dto';
 
 @Injectable()
 export class ChatsService {
@@ -64,7 +62,6 @@ export class ChatsService {
       userID,
       title,
       messages: createChatDto.messages,
-      workflowState: createChatDto.workflowState ?? [],
     });
 
     return chat.save();
@@ -114,73 +111,7 @@ export class ChatsService {
       content: m.content,
       createdAt: m.createdAt ?? new Date(),
     }));
-    if (updateChatDto.workflowState) {
-      chat.workflowState = updateChatDto.workflowState.map((w) => ({
-        workflowId: w.workflowId,
-        status: w.status,
-        progress: w.progress ?? null,
-        pendingReviewWorkflows: w.pendingReviewWorkflows ?? [],
-        startedAt: w.startedAt ?? new Date(),
-        lastSyncedAt: w.lastSyncedAt ?? new Date(),
-      }));
-    }
     return chat.save();
-  }
-
-  async updateWorkflowState(
-    chatID: string,
-    userID: string,
-    updateWorkflowStateDto: UpdateWorkflowStateDto,
-  ): Promise<Chat> {
-    const chat = await this.chatModel.findById(chatID).exec();
-
-    if (!chat) {
-      throw new NotFoundException(`Chat with ID ${chatID} not found`);
-    }
-
-    if (chat.userID !== userID) {
-      throw new ForbiddenException('You do not have access to this chat');
-    }
-
-    chat.workflowState = (updateWorkflowStateDto.workflowState ?? []).map(
-      (w) => ({
-        workflowId: w.workflowId,
-        status: w.status,
-        progress: w.progress ?? null,
-        pendingReviewWorkflows: w.pendingReviewWorkflows ?? [],
-        startedAt: w.startedAt ?? new Date(),
-        lastSyncedAt: w.lastSyncedAt ?? new Date(),
-      }),
-    );
-
-    return chat.save();
-  }
-
-  async upsertWorkflowStateForChat(
-    chatID: string,
-    entry: WorkflowStateEntryDto,
-  ): Promise<void> {
-    const chat = await this.chatModel.findById(chatID).exec();
-    if (!chat) return;
-
-    const nextEntry = {
-      workflowId: entry.workflowId,
-      status: entry.status,
-      progress: entry.progress ?? null,
-      pendingReviewWorkflows: entry.pendingReviewWorkflows ?? [],
-      startedAt: entry.startedAt ?? new Date(),
-      lastSyncedAt: entry.lastSyncedAt ?? new Date(),
-    };
-
-    const idx = chat.workflowState.findIndex(
-      (w) => w.workflowId === entry.workflowId,
-    );
-    if (idx === -1) {
-      chat.workflowState.push(nextEntry);
-    } else {
-      chat.workflowState[idx] = nextEntry;
-    }
-    await chat.save();
   }
 
   async remove(chatID: string, userID: string): Promise<void> {
