@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Tool, ToolDefinition } from './interfaces/tool.interface';
+import { Tool, ToolDefinition } from './tool.interface';
 
 @Injectable()
 export class ToolsRegistry {

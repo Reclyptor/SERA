@@ -6,7 +6,7 @@ import {
   AgentState,
   ToolCall,
   StateSnapshot,
-} from './interfaces/state.interface';
+} from './state.interface';
 
 @Injectable()
 export class StateService {

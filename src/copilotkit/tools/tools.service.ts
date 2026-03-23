@@ -5,7 +5,7 @@ import {
   ToolDefinition,
   ToolExecutionContext,
   ToolExecutionResult,
-} from './interfaces/tool.interface';
+} from './tool.interface';
 
 @Injectable()
 export class ToolsService {

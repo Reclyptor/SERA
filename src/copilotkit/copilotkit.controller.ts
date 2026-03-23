@@ -13,7 +13,8 @@ import type { Response, Request } from 'express';
 import { CopilotKitService } from './copilotkit.service';
 import { ImageStorage } from './storage/image.storage';
 import { MemoryService } from './memory/memory.service';
-import type { UploadImageResponseDto } from './dto/upload-image.dto';
+import { PromptsService } from '../prompts/prompts.service';
+import type { UploadImageResponseDto } from './upload-image.dto';
 import type { SessionUser } from '../auth/session.strategy';
 
 @Controller('copilotkit')
@@ -24,6 +25,7 @@ export class CopilotKitController {
     private readonly copilotKitService: CopilotKitService,
     private readonly imageStorage: ImageStorage,
     private readonly memoryService: MemoryService,
+    private readonly promptsService: PromptsService,
   ) {}
 
   /**
@@ -42,15 +44,18 @@ export class CopilotKitController {
     const user = (req as Request & { user?: SessionUser }).user;
     const userId = user?.sub;
 
-    if (userId && req.body) {
-      // Inject userId into forwardedProps so runtime middleware can access it
-      const body = req.body.body ?? req.body;
-      if (body && typeof body === 'object') {
+    const body = req.body?.body ?? req.body;
+    if (body && typeof body === 'object') {
+      if (userId) {
+        // Inject userId into forwardedProps so runtime middleware can access it
         body.forwardedProps = { ...body.forwardedProps, userId };
       }
 
-      // Inject memory context into the instructions/system message
-      await this.injectMemoryContext(body, userId);
+      // Inject system prompt and memory context into messages
+      await this.injectSystemPrompt(body);
+      if (userId) {
+        await this.injectMemoryContext(body, userId);
+      }
     }
 
     await this.copilotKitService.handleRequest(req, res);
@@ -91,6 +96,35 @@ export class CopilotKitController {
       imageID,
       mimeType: file.mimetype,
     };
+  }
+
+  /**
+   * Inject the system prompt from MongoDB/Redis as the first system message.
+   * If a system message already exists, prepend the prompt to it.
+   */
+  private async injectSystemPrompt(
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const systemPrompt = await this.promptsService.get('system');
+      if (!systemPrompt) return;
+
+      const messages = body.messages as
+        | Array<{ role?: string; content?: string }>
+        | undefined;
+      if (!Array.isArray(messages)) return;
+
+      const sysMsg = messages.find(
+        (m) => m.role === 'system' || m.role === 'developer',
+      );
+      if (sysMsg && typeof sysMsg.content === 'string') {
+        sysMsg.content = `${systemPrompt}\n\n${sysMsg.content}`;
+      } else {
+        messages.unshift({ role: 'system', content: systemPrompt });
+      }
+    } catch {
+      // Never fail the request because of prompt retrieval errors
+    }
   }
 
   /**

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KnowledgeProvider, ReadableContext } from './interfaces/knowledge.interface';
+import { KnowledgeProvider, ReadableContext } from './knowledge.interface';
 
 @Injectable()
 export class KnowledgeRegistry {

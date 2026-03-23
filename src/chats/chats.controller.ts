@@ -8,8 +8,8 @@ import {
   Param,
 } from '@nestjs/common';
 import { ChatsService } from './chats.service';
-import { CreateChatDto } from './dto/create-chat.dto';
-import { UpdateChatDto } from './dto/update-chat.dto';
+import { CreateChatDto } from './create-chat.dto';
+import { UpdateChatDto } from './update-chat.dto';
 import { CurrentUser } from '../auth/user.decorator';
 import type { SessionUser } from '../auth/session.strategy';
 

@@ -36,6 +36,7 @@ export class CopilotKitService {
       model: `anthropic/${model}`,
       maxOutputTokens,
       maxSteps: 10,
+      forwardSystemMessages: true,
     });
 
     const runtime = new CopilotRuntime({

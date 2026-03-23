@@ -3,7 +3,7 @@ import {
   ActionDefinition,
   BackendAction,
   FrontendAction,
-} from './interfaces/action.interface';
+} from './action.interface';
 
 @Injectable()
 export class ActionsRegistry {

@@ -7,6 +7,7 @@ import { ActionsModule } from './actions/actions.module';
 import { StateModule } from './state/state.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
+import { PromptsModule } from '../prompts/prompts.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MemoryModule } from './memory/memory.module';
     StateModule,
     KnowledgeModule,
     MemoryModule,
+    PromptsModule,
   ],
   controllers: [CopilotKitController],
   providers: [CopilotKitService, ImageStorage],

@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { Memory, MemoryDocument } from './schemas/memory.schema';
+import { Memory, MemoryDocument } from './memory.schema';
 
 export interface MemoryEntry {
   id: string;

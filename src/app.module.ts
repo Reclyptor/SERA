@@ -6,7 +6,9 @@ import { AppController } from './app.controller';
 import { CopilotKitModule } from './copilotkit/copilotkit.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session.guard';
+import { RedisModule } from './redis/redis.module';
 import { ChatsModule } from './chats/chats.module';
+import { PromptsModule } from './prompts/prompts.module';
 
 @Module({
   imports: [
@@ -20,9 +22,11 @@ import { ChatsModule } from './chats/chats.module';
       }),
       inject: [ConfigService],
     }),
+    RedisModule,
     AuthModule,
     CopilotKitModule,
     ChatsModule,
+    PromptsModule,
   ],
   controllers: [AppController],
   providers: [

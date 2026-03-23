@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { StateStore } from './state.store';
 import { StateService } from './state.service';
-import { Thread, ThreadSchema } from './schemas/thread.schema';
-import { Run, RunSchema } from './schemas/run.schema';
-import { AgentState, AgentStateSchema } from './schemas/agent-state.schema';
+import { Thread, ThreadSchema } from './thread.schema';
+import { Run, RunSchema } from './run.schema';
+import { AgentState, AgentStateSchema } from './agent-state.schema';
 
 @Module({
   imports: [

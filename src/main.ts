@@ -11,6 +11,7 @@ const requiredEnvVars = [
   'AUTHENTIK_CLIENT_ID',
   'MONGODB_URI',
   'OPENAI_API_KEY',
+  'REDIS_URL',
 ] as const;
 
 function validateEnv(): void {

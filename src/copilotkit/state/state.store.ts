@@ -1,16 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Thread, ThreadDocument } from './schemas/thread.schema';
-import { Run, RunDocument } from './schemas/run.schema';
-import { AgentState as AgentStateDoc, AgentStateDocument } from './schemas/agent-state.schema';
+import { Thread, ThreadDocument } from './thread.schema';
+import { Run, RunDocument } from './run.schema';
+import { AgentState as AgentStateDoc, AgentStateDocument } from './agent-state.schema';
 import {
   ThreadState,
   RunState,
   AgentState,
   ToolCall,
   StateSnapshot,
-} from './interfaces/state.interface';
+} from './state.interface';
 
 @Injectable()
 export class StateStore {

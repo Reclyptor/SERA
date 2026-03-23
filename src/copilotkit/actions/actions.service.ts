@@ -5,7 +5,7 @@ import {
   ActionExecutionContext,
   ActionExecutionResult,
   BackendAction,
-} from './interfaces/action.interface';
+} from './action.interface';
 
 @Injectable()
 export class ActionsService {

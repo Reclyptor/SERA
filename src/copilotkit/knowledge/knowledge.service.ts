@@ -7,7 +7,7 @@ import {
   KnowledgeQuery,
   KnowledgeResult,
   ReadableContext,
-} from './interfaces/knowledge.interface';
+} from './knowledge.interface';
 
 @Injectable()
 export class KnowledgeService {
