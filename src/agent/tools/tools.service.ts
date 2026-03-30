@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { ToolSet } from 'ai';
 import { ToolsRegistry } from './tools.registry';
 import {
   Tool,
-  ToolDefinition,
   ToolExecutionContext,
   ToolExecutionResult,
 } from './tool.interface';
@@ -15,11 +15,14 @@ export class ToolsService {
 
   registerTool(tool: Tool): void {
     this.registry.register(tool);
-    this.logger.log(`Registered tool: ${tool.definition.name}`);
+    this.logger.log(`Registered tool: ${tool.name}`);
   }
 
-  getToolDefinitions(): ToolDefinition[] {
-    return this.registry.getDefinitions();
+  /**
+   * Get an AI SDK-compatible ToolSet with context injected.
+   */
+  getToolSet(context: ToolExecutionContext): ToolSet {
+    return this.registry.toAISDKToolSet(context);
   }
 
   async executeTool(

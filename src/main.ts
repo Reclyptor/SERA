@@ -5,7 +5,7 @@ import * as express from 'express';
 const requiredEnvVars = [
   'AUTH_SECRET',
   'ANTHROPIC_API_KEY',
-  'ANTHROPIC_MODEL',
+  'PRIMARY_MODEL',
   'CORS_ORIGIN',
   'AUTHENTIK_ISSUER',
   'AUTHENTIK_CLIENT_ID',

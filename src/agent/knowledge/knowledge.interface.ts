@@ -60,9 +60,9 @@ export interface ContextItem {
    */
   content: string;
   /**
-   * Type of context (e.g., 'document', 'state', 'readable')
+   * Type of context
    */
-  type: 'document' | 'state' | 'readable' | 'custom';
+  type: 'document' | 'state' | 'custom';
   /**
    * Priority for inclusion in context window (higher = more important)
    */
@@ -71,16 +71,6 @@ export interface ContextItem {
    * Optional metadata
    */
   metadata?: Record<string, unknown>;
-}
-
-/**
- * Readable state from frontend (useCopilotReadable)
- */
-export interface ReadableContext {
-  id: string;
-  description: string;
-  value: unknown;
-  categories?: string[];
 }
 
 export interface KnowledgeProvider {

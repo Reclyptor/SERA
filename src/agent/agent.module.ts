@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { CopilotKitController } from './copilotkit.controller';
-import { CopilotKitService } from './copilotkit.service';
+import { AgentController } from './agent.controller';
+import { AgentService } from './agent.service';
 import { ImageStorage } from './storage/image.storage';
+import { ModelModule } from './model/model.module';
 import { ToolsModule } from './tools/tools.module';
 import { ActionsModule } from './actions/actions.module';
 import { StateModule } from './state/state.module';
@@ -11,6 +12,7 @@ import { PromptsModule } from '../prompts/prompts.module';
 
 @Module({
   imports: [
+    ModelModule,
     ToolsModule,
     ActionsModule,
     StateModule,
@@ -18,11 +20,12 @@ import { PromptsModule } from '../prompts/prompts.module';
     MemoryModule,
     PromptsModule,
   ],
-  controllers: [CopilotKitController],
-  providers: [CopilotKitService, ImageStorage],
+  controllers: [AgentController],
+  providers: [AgentService, ImageStorage],
   exports: [
-    CopilotKitService,
+    AgentService,
     ImageStorage,
+    ModelModule,
     ToolsModule,
     ActionsModule,
     StateModule,
@@ -30,4 +33,4 @@ import { PromptsModule } from '../prompts/prompts.module';
     MemoryModule,
   ],
 })
-export class CopilotKitModule {}
+export class AgentModule {}

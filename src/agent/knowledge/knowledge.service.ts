@@ -6,7 +6,6 @@ import {
   KnowledgeProvider,
   KnowledgeQuery,
   KnowledgeResult,
-  ReadableContext,
 } from './knowledge.interface';
 
 @Injectable()
@@ -15,23 +14,9 @@ export class KnowledgeService {
 
   constructor(private readonly registry: KnowledgeRegistry) {}
 
-  // Provider management
-
   registerProvider(provider: KnowledgeProvider): void {
     this.registry.registerProvider(provider);
   }
-
-  // Readable context (from frontend)
-
-  syncReadables(readables: ReadableContext[]): void {
-    this.registry.syncReadables(readables);
-  }
-
-  getAllReadables(): ReadableContext[] {
-    return this.registry.getAllReadables();
-  }
-
-  // Knowledge search
 
   /**
    * Search across all registered knowledge providers
@@ -44,7 +29,7 @@ export class KnowledgeService {
     }
 
     const results: KnowledgeResult[] = [];
-    
+
     await Promise.all(
       providers.map(async (provider) => {
         try {
@@ -59,7 +44,6 @@ export class KnowledgeService {
       }),
     );
 
-    // Sort by score descending and limit
     results.sort((a, b) => b.score - a.score);
     return query.limit ? results.slice(0, query.limit) : results;
   }
@@ -88,8 +72,6 @@ export class KnowledgeService {
     }
   }
 
-  // Document management
-
   /**
    * Add a document to a specific provider
    */
@@ -113,44 +95,18 @@ export class KnowledgeService {
     }
   }
 
-  // Context building
-
   /**
-   * Build context for LLM from readables and knowledge search
+   * Build context for LLM from knowledge search
    */
   async buildContext(
     query: string,
     options?: {
-      includeReadables?: boolean;
       maxKnowledgeResults?: number;
-      categories?: string[];
     },
   ): Promise<ContextItem[]> {
     const context: ContextItem[] = [];
-    const {
-      includeReadables = true,
-      maxKnowledgeResults = 5,
-      categories,
-    } = options ?? {};
+    const { maxKnowledgeResults = 5 } = options ?? {};
 
-    // Add readable contexts
-    if (includeReadables) {
-      const readables = categories
-        ? categories.flatMap((c) => this.registry.getReadablesByCategory(c))
-        : this.registry.getAllReadables();
-
-      for (const readable of readables) {
-        context.push({
-          id: readable.id,
-          content: `${readable.description}: ${JSON.stringify(readable.value)}`,
-          type: 'readable',
-          priority: 100,
-          metadata: { categories: readable.categories },
-        });
-      }
-    }
-
-    // Search knowledge base
     if (query && maxKnowledgeResults > 0) {
       const results = await this.search({
         query,
@@ -172,9 +128,7 @@ export class KnowledgeService {
       }
     }
 
-    // Sort by priority
     context.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-
     return context;
   }
 
@@ -188,19 +142,19 @@ export class KnowledgeService {
 
     const sections: string[] = [];
 
-    const readables = context.filter((c) => c.type === 'readable');
-    if (readables.length > 0) {
-      sections.push(
-        '## Current Application State\n' +
-          readables.map((r) => r.content).join('\n'),
-      );
-    }
-
     const documents = context.filter((c) => c.type === 'document');
     if (documents.length > 0) {
       sections.push(
         '## Relevant Knowledge\n' +
           documents.map((d) => d.content).join('\n\n---\n\n'),
+      );
+    }
+
+    const stateItems = context.filter((c) => c.type === 'state');
+    if (stateItems.length > 0) {
+      sections.push(
+        '## Current State\n' +
+          stateItems.map((s) => s.content).join('\n'),
       );
     }
 
