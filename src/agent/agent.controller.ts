@@ -1,25 +1,137 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
+  Body,
+  Req,
+  Sse,
   BadRequestException,
   UploadedFile,
   UseInterceptors,
   Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Observable, map } from 'rxjs';
+import type { Request } from 'express';
+import type { CoreMessage } from 'ai';
+import { OrchestratorService } from './orchestration/orchestrator.service';
+import { AgentEventEmitter } from './streaming/agent-event-emitter';
+import { StateService } from './state/state.service';
 import { ImageStorage } from './storage/image.storage';
 import type { UploadImageResponseDto } from './upload-image.dto';
+import type { SessionUser } from '../auth/session.strategy';
+import type { OrchestratorConfig } from './orchestration/orchestration.interfaces';
+
+interface ChatRequestBody {
+  message: string;
+  threadId?: string;
+  conversationHistory?: CoreMessage[];
+  config?: Partial<OrchestratorConfig>;
+}
+
+interface ChatResponse {
+  runId: string;
+  threadId: string;
+}
 
 @Controller('agent')
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
 
   constructor(
+    private readonly orchestrator: OrchestratorService,
+    private readonly eventEmitter: AgentEventEmitter,
+    private readonly stateService: StateService,
     private readonly imageStorage: ImageStorage,
   ) {}
 
-  // Chat, streaming, and confirmation endpoints will be added
-  // in Phase 3 (Orchestration) and Phase 4 (Streaming).
+  /**
+   * Start an agent run. Returns immediately with runId/threadId.
+   * The client subscribes to /agent/stream/:runId for events.
+   */
+  @Post('chat')
+  async chat(
+    @Req() req: Request,
+    @Body() body: ChatRequestBody,
+  ): Promise<ChatResponse> {
+    const user = (req as Request & { user?: SessionUser }).user;
+    const userId = user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authentication required');
+    }
+
+    if (!body.message?.trim()) {
+      throw new BadRequestException('Message is required');
+    }
+
+    const threadId = body.threadId ?? crypto.randomUUID();
+    const runId = crypto.randomUUID();
+
+    // Start the orchestrator asynchronously — don't await
+    this.orchestrator
+      .executeGoal(
+        {
+          threadId,
+          runId,
+          userId,
+          userMessage: body.message,
+          conversationHistory: body.conversationHistory ?? [],
+        },
+        body.config,
+      )
+      .catch((error) => {
+        this.logger.error(`Unhandled error in run ${runId}:`, error);
+      });
+
+    return { runId, threadId };
+  }
+
+  /**
+   * SSE stream for a run. The client connects here after POST /chat.
+   */
+  @Sse('stream/:runId')
+  streamRun(
+    @Param('runId') runId: string,
+  ): Observable<MessageEvent> {
+    return this.eventEmitter.getStream(runId).pipe(
+      map((event) => ({
+        data: JSON.stringify(event),
+      } as MessageEvent)),
+    );
+  }
+
+  /**
+   * Cancel a running execution.
+   */
+  @Post('cancel/:runId')
+  cancel(@Param('runId') runId: string): { cancelled: boolean } {
+    const cancelled = this.orchestrator.cancelRun(runId);
+    return { cancelled };
+  }
+
+  /**
+   * Resolve a pending confirmation.
+   */
+  @Post('confirm/:threadId/:confirmationId')
+  async confirm(
+    @Param('threadId') threadId: string,
+    @Param('confirmationId') confirmationId: string,
+  ): Promise<{ resolved: boolean }> {
+    const resolved = await this.stateService.resolvePendingConfirmation(
+      threadId,
+      confirmationId,
+    );
+    return { resolved };
+  }
+
+  /**
+   * Get a state snapshot for a thread.
+   */
+  @Get('state/:threadId')
+  async getState(@Param('threadId') threadId: string) {
+    return this.stateService.getSnapshot(threadId);
+  }
 
   @Post('upload-image')
   @UseInterceptors(FileInterceptor('image'))
