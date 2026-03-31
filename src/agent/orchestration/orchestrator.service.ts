@@ -25,6 +25,7 @@ import type {
   PlanStepUpdatedData,
   EvaluationDoneData,
 } from '../streaming/stream.interfaces';
+import { MemoryKnowledgeProvider } from '../knowledge/providers';
 
 @Injectable()
 export class OrchestratorService {
@@ -274,6 +275,13 @@ export class OrchestratorService {
     }
 
     try {
+      // Register a per-user memory provider for this query
+      const memoryProvider = new MemoryKnowledgeProvider(
+        this.memoryService,
+        userId,
+      );
+      this.knowledgeService.registerProvider(memoryProvider);
+
       const knowledgeContext = await this.knowledgeService.buildContext(query);
       if (knowledgeContext.length > 0) {
         parts.push(this.knowledgeService.formatContextForPrompt(knowledgeContext));

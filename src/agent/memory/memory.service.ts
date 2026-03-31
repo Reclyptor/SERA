@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { Memory, MemoryDocument } from './memory.schema';
@@ -20,12 +21,17 @@ export interface AddMemoryOptions {
   tags?: string[];
 }
 
+const COLLECTION_NAME = 'memories';
+
 @Injectable()
 export class MemoryService {
   private readonly logger = new Logger(MemoryService.name);
   private readonly anthropic: Anthropic;
   private readonly openai: OpenAI;
+  private readonly qdrant: QdrantClient;
   private readonly embeddingModel: string;
+  private readonly embeddingDimension: number;
+  private initialized = false;
 
   constructor(
     @InjectModel(Memory.name) private memoryModel: Model<MemoryDocument>,
@@ -33,47 +39,67 @@ export class MemoryService {
   ) {
     this.anthropic = new Anthropic();
     this.openai = new OpenAI();
-    this.embeddingModel = this.configService.get<string>('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small');
+    const qdrantApiKey = this.configService.get<string>('QDRANT_API_KEY');
+    this.qdrant = new QdrantClient({
+      url: this.configService.get<string>(
+        'QDRANT_URL',
+        'http://qdrant.qdrant.svc.cluster.local:6333',
+      ),
+      ...(qdrantApiKey && { apiKey: qdrantApiKey }),
+    });
+    this.embeddingModel = this.configService.get<string>(
+      'OPENAI_EMBEDDING_MODEL',
+      'text-embedding-3-small',
+    );
+    this.embeddingDimension =
+      this.embeddingModel === 'text-embedding-3-large' ? 3072 : 1536;
   }
 
-  /**
-   * Generate embedding for text using OpenAI's embedding API
-   */
+  private async ensureCollection(): Promise<void> {
+    if (this.initialized) return;
+
+    const collections = await this.qdrant.getCollections();
+    const exists = collections.collections.some(
+      (c) => c.name === COLLECTION_NAME,
+    );
+
+    if (!exists) {
+      await this.qdrant.createCollection(COLLECTION_NAME, {
+        vectors: {
+          size: this.embeddingDimension,
+          distance: 'Cosine',
+        },
+      });
+
+      // Create payload index for userId filtering
+      await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
+        field_name: 'userId',
+        field_schema: 'keyword',
+      });
+    }
+
+    this.initialized = true;
+  }
+
   private async generateEmbedding(text: string): Promise<number[]> {
     const response = await this.openai.embeddings.create({
       model: this.embeddingModel,
       input: text,
     });
-
     return response.data[0].embedding;
-  }
-
-  /**
-   * Calculate cosine similarity between two vectors
-   */
-  private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0;
-    
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    
-    const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
-    return magnitude === 0 ? 0 : dotProduct / magnitude;
   }
 
   /**
    * Add a memory for a user
    */
-  async add(userId: string, content: string, options: AddMemoryOptions = {}): Promise<MemoryEntry> {
+  async add(
+    userId: string,
+    content: string,
+    options: AddMemoryOptions = {},
+  ): Promise<MemoryEntry> {
     const embedding = await this.generateEmbedding(content);
-    
+
+    // Persist to MongoDB (source of truth)
     const memory = await this.memoryModel.create({
       userId,
       content,
@@ -82,10 +108,34 @@ export class MemoryService {
       tags: options.tags ?? [],
     });
 
-    this.logger.debug(`Added memory for user ${userId}: ${content.slice(0, 50)}...`);
+    const memoryId = memory._id.toString();
+
+    // Index in Qdrant for vector search
+    await this.ensureCollection();
+    await this.qdrant.upsert(COLLECTION_NAME, {
+      wait: true,
+      points: [
+        {
+          id: memoryId,
+          vector: embedding,
+          payload: {
+            userId,
+            content,
+            tags: options.tags ?? [],
+            metadata: options.metadata ?? {},
+            mongoId: memoryId,
+            createdAt: memory.createdAt.toISOString(),
+          },
+        },
+      ],
+    });
+
+    this.logger.debug(
+      `Added memory for user ${userId}: ${content.slice(0, 50)}...`,
+    );
 
     return {
-      id: memory._id.toString(),
+      id: memoryId,
       content: memory.content,
       metadata: memory.metadata as Record<string, unknown>,
       tags: memory.tags,
@@ -94,39 +144,50 @@ export class MemoryService {
   }
 
   /**
-   * Search memories by semantic similarity
+   * Search memories by semantic similarity via Qdrant
    */
-  async search(userId: string, query: string, limit: number = 5, threshold: number = 0.7): Promise<MemoryEntry[]> {
-    const queryEmbedding = await this.generateEmbedding(query);
-    
-    // Fetch all memories for user (in production, use MongoDB Atlas vector search)
-    const memories = await this.memoryModel.find({ userId }).exec();
-    
-    // Calculate similarities and filter
-    const results = memories
-      .map((memory) => ({
-        memory,
-        score: this.cosineSimilarity(queryEmbedding, memory.embedding),
-      }))
-      .filter((result) => result.score >= threshold)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+  async search(
+    userId: string,
+    query: string,
+    limit: number = 5,
+    threshold: number = 0.7,
+  ): Promise<MemoryEntry[]> {
+    await this.ensureCollection();
 
-    // Update access counts
-    const memoryIds = results.map((r) => r.memory._id);
+    const queryEmbedding = await this.generateEmbedding(query);
+
+    const results = await this.qdrant.search(COLLECTION_NAME, {
+      vector: queryEmbedding,
+      limit,
+      score_threshold: threshold,
+      filter: {
+        must: [{ key: 'userId', match: { value: userId } }],
+      },
+      with_payload: true,
+    });
+
+    if (results.length === 0) return [];
+
+    // Update access counts in MongoDB
+    const mongoIds = results.map(
+      (r) => (r.payload as Record<string, unknown>).mongoId as string,
+    );
     await this.memoryModel.updateMany(
-      { _id: { $in: memoryIds } },
+      { _id: { $in: mongoIds } },
       { $inc: { accessCount: 1 }, $set: { lastAccessedAt: new Date() } },
     );
 
-    return results.map((result) => ({
-      id: result.memory._id.toString(),
-      content: result.memory.content,
-      metadata: result.memory.metadata as Record<string, unknown>,
-      tags: result.memory.tags,
-      createdAt: result.memory.createdAt,
-      score: result.score,
-    }));
+    return results.map((hit) => {
+      const payload = hit.payload as Record<string, unknown>;
+      return {
+        id: payload.mongoId as string,
+        content: payload.content as string,
+        metadata: (payload.metadata as Record<string, unknown>) ?? {},
+        tags: (payload.tags as string[]) ?? [],
+        createdAt: new Date(payload.createdAt as string),
+        score: hit.score,
+      };
+    });
   }
 
   /**
@@ -168,16 +229,42 @@ export class MemoryService {
   /**
    * Update a memory
    */
-  async update(userId: string, memoryId: string, content: string): Promise<MemoryEntry | null> {
+  async update(
+    userId: string,
+    memoryId: string,
+    content: string,
+  ): Promise<MemoryEntry | null> {
     const embedding = await this.generateEmbedding(content);
-    
-    const memory = await this.memoryModel.findOneAndUpdate(
-      { _id: memoryId, userId },
-      { content, embedding },
-      { new: true },
-    ).exec();
+
+    const memory = await this.memoryModel
+      .findOneAndUpdate(
+        { _id: memoryId, userId },
+        { content, embedding },
+        { new: true },
+      )
+      .exec();
 
     if (!memory) return null;
+
+    // Update Qdrant vector
+    await this.ensureCollection();
+    await this.qdrant.upsert(COLLECTION_NAME, {
+      wait: true,
+      points: [
+        {
+          id: memoryId,
+          vector: embedding,
+          payload: {
+            userId,
+            content,
+            tags: memory.tags,
+            metadata: memory.metadata,
+            mongoId: memoryId,
+            createdAt: memory.createdAt.toISOString(),
+          },
+        },
+      ],
+    });
 
     return {
       id: memory._id.toString(),
@@ -192,8 +279,20 @@ export class MemoryService {
    * Delete a memory
    */
   async delete(userId: string, memoryId: string): Promise<boolean> {
-    const result = await this.memoryModel.deleteOne({ _id: memoryId, userId }).exec();
-    return result.deletedCount > 0;
+    const result = await this.memoryModel
+      .deleteOne({ _id: memoryId, userId })
+      .exec();
+
+    if (result.deletedCount > 0) {
+      await this.ensureCollection();
+      await this.qdrant.delete(COLLECTION_NAME, {
+        wait: true,
+        points: [memoryId],
+      });
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -201,13 +300,27 @@ export class MemoryService {
    */
   async deleteAll(userId: string): Promise<number> {
     const result = await this.memoryModel.deleteMany({ userId }).exec();
+
+    if (result.deletedCount > 0) {
+      await this.ensureCollection();
+      await this.qdrant.delete(COLLECTION_NAME, {
+        wait: true,
+        filter: {
+          must: [{ key: 'userId', match: { value: userId } }],
+        },
+      });
+    }
+
     return result.deletedCount;
   }
 
   /**
    * Extract facts from a conversation and store as memories
    */
-  async extractAndStore(userId: string, conversation: string): Promise<MemoryEntry[]> {
+  async extractAndStore(
+    userId: string,
+    conversation: string,
+  ): Promise<MemoryEntry[]> {
     const response = await this.anthropic.messages.create({
       model: 'claude-3-5-haiku-latest',
       max_tokens: 1024,
@@ -247,7 +360,9 @@ Return only the JSON array, nothing else:`,
         }
       }
 
-      this.logger.log(`Extracted ${memories.length} memories for user ${userId}`);
+      this.logger.log(
+        `Extracted ${memories.length} memories for user ${userId}`,
+      );
       return memories;
     } catch {
       this.logger.warn('Failed to parse extracted facts');
@@ -260,7 +375,7 @@ Return only the JSON array, nothing else:`,
    */
   async getContextForQuery(userId: string, query: string): Promise<string> {
     const memories = await this.search(userId, query, 5, 0.6);
-    
+
     if (memories.length === 0) return '';
 
     const memoryLines = memories.map((m) => `- ${m.content}`).join('\n');
