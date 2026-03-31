@@ -8,6 +8,7 @@ import { StateModule } from '../state/state.module';
 import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { PromptsModule } from '../../prompts/prompts.module';
+import { TemporalModule } from '../temporal/temporal.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PromptsModule } from '../../prompts/prompts.module';
     MemoryModule,
     KnowledgeModule,
     PromptsModule,
+    TemporalModule,
   ],
   providers: [OrchestratorService],
   exports: [OrchestratorService, StreamingModule],

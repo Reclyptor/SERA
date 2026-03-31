@@ -65,7 +65,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new EvaluateProgressTool(this.planStore));
 
     this.logger.log(
-      `Registered ${8} core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 8 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 }
