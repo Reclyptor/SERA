@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import * as express from 'express';
 
 const requiredEnvVars = [
   'AUTH_SECRET',
@@ -24,14 +24,16 @@ function validateEnv(): void {
 async function bootstrap() {
   validateEnv();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
   app.setGlobalPrefix('api/v1', {
     exclude: ['health'],
   });
 
   // Increase body size limit for image uploads (50MB)
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.useBodyParser('json', { limit: '50mb' });
+  app.useBodyParser('urlencoded', { limit: '50mb', extended: true });
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN,
