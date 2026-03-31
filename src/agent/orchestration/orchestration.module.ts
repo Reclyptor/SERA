@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { OrchestratorService } from './orchestrator.service';
-import { AgentEventEmitter } from '../streaming/agent-event-emitter';
+import { StreamingModule } from '../streaming/streaming.module';
 import { ModelModule } from '../model/model.module';
 import { ToolsModule } from '../tools/tools.module';
 import { ActionsModule } from '../actions/actions.module';
@@ -11,6 +11,7 @@ import { PromptsModule } from '../../prompts/prompts.module';
 
 @Module({
   imports: [
+    forwardRef(() => StreamingModule),
     ModelModule,
     ToolsModule,
     ActionsModule,
@@ -19,7 +20,7 @@ import { PromptsModule } from '../../prompts/prompts.module';
     KnowledgeModule,
     PromptsModule,
   ],
-  providers: [OrchestratorService, AgentEventEmitter],
-  exports: [OrchestratorService, AgentEventEmitter],
+  providers: [OrchestratorService],
+  exports: [OrchestratorService, StreamingModule],
 })
 export class OrchestrationModule {}
