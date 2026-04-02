@@ -42,6 +42,7 @@ WORKDIR /app
 
 # Set to production
 ENV NODE_ENV=production
+ENV PORT=3001
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
@@ -56,11 +57,11 @@ COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
 USER nestjs
 
 # Expose application port
-EXPOSE 3000
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
 # Start the application
 CMD ["node", "dist/main"]
