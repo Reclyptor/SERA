@@ -41,9 +41,21 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
       'default',
     );
 
-    this.connection = await Connection.connect({ address });
-    this.client = new Client({ connection: this.connection, namespace });
-    this.logger.log(`Connected to Temporal at ${address} (ns: ${namespace})`);
+    try {
+      this.connection = await Connection.connect({ address });
+      this.client = new Client({ connection: this.connection, namespace });
+      this.logger.log(`Connected to Temporal at ${address} (ns: ${namespace})`);
+    } catch (error) {
+      this.logger.warn(
+        `Temporal unavailable at ${address} — workflow features disabled: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  private ensureConnected(): void {
+    if (!this.client) {
+      throw new Error('Temporal is not connected');
+    }
   }
 
   async onModuleDestroy() {
@@ -56,6 +68,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
     input: OrganizeLibraryInput,
     workflowId?: string,
   ): Promise<{ workflowId: string; runId: string }> {
+    this.ensureConnected();
     const id = workflowId ?? `organize-${Date.now()}`;
 
     try {
@@ -81,6 +94,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   async getOrganizeProgress(
     workflowId: string,
   ): Promise<OrganizeLibraryProgress> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     return handle.query<OrganizeLibraryProgress>('getProgress');
   }
@@ -88,11 +102,13 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   async getOrganizeResult(
     workflowId: string,
   ): Promise<OrganizeLibraryResult> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     return handle.result();
   }
 
   async getStagingTree(workflowId: string): Promise<FileTreeNode[]> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     return handle.query<FileTreeNode[]>('getStagingTree');
   }
@@ -101,6 +117,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
     workflowId: string,
     decision: FinalizeDecision,
   ): Promise<void> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     await handle.signal('finalize', decision);
     this.logger.log(
@@ -114,6 +131,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
     workflowId: string,
     decision: ReviewDecision,
   ): Promise<void> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     await handle.signal('reviewDecision', decision);
     this.logger.debug(
@@ -125,6 +143,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
     workflowId: string,
     confirmation: DetectionConfirmation,
   ): Promise<void> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     await handle.signal('detectionConfirmation', confirmation);
     this.logger.debug(
@@ -135,6 +154,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   // ── Workflow: listSeriesRoots ──
 
   async listSeriesRoots(): Promise<Array<{ name: string; path: string }>> {
+    this.ensureConnected();
     const id = `list-roots-${Date.now()}`;
     const handle = await this.client.workflow.start(
       'listSeriesRootsWorkflow',
@@ -151,6 +171,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   // ── Generic utilities ──
 
   async cancelWorkflow(workflowId: string): Promise<void> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     await handle.cancel();
     this.logger.log(`Cancelled workflow: ${workflowId}`);
@@ -159,6 +180,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   async getWorkflowStatus(
     workflowId: string,
   ): Promise<{ status: string; runId: string }> {
+    this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     const desc = await handle.describe();
     return {
@@ -168,6 +190,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   }
 
   getHandle(workflowId: string): WorkflowHandle {
+    this.ensureConnected();
     return this.client.workflow.getHandle(workflowId);
   }
 }
