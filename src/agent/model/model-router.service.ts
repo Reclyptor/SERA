@@ -52,7 +52,7 @@ export class ModelRouterService {
         id: 'anthropic',
         priority: 1,
         factory: (modelId) => anthropic(modelId),
-        defaultModel: 'claude-sonnet-4-5-20250514',
+        defaultModel: 'claude-sonnet-4-6',
       });
     }
 
