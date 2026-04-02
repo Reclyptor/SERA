@@ -1,11 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { Memory, MemoryDocument } from './memory.schema';
 
 export interface MemoryEntry {
   id: string;
@@ -21,6 +18,18 @@ export interface AddMemoryOptions {
   tags?: string[];
 }
 
+interface MemoryPayload {
+  [key: string]: unknown;
+  userId: string;
+  content: string;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  accessCount: number;
+  lastAccessedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const COLLECTION_NAME = 'memories';
 
 @Injectable()
@@ -32,11 +41,9 @@ export class MemoryService {
   private readonly embeddingModel: string;
   private readonly embeddingDimension: number;
   private initialized = false;
+  private qdrantAvailable = true;
 
-  constructor(
-    @InjectModel(Memory.name) private memoryModel: Model<MemoryDocument>,
-    private readonly configService: ConfigService,
-  ) {
+  constructor(private readonly configService: ConfigService) {
     this.anthropic = new Anthropic();
     this.openai = new OpenAI();
     const qdrantApiKey = this.configService.get<string>('QDRANT_API_KEY');
@@ -46,6 +53,7 @@ export class MemoryService {
         'http://qdrant.qdrant.svc.cluster.local:6333',
       ),
       ...(qdrantApiKey && { apiKey: qdrantApiKey }),
+      checkCompatibility: false,
     });
     this.embeddingModel = this.configService.get<string>(
       'OPENAI_EMBEDDING_MODEL',
@@ -55,30 +63,44 @@ export class MemoryService {
       this.embeddingModel === 'text-embedding-3-large' ? 3072 : 1536;
   }
 
-  private async ensureCollection(): Promise<void> {
-    if (this.initialized) return;
+  private async ensureCollection(): Promise<boolean> {
+    if (!this.qdrantAvailable) return false;
+    if (this.initialized) return true;
 
-    const collections = await this.qdrant.getCollections();
-    const exists = collections.collections.some(
-      (c) => c.name === COLLECTION_NAME,
-    );
+    try {
+      const collections = await this.qdrant.getCollections();
+      const exists = collections.collections.some(
+        (c) => c.name === COLLECTION_NAME,
+      );
 
-    if (!exists) {
-      await this.qdrant.createCollection(COLLECTION_NAME, {
-        vectors: {
-          size: this.embeddingDimension,
-          distance: 'Cosine',
-        },
-      });
+      if (!exists) {
+        await this.qdrant.createCollection(COLLECTION_NAME, {
+          vectors: {
+            size: this.embeddingDimension,
+            distance: 'Cosine',
+          },
+        });
 
-      // Create payload index for userId filtering
-      await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
-        field_name: 'userId',
-        field_schema: 'keyword',
-      });
+        await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
+          field_name: 'userId',
+          field_schema: 'keyword',
+        });
+        await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
+          field_name: 'tags',
+          field_schema: 'keyword',
+        });
+      }
+
+      this.initialized = true;
+      return true;
+    } catch (error) {
+      this.qdrantAvailable = false;
+      this.logger.warn(
+        'Qdrant unavailable — memory features disabled.',
+        error instanceof Error ? error.message : error,
+      );
+      return false;
     }
-
-    this.initialized = true;
   }
 
   private async generateEmbedding(text: string): Promise<number[]> {
@@ -89,70 +111,60 @@ export class MemoryService {
     return response.data[0].embedding;
   }
 
-  /**
-   * Add a memory for a user
-   */
+  private toEntry(id: string, payload: MemoryPayload, score?: number): MemoryEntry {
+    return {
+      id,
+      content: payload.content,
+      metadata: payload.metadata ?? {},
+      tags: payload.tags ?? [],
+      createdAt: new Date(payload.createdAt),
+      ...(score !== undefined && { score }),
+    };
+  }
+
   async add(
     userId: string,
     content: string,
     options: AddMemoryOptions = {},
   ): Promise<MemoryEntry> {
-    const embedding = await this.generateEmbedding(content);
+    if (!(await this.ensureCollection())) {
+      throw new Error('Qdrant unavailable — cannot store memories');
+    }
 
-    // Persist to MongoDB (source of truth)
-    const memory = await this.memoryModel.create({
+    const embedding = await this.generateEmbedding(content);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const payload: MemoryPayload = {
       userId,
       content,
-      embedding,
-      metadata: options.metadata ?? {},
       tags: options.tags ?? [],
-    });
+      metadata: options.metadata ?? {},
+      accessCount: 0,
+      lastAccessedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-    const memoryId = memory._id.toString();
-
-    // Index in Qdrant for vector search
-    await this.ensureCollection();
     await this.qdrant.upsert(COLLECTION_NAME, {
       wait: true,
-      points: [
-        {
-          id: memoryId,
-          vector: embedding,
-          payload: {
-            userId,
-            content,
-            tags: options.tags ?? [],
-            metadata: options.metadata ?? {},
-            mongoId: memoryId,
-            createdAt: memory.createdAt.toISOString(),
-          },
-        },
-      ],
+      points: [{ id, vector: embedding, payload }],
     });
 
     this.logger.debug(
       `Added memory for user ${userId}: ${content.slice(0, 50)}...`,
     );
 
-    return {
-      id: memoryId,
-      content: memory.content,
-      metadata: memory.metadata as Record<string, unknown>,
-      tags: memory.tags,
-      createdAt: memory.createdAt,
-    };
+    return this.toEntry(id, payload);
   }
 
-  /**
-   * Search memories by semantic similarity via Qdrant
-   */
   async search(
     userId: string,
     query: string,
     limit: number = 5,
     threshold: number = 0.7,
   ): Promise<MemoryEntry[]> {
-    await this.ensureCollection();
+    if (!(await this.ensureCollection())) return [];
 
     const queryEmbedding = await this.generateEmbedding(query);
 
@@ -168,155 +180,168 @@ export class MemoryService {
 
     if (results.length === 0) return [];
 
-    // Update access counts in MongoDB
-    const mongoIds = results.map(
-      (r) => (r.payload as Record<string, unknown>).mongoId as string,
-    );
-    await this.memoryModel.updateMany(
-      { _id: { $in: mongoIds } },
-      { $inc: { accessCount: 1 }, $set: { lastAccessedAt: new Date() } },
-    );
+    // Update access tracking in the background
+    const now = new Date().toISOString();
+    for (const hit of results) {
+      const p = hit.payload as MemoryPayload;
+      this.qdrant
+        .setPayload(COLLECTION_NAME, {
+          payload: {
+            accessCount: (p.accessCount ?? 0) + 1,
+            lastAccessedAt: now,
+          },
+          points: [hit.id],
+        })
+        .catch(() => {});
+    }
 
-    return results.map((hit) => {
-      const payload = hit.payload as Record<string, unknown>;
-      return {
-        id: payload.mongoId as string,
-        content: payload.content as string,
-        metadata: (payload.metadata as Record<string, unknown>) ?? {},
-        tags: (payload.tags as string[]) ?? [],
-        createdAt: new Date(payload.createdAt as string),
-        score: hit.score,
-      };
-    });
+    return results.map((hit) =>
+      this.toEntry(String(hit.id), hit.payload as MemoryPayload, hit.score),
+    );
   }
 
-  /**
-   * Get all memories for a user
-   */
   async getAll(userId: string): Promise<MemoryEntry[]> {
-    const memories = await this.memoryModel
-      .find({ userId })
-      .sort({ createdAt: -1 })
-      .exec();
+    if (!(await this.ensureCollection())) return [];
 
-    return memories.map((memory) => ({
-      id: memory._id.toString(),
-      content: memory.content,
-      metadata: memory.metadata as Record<string, unknown>,
-      tags: memory.tags,
-      createdAt: memory.createdAt,
-    }));
+    const entries: MemoryEntry[] = [];
+    let offset: string | number | Record<string, unknown> | undefined = undefined;
+
+    // Paginate through all user memories via scroll
+    while (true) {
+      const page = await this.qdrant.scroll(COLLECTION_NAME, {
+        filter: {
+          must: [{ key: 'userId', match: { value: userId } }],
+        },
+        with_payload: true,
+        limit: 100,
+        offset,
+      });
+
+      for (const point of page.points) {
+        entries.push(
+          this.toEntry(String(point.id), point.payload as MemoryPayload),
+        );
+      }
+
+      if (!page.next_page_offset) break;
+      offset = page.next_page_offset;
+    }
+
+    return entries.sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
   }
 
-  /**
-   * Get memories by tags
-   */
   async getByTags(userId: string, tags: string[]): Promise<MemoryEntry[]> {
-    const memories = await this.memoryModel
-      .find({ userId, tags: { $in: tags } })
-      .sort({ createdAt: -1 })
-      .exec();
+    if (!(await this.ensureCollection())) return [];
 
-    return memories.map((memory) => ({
-      id: memory._id.toString(),
-      content: memory.content,
-      metadata: memory.metadata as Record<string, unknown>,
-      tags: memory.tags,
-      createdAt: memory.createdAt,
-    }));
+    const entries: MemoryEntry[] = [];
+    let offset: string | number | Record<string, unknown> | undefined = undefined;
+
+    while (true) {
+      const page = await this.qdrant.scroll(COLLECTION_NAME, {
+        filter: {
+          must: [
+            { key: 'userId', match: { value: userId } },
+            ...tags.map((tag) => ({ key: 'tags', match: { value: tag } })),
+          ],
+        },
+        with_payload: true,
+        limit: 100,
+        offset,
+      });
+
+      for (const point of page.points) {
+        entries.push(
+          this.toEntry(String(point.id), point.payload as MemoryPayload),
+        );
+      }
+
+      if (!page.next_page_offset) break;
+      offset = page.next_page_offset;
+    }
+
+    return entries.sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
   }
 
-  /**
-   * Update a memory
-   */
   async update(
     userId: string,
     memoryId: string,
     content: string,
   ): Promise<MemoryEntry | null> {
-    const embedding = await this.generateEmbedding(content);
+    if (!(await this.ensureCollection())) return null;
 
-    const memory = await this.memoryModel
-      .findOneAndUpdate(
-        { _id: memoryId, userId },
-        { content, embedding },
-        { new: true },
-      )
-      .exec();
-
-    if (!memory) return null;
-
-    // Update Qdrant vector
-    await this.ensureCollection();
-    await this.qdrant.upsert(COLLECTION_NAME, {
-      wait: true,
-      points: [
-        {
-          id: memoryId,
-          vector: embedding,
-          payload: {
-            userId,
-            content,
-            tags: memory.tags,
-            metadata: memory.metadata,
-            mongoId: memoryId,
-            createdAt: memory.createdAt.toISOString(),
-          },
-        },
-      ],
+    // Fetch existing point to preserve payload fields
+    const existing = await this.qdrant.retrieve(COLLECTION_NAME, {
+      ids: [memoryId],
+      with_payload: true,
     });
 
-    return {
-      id: memory._id.toString(),
-      content: memory.content,
-      metadata: memory.metadata as Record<string, unknown>,
-      tags: memory.tags,
-      createdAt: memory.createdAt,
+    if (existing.length === 0) return null;
+
+    const oldPayload = existing[0].payload as MemoryPayload;
+    if (oldPayload.userId !== userId) return null;
+
+    const embedding = await this.generateEmbedding(content);
+    const payload: MemoryPayload = {
+      ...oldPayload,
+      content,
+      updatedAt: new Date().toISOString(),
     };
+
+    await this.qdrant.upsert(COLLECTION_NAME, {
+      wait: true,
+      points: [{ id: memoryId, vector: embedding, payload }],
+    });
+
+    return this.toEntry(memoryId, payload);
   }
 
-  /**
-   * Delete a memory
-   */
   async delete(userId: string, memoryId: string): Promise<boolean> {
-    const result = await this.memoryModel
-      .deleteOne({ _id: memoryId, userId })
-      .exec();
+    if (!(await this.ensureCollection())) return false;
 
-    if (result.deletedCount > 0) {
-      await this.ensureCollection();
-      await this.qdrant.delete(COLLECTION_NAME, {
-        wait: true,
-        points: [memoryId],
-      });
-      return true;
-    }
+    // Verify ownership before deleting
+    const existing = await this.qdrant.retrieve(COLLECTION_NAME, {
+      ids: [memoryId],
+      with_payload: true,
+    });
 
-    return false;
+    if (existing.length === 0) return false;
+    if ((existing[0].payload as MemoryPayload).userId !== userId) return false;
+
+    await this.qdrant.delete(COLLECTION_NAME, {
+      wait: true,
+      points: [memoryId],
+    });
+
+    return true;
   }
 
-  /**
-   * Delete all memories for a user
-   */
   async deleteAll(userId: string): Promise<number> {
-    const result = await this.memoryModel.deleteMany({ userId }).exec();
+    if (!(await this.ensureCollection())) return 0;
 
-    if (result.deletedCount > 0) {
-      await this.ensureCollection();
-      await this.qdrant.delete(COLLECTION_NAME, {
-        wait: true,
-        filter: {
-          must: [{ key: 'userId', match: { value: userId } }],
-        },
-      });
-    }
+    // Count before deleting
+    const count = await this.qdrant.count(COLLECTION_NAME, {
+      filter: {
+        must: [{ key: 'userId', match: { value: userId } }],
+      },
+      exact: true,
+    });
 
-    return result.deletedCount;
+    if (count.count === 0) return 0;
+
+    await this.qdrant.delete(COLLECTION_NAME, {
+      wait: true,
+      filter: {
+        must: [{ key: 'userId', match: { value: userId } }],
+      },
+    });
+
+    return count.count;
   }
 
-  /**
-   * Extract facts from a conversation and store as memories
-   */
   async extractAndStore(
     userId: string,
     conversation: string,
@@ -370,9 +395,6 @@ Return only the JSON array, nothing else:`,
     }
   }
 
-  /**
-   * Get relevant memories for a query and format for context injection
-   */
   async getContextForQuery(userId: string, query: string): Promise<string> {
     const memories = await this.search(userId, query, 5, 0.6);
 

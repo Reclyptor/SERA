@@ -35,11 +35,13 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
   private readonly chunkOverlap: number;
   private readonly embeddingDimension: number;
   private initialized = false;
+  private qdrantAvailable = true;
 
   constructor(options?: DocumentKnowledgeProviderOptions) {
     this.qdrant = new QdrantClient({
       url: options?.qdrantUrl ?? 'http://qdrant.qdrant.svc.cluster.local:6333',
       ...(options?.qdrantApiKey && { apiKey: options.qdrantApiKey }),
+      checkCompatibility: false,
     });
     this.openai = new OpenAI();
     this.embeddingModel = options?.embeddingModel ?? 'text-embedding-3-small';
@@ -49,28 +51,35 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
     this.embeddingDimension = options?.embeddingDimension ?? 1536;
   }
 
-  private async ensureCollection(): Promise<void> {
-    if (this.initialized) return;
+  private async ensureCollection(): Promise<boolean> {
+    if (!this.qdrantAvailable) return false;
+    if (this.initialized) return true;
 
-    const collections = await this.qdrant.getCollections();
-    const exists = collections.collections.some(
-      (c) => c.name === COLLECTION_NAME,
-    );
+    try {
+      const collections = await this.qdrant.getCollections();
+      const exists = collections.collections.some(
+        (c) => c.name === COLLECTION_NAME,
+      );
 
-    if (!exists) {
-      await this.qdrant.createCollection(COLLECTION_NAME, {
-        vectors: {
-          size: this.embeddingDimension,
-          distance: 'Cosine',
-        },
-      });
+      if (!exists) {
+        await this.qdrant.createCollection(COLLECTION_NAME, {
+          vectors: {
+            size: this.embeddingDimension,
+            distance: 'Cosine',
+          },
+        });
+      }
+
+      this.initialized = true;
+      return true;
+    } catch {
+      this.qdrantAvailable = false;
+      return false;
     }
-
-    this.initialized = true;
   }
 
   async search(query: KnowledgeQuery): Promise<KnowledgeResult[]> {
-    await this.ensureCollection();
+    if (!(await this.ensureCollection())) return [];
 
     const limit = query.limit ?? 5;
     const minScore = query.minScore ?? 0.7;
@@ -106,7 +115,9 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
   async addDocument(
     doc: Omit<KnowledgeDocument, 'id'>,
   ): Promise<KnowledgeDocument> {
-    await this.ensureCollection();
+    if (!(await this.ensureCollection())) {
+      throw new Error('Qdrant unavailable — cannot index documents');
+    }
 
     const id = crypto.randomUUID();
     const document: KnowledgeDocument = { id, ...doc };
@@ -137,7 +148,7 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
   }
 
   async removeDocument(documentId: string): Promise<boolean> {
-    await this.ensureCollection();
+    if (!(await this.ensureCollection())) return false;
 
     await this.qdrant.delete(COLLECTION_NAME, {
       wait: true,
