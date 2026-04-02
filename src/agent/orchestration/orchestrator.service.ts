@@ -107,6 +107,12 @@ export class OrchestratorService {
       while (!executionComplete && replanCount <= cfg.maxReplans) {
         this.checkAborted(abortController);
 
+        // Ensure messages end with a user message (required by Anthropic)
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.role !== 'user') {
+          messages.push({ role: 'user', content: 'Continue.' });
+        }
+
         // Execute with tools
         const result = await this.modelRouter.generate({
           messages,
