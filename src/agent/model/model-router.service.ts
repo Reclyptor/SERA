@@ -13,6 +13,7 @@ import {
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { ModelRequestOptions, ResolvedModel } from './model.interfaces';
 
 interface ProviderEntry {
@@ -28,6 +29,8 @@ export class ModelRouterService {
   private readonly providers: ProviderEntry[] = [];
   private readonly primaryModel: string;
   private readonly fallbackModels: string[];
+  private readonly thinkingEnabled: boolean;
+  private readonly thinkingBudget: number;
 
   constructor(private readonly configService: ConfigService) {
     this.primaryModel = this.configService.getOrThrow<string>('PRIMARY_MODEL');
@@ -38,9 +41,17 @@ export class ModelRouterService {
       .map((m) => m.trim())
       .filter(Boolean);
 
+    this.thinkingEnabled =
+      this.configService.get<string>('ANTHROPIC_THINKING_ENABLED', 'true') === 'true';
+    this.thinkingBudget = parseInt(
+      this.configService.get<string>('ANTHROPIC_THINKING_BUDGET', '10000'),
+      10,
+    );
+
     this.initializeProviders();
     this.logger.log(
-      `Model router initialized — primary: ${this.primaryModel}, fallbacks: [${this.fallbackModels.join(', ')}]`,
+      `Model router initialized — primary: ${this.primaryModel}, fallbacks: [${this.fallbackModels.join(', ')}]` +
+        (this.thinkingEnabled ? `, thinking: budget ${this.thinkingBudget}` : ''),
     );
   }
 
@@ -175,6 +186,20 @@ export class ModelRouterService {
   }
 
   /**
+   * Build provider-specific options (e.g. Anthropic thinking).
+   */
+  private buildProviderOptions(provider: string): ProviderOptions | undefined {
+    if (provider === 'anthropic' && this.thinkingEnabled) {
+      return {
+        anthropic: {
+          thinking: { type: 'enabled', budgetTokens: this.thinkingBudget },
+        },
+      };
+    }
+    return undefined;
+  }
+
+  /**
    * Check if an error is a rate limit (429) response.
    */
   private isRateLimitError(error: unknown): boolean {
@@ -227,6 +252,7 @@ export class ModelRouterService {
             params.maxOutputTokens ?? params.options?.maxOutputTokens,
           temperature: params.temperature ?? params.options?.temperature,
           abortSignal: params.abortSignal,
+          providerOptions: this.buildProviderOptions(resolved.provider),
         });
 
         return result;
@@ -279,6 +305,7 @@ export class ModelRouterService {
         params.maxOutputTokens ?? params.options?.maxOutputTokens,
       temperature: params.temperature ?? params.options?.temperature,
       abortSignal: params.abortSignal,
+      providerOptions: this.buildProviderOptions(resolved.provider),
       onChunk: params.onChunk,
       onStepFinish: params.onStepFinish,
       onFinish: params.onFinish,

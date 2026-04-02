@@ -21,6 +21,7 @@ import type {
   RunStartedData,
   RunCompletedData,
   RunFailedData,
+  ThinkingDoneData,
   PlanCreatedData,
   PlanStepUpdatedData,
   EvaluationDoneData,
@@ -122,6 +123,13 @@ export class OrchestratorService {
           options: goal.modelOptions,
           abortSignal: abortController.signal,
         });
+
+        // Emit reasoning if the model produced thinking content
+        if (result.reasoningText) {
+          this.emitEvent(runId, threadId, 'thinking.done', {
+            content: result.reasoningText,
+          } satisfies ThinkingDoneData);
+        }
 
         // Track tool calls in state
         for (const step of result.steps) {
