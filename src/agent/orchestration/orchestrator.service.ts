@@ -26,6 +26,7 @@ import type {
   EvaluationDoneData,
 } from '../streaming/stream.interfaces';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
+import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
 
 @Injectable()
 export class OrchestratorService {
@@ -255,14 +256,15 @@ export class OrchestratorService {
     userId: string,
     query: string,
   ): Promise<string> {
-    const parts: string[] = [];
-
+    let basePrompt: string;
     try {
-      const basePrompt = await this.promptsService.get('system');
-      if (basePrompt) parts.push(basePrompt);
-    } catch {
-      // Never fail for prompt errors
+      basePrompt = (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
+    } catch (error) {
+      this.logger.warn('Failed to load system prompt from DB, using default:', error);
+      basePrompt = DEFAULT_SYSTEM_PROMPT;
     }
+
+    const parts: string[] = [basePrompt];
 
     try {
       const memoryContext = await this.memoryService.getContextForQuery(
@@ -271,11 +273,10 @@ export class OrchestratorService {
       );
       if (memoryContext) parts.push(memoryContext);
     } catch {
-      // Never fail for memory errors
+      // Supplementary context — safe to skip
     }
 
     try {
-      // Register a per-user memory provider for this query
       const memoryProvider = new MemoryKnowledgeProvider(
         this.memoryService,
         userId,
@@ -287,7 +288,7 @@ export class OrchestratorService {
         parts.push(this.knowledgeService.formatContextForPrompt(knowledgeContext));
       }
     } catch {
-      // Never fail for knowledge errors
+      // Supplementary context — safe to skip
     }
 
     return parts.join('\n\n');
