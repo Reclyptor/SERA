@@ -45,7 +45,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     // HTTP & web
     this.toolsService.registerTool(new HttpClientTool());
     this.toolsService.registerTool(
-      new WebSearchTool(this.configService.get<string>('TAVILY_API_KEY')),
+      new WebSearchTool(this.configService.get<string>('BRAVE_SEARCH_API_KEY')),
     );
 
     // File system
