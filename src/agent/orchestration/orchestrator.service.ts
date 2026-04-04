@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { CoreMessage, ToolSet } from 'ai';
+import type { CoreMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 import { ToolsService } from '../tools/tools.service';
 import { ActionsService } from '../actions/actions.service';
@@ -12,7 +12,6 @@ import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import type {
   AgentGoal,
   AgentPlan,
-  AgentStep,
   AgentEvaluation,
   OrchestratorConfig,
 } from './orchestration.interfaces';
@@ -21,13 +20,31 @@ import type {
   RunStartedData,
   RunCompletedData,
   RunFailedData,
+  ThinkingDeltaData,
   ThinkingDoneData,
+  TextDeltaData,
+  TextDoneData,
+  ToolCallStartedData,
   PlanCreatedData,
   PlanStepUpdatedData,
   EvaluationDoneData,
 } from '../streaming/stream.interfaces';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
 import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
+
+interface PlanJson {
+  goal?: string;
+  reasoning?: string;
+  steps?: Array<{ id?: string; description?: string }>;
+}
+
+interface EvaluationJson {
+  goalAchieved?: boolean;
+  reasoning?: string;
+  nextAction?: string;
+  response?: string;
+  followUpQuestion?: string;
+}
 
 @Injectable()
 export class OrchestratorService {
@@ -72,7 +89,10 @@ export class OrchestratorService {
       } satisfies RunStartedData);
 
       // 2. Build context
-      const systemPrompt = await this.buildSystemPrompt(userId, goal.userMessage);
+      const systemPrompt = await this.buildSystemPrompt(
+        userId,
+        goal.userMessage,
+      );
       const toolContext = { threadId, runId, userId };
       const tools = {
         ...this.toolsService.getToolSet(toolContext),
@@ -88,11 +108,7 @@ export class OrchestratorService {
       // 4. Planning phase (optional)
       let plan: AgentPlan | undefined;
       if (cfg.planningEnabled) {
-        plan = await this.planGoal(
-          goal,
-          systemPrompt,
-          abortController.signal,
-        );
+        plan = await this.planGoal(goal, systemPrompt, abortController.signal);
         if (plan) {
           await this.stateService.setCustomState(threadId, 'plan', plan);
           this.emitEvent(runId, threadId, 'plan.created', {
@@ -103,9 +119,15 @@ export class OrchestratorService {
 
       // 5. Execution loop with evaluation
       let replanCount = 0;
+      let iterationCount = 0;
       let executionComplete = false;
 
-      while (!executionComplete && replanCount <= cfg.maxReplans) {
+      while (
+        !executionComplete &&
+        replanCount <= cfg.maxReplans &&
+        iterationCount < cfg.maxIterations
+      ) {
+        iterationCount++;
         this.checkAborted(abortController);
 
         // Ensure messages end with a user message (required by Anthropic)
@@ -114,25 +136,55 @@ export class OrchestratorService {
           messages.push({ role: 'user', content: 'Continue.' });
         }
 
-        // Execute with tools
-        const result = await this.modelRouter.generate({
+        // Execute with tools — stream for real-time thinking/text deltas
+        const streamResult = this.modelRouter.stream({
           messages,
           tools,
           system: systemPrompt,
           stopSteps: cfg.maxSteps,
           options: goal.modelOptions,
           abortSignal: abortController.signal,
+          onChunk: ({ chunk }) => {
+            if (chunk.type === 'reasoning-delta') {
+              this.emitEvent(runId, threadId, 'thinking.delta', {
+                content: String(chunk.text),
+              } satisfies ThinkingDeltaData);
+            } else if (chunk.type === 'text-delta') {
+              this.emitEvent(runId, threadId, 'text.delta', {
+                content: String(chunk.text),
+              } satisfies TextDeltaData);
+            } else if (chunk.type === 'tool-call') {
+              this.emitEvent(runId, threadId, 'tool_call.started', {
+                toolCallId: String(chunk.toolCallId),
+                toolName: String(chunk.toolName),
+                args: (chunk.input ?? {}) as Record<string, unknown>,
+              } satisfies ToolCallStartedData);
+            }
+          },
         });
 
-        // Emit reasoning if the model produced thinking content
-        if (result.reasoningText) {
+        const [text, reasoningText, steps, streamResponse] = await Promise.all([
+          streamResult.text,
+          streamResult.reasoningText,
+          streamResult.steps,
+          streamResult.response,
+        ]);
+
+        if (reasoningText) {
           this.emitEvent(runId, threadId, 'thinking.done', {
-            content: result.reasoningText,
+            content: reasoningText,
           } satisfies ThinkingDoneData);
         }
 
+        if (text) {
+          this.emitEvent(runId, threadId, 'text.done', {
+            content: text,
+          } satisfies TextDoneData);
+        }
+
         // Track tool calls in state
-        for (const step of result.steps) {
+        const hadToolCalls = steps.some((s) => s.toolCalls.length > 0);
+        for (const step of steps) {
           for (const tc of step.toolCalls) {
             await this.stateService.recordToolCall(
               threadId,
@@ -144,21 +196,21 @@ export class OrchestratorService {
 
         // Update plan step progress
         if (plan) {
-          await this.updatePlanProgress(plan, result.steps, runId, threadId);
+          this.updatePlanProgress(plan, steps, runId, threadId);
         }
 
         // Append assistant response to messages for context
-        if (result.response.messages) {
+        if (streamResponse.messages) {
           messages.push(
-            ...(result.response.messages as unknown as CoreMessage[]),
+            ...(streamResponse.messages as unknown as CoreMessage[]),
           );
         }
 
-        // 6. Evaluation phase (optional)
-        if (cfg.evaluationEnabled && result.text) {
+        // 6. Evaluation phase — skip when no tools were called (pure conversational turn)
+        if (cfg.evaluationEnabled && text && hadToolCalls) {
           const evaluation = await this.evaluateResult(
             goal,
-            result.text,
+            text,
             plan,
             systemPrompt,
             abortController.signal,
@@ -173,15 +225,10 @@ export class OrchestratorService {
           switch (evaluation.nextAction) {
             case 'complete':
               executionComplete = true;
-              await this.completeRun(
-                goal,
-                evaluation.response ?? result.text,
-                messages,
-              );
+              await this.completeRun(goal, evaluation.response ?? text);
               break;
 
             case 'continue':
-              // The model wants to do more work — loop again
               break;
 
             case 'replan':
@@ -210,26 +257,20 @@ export class OrchestratorService {
 
             case 'ask_user':
               executionComplete = true;
-              await this.completeRun(
-                goal,
-                evaluation.followUpQuestion ?? result.text,
-                messages,
-              );
+              await this.completeRun(goal, evaluation.followUpQuestion ?? text);
               break;
           }
         } else {
-          // No evaluation — treat the result as final
+          // No evaluation needed — treat the result as final
           executionComplete = true;
-          await this.completeRun(goal, result.text, messages);
+          await this.completeRun(goal, text);
         }
       }
 
       if (!executionComplete) {
-        // Exhausted replans
         await this.completeRun(
           goal,
           'I was unable to fully achieve the goal after multiple attempts. Here is what I have so far.',
-          messages,
         );
       }
     } catch (error) {
@@ -272,9 +313,13 @@ export class OrchestratorService {
   ): Promise<string> {
     let basePrompt: string;
     try {
-      basePrompt = (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
+      basePrompt =
+        (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
     } catch (error) {
-      this.logger.warn('Failed to load system prompt from DB, using default:', error);
+      this.logger.warn(
+        'Failed to load system prompt from DB, using default:',
+        error,
+      );
       basePrompt = DEFAULT_SYSTEM_PROMPT;
     }
 
@@ -299,7 +344,9 @@ export class OrchestratorService {
 
       const knowledgeContext = await this.knowledgeService.buildContext(query);
       if (knowledgeContext.length > 0) {
-        parts.push(this.knowledgeService.formatContextForPrompt(knowledgeContext));
+        parts.push(
+          this.knowledgeService.formatContextForPrompt(knowledgeContext),
+        );
       }
     } catch {
       // Supplementary context — safe to skip
@@ -348,11 +395,10 @@ Do NOT include any text outside the JSON object.`;
 
   private parsePlan(text: string): AgentPlan | undefined {
     try {
-      // Extract JSON from the response (handle markdown code blocks)
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return undefined;
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]) as PlanJson;
 
       if (!parsed.steps || !Array.isArray(parsed.steps)) return undefined;
 
@@ -412,7 +458,6 @@ Respond with ONLY a JSON object:
 
       return this.parseEvaluation(result.text, resultText);
     } catch {
-      // If evaluation fails, treat as complete
       return {
         goalAchieved: true,
         reasoning: 'Evaluation unavailable',
@@ -437,11 +482,12 @@ Respond with ONLY a JSON object:
         };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]) as EvaluationJson;
       return {
         goalAchieved: parsed.goalAchieved ?? true,
         reasoning: parsed.reasoning ?? '',
-        nextAction: parsed.nextAction ?? 'complete',
+        nextAction:
+          (parsed.nextAction as AgentEvaluation['nextAction']) ?? 'complete',
         response: parsed.response ?? fallbackResponse,
         followUpQuestion: parsed.followUpQuestion,
       };
@@ -455,21 +501,15 @@ Respond with ONLY a JSON object:
     }
   }
 
-  private async updatePlanProgress(
+  private updatePlanProgress(
     plan: AgentPlan,
     steps: Array<{ toolCalls: Array<{ toolName: string }> }>,
     runId: string,
     threadId: string,
-  ): Promise<void> {
-    // Simple heuristic: mark plan steps as in_progress/completed
-    // based on the number of execution steps completed
-    const toolCallCount = steps.reduce(
-      (sum, s) => sum + s.toolCalls.length,
-      0,
-    );
+  ): void {
+    const toolCallCount = steps.reduce((sum, s) => sum + s.toolCalls.length, 0);
 
     if (toolCallCount > 0 && plan.steps.length > 0) {
-      // Mark first pending step as in_progress
       const pendingIdx = plan.steps.findIndex((s) => s.status === 'pending');
       if (pendingIdx !== -1) {
         plan.steps[pendingIdx].status = 'in_progress';
@@ -482,11 +522,7 @@ Respond with ONLY a JSON object:
     }
   }
 
-  private async completeRun(
-    goal: AgentGoal,
-    response: string,
-    messages: CoreMessage[],
-  ): Promise<void> {
+  private async completeRun(goal: AgentGoal, response: string): Promise<void> {
     const { runId, threadId, userId } = goal;
 
     await this.stateService.completeRun(runId);
@@ -495,7 +531,6 @@ Respond with ONLY a JSON object:
       response,
     } satisfies RunCompletedData);
 
-    // Extract memories in the background
     const lastUserMsg = goal.userMessage;
     if (lastUserMsg && response) {
       this.memoryService

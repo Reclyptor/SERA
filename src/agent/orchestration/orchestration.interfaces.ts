@@ -45,15 +45,18 @@ export interface OrchestratorConfig {
   maxSteps: number;
   /** Max replan attempts (default: 3) */
   maxReplans: number;
-  /** Whether to generate an explicit plan before executing (default: true) */
+  /** Max outer loop iterations to prevent runaway "continue" cycles (default: 5) */
+  maxIterations: number;
+  /** Whether to generate an explicit plan before executing (default: false) */
   planningEnabled: boolean;
-  /** Whether to self-evaluate after execution (default: true) */
+  /** Whether to self-evaluate after execution (default: false) */
   evaluationEnabled: boolean;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxSteps: 15,
   maxReplans: 3,
-  planningEnabled: true,
-  evaluationEnabled: true,
+  maxIterations: 5,
+  planningEnabled: false,
+  evaluationEnabled: false,
 };

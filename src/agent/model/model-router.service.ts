@@ -34,15 +34,15 @@ export class ModelRouterService {
 
   constructor(private readonly configService: ConfigService) {
     this.primaryModel = this.configService.getOrThrow<string>('PRIMARY_MODEL');
-    this.fallbackModels = (
-      this.configService.get<string>('FALLBACK_MODELS', '')
-    )
+    this.fallbackModels = this.configService
+      .get<string>('FALLBACK_MODELS', '')
       .split(',')
       .map((m) => m.trim())
       .filter(Boolean);
 
     this.thinkingEnabled =
-      this.configService.get<string>('ANTHROPIC_THINKING_ENABLED', 'true') === 'true';
+      this.configService.get<string>('ANTHROPIC_THINKING_ENABLED', 'true') ===
+      'true';
     this.thinkingBudget = parseInt(
       this.configService.get<string>('ANTHROPIC_THINKING_BUDGET', '10000'),
       10,
@@ -51,7 +51,9 @@ export class ModelRouterService {
     this.initializeProviders();
     this.logger.log(
       `Model router initialized — primary: ${this.primaryModel}, fallbacks: [${this.fallbackModels.join(', ')}]` +
-        (this.thinkingEnabled ? `, thinking: budget ${this.thinkingBudget}` : ''),
+        (this.thinkingEnabled
+          ? `, thinking: budget ${this.thinkingBudget}`
+          : ''),
     );
   }
 
@@ -188,11 +190,20 @@ export class ModelRouterService {
   /**
    * Build provider-specific options (e.g. Anthropic thinking).
    */
-  private buildProviderOptions(provider: string): ProviderOptions | undefined {
+  private buildProviderOptions(
+    provider: string,
+    modelId: string,
+  ): ProviderOptions | undefined {
     if (provider === 'anthropic' && this.thinkingEnabled) {
+      const isAdaptiveModel =
+        modelId.includes('claude-opus-4') ||
+        modelId.includes('claude-sonnet-4-6') ||
+        modelId.includes('claude-sonnet-4-5');
       return {
         anthropic: {
-          thinking: { type: 'enabled', budgetTokens: this.thinkingBudget },
+          thinking: isAdaptiveModel
+            ? { type: 'adaptive' as const }
+            : { type: 'enabled' as const, budgetTokens: this.thinkingBudget },
         },
       };
     }
@@ -236,9 +247,7 @@ export class ModelRouterService {
       });
 
       try {
-        this.logger.debug(
-          `Calling ${resolved.provider}/${resolved.modelId}`,
-        );
+        this.logger.debug(`Calling ${resolved.provider}/${resolved.modelId}`);
 
         const result = await generateText({
           model: resolved.model,
@@ -252,7 +261,10 @@ export class ModelRouterService {
             params.maxOutputTokens ?? params.options?.maxOutputTokens,
           temperature: params.temperature ?? params.options?.temperature,
           abortSignal: params.abortSignal,
-          providerOptions: this.buildProviderOptions(resolved.provider),
+          providerOptions: this.buildProviderOptions(
+            resolved.provider,
+            resolved.modelId,
+          ),
         });
 
         return result;
@@ -298,14 +310,15 @@ export class ModelRouterService {
       messages: params.messages,
       tools: params.tools,
       system: params.system,
-      stopWhen: params.stopSteps
-        ? stepCountIs(params.stopSteps)
-        : undefined,
+      stopWhen: params.stopSteps ? stepCountIs(params.stopSteps) : undefined,
       maxOutputTokens:
         params.maxOutputTokens ?? params.options?.maxOutputTokens,
       temperature: params.temperature ?? params.options?.temperature,
       abortSignal: params.abortSignal,
-      providerOptions: this.buildProviderOptions(resolved.provider),
+      providerOptions: this.buildProviderOptions(
+        resolved.provider,
+        resolved.modelId,
+      ),
       onChunk: params.onChunk,
       onStepFinish: params.onStepFinish,
       onFinish: params.onFinish,
