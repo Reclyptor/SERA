@@ -86,10 +86,19 @@ export interface CopyProgress {
 }
 
 export interface MetadataSummary {
-  status: 'searching' | 'found' | 'traversing' | 'fetching_episodes' | 'complete';
+  status:
+    | 'searching'
+    | 'found'
+    | 'traversing'
+    | 'fetching_episodes'
+    | 'complete';
   seriesName?: string;
   seasonCount?: number;
-  seasons?: Array<{ seasonNumber: number; title: string; episodeCount: number }>;
+  seasons?: Array<{
+    seasonNumber: number;
+    title: string;
+    episodeCount: number;
+  }>;
   totalEpisodes?: number;
 }
 

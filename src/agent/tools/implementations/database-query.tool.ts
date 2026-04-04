@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { Connection } from 'mongoose';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 const MAX_RESULTS = 100;
 
@@ -25,10 +29,7 @@ const parameters = z.object({
     .record(z.number())
     .optional()
     .describe('Fields to include (1) or exclude (0)'),
-  sort: z
-    .record(z.number())
-    .optional()
-    .describe('Sort order'),
+  sort: z.record(z.number()).optional().describe('Sort order'),
   limit: z
     .number()
     .optional()
@@ -38,10 +39,7 @@ const parameters = z.object({
     .array(z.record(z.unknown()))
     .optional()
     .describe('Aggregation pipeline (for aggregate operation)'),
-  field: z
-    .string()
-    .optional()
-    .describe('Field name (for distinct operation)'),
+  field: z.string().optional().describe('Field name (for distinct operation)'),
 });
 
 export class DatabaseQueryTool implements Tool<typeof parameters> {
@@ -56,7 +54,16 @@ export class DatabaseQueryTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { collection, operation, filter, projection, sort, limit, pipeline, field } = args;
+    const {
+      collection,
+      operation,
+      filter,
+      projection,
+      sort,
+      limit,
+      pipeline,
+      field,
+    } = args;
 
     if (!ALLOWED_COLLECTIONS.has(collection)) {
       return {
@@ -90,14 +97,20 @@ export class DatabaseQueryTool implements Tool<typeof parameters> {
 
         case 'distinct':
           if (!field) {
-            return { success: false, error: 'Field is required for distinct operation' };
+            return {
+              success: false,
+              error: 'Field is required for distinct operation',
+            };
           }
           result = await col.distinct(field, filter);
           break;
 
         case 'aggregate':
           if (!pipeline || pipeline.length === 0) {
-            return { success: false, error: 'Pipeline is required for aggregate operation' };
+            return {
+              success: false,
+              error: 'Pipeline is required for aggregate operation',
+            };
           }
           // Inject a $limit stage if not present
           const hasLimit = pipeline.some((stage) => '$limit' in stage);

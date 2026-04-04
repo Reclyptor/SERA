@@ -45,6 +45,8 @@ export class KnowledgeBootstrapService implements OnModuleInit {
       }),
     );
 
-    this.logger.log(`Registered document knowledge provider (Qdrant: ${qdrantUrl})`);
+    this.logger.log(
+      `Registered document knowledge provider (Qdrant: ${qdrantUrl})`,
+    );
   }
 }

@@ -13,6 +13,7 @@ export interface AgentGoal {
   threadId: string;
   runId: string;
   userId: string;
+  chatId?: string;
   userMessage: string;
   conversationHistory: CoreMessage[];
   modelOptions?: ModelRequestOptions;

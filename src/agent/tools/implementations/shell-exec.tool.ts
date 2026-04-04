@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { exec } from 'child_process';
 import { validateCommand } from '../security/command-validator';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 const MAX_OUTPUT_SIZE = 64 * 1024; // 64KB
 
@@ -36,7 +40,8 @@ export class ShellExecTool implements Tool<typeof parameters> {
     if (!this.enabled) {
       return {
         success: false,
-        error: 'Shell execution is disabled. Set ENABLE_SHELL_TOOL=true to enable.',
+        error:
+          'Shell execution is disabled. Set ENABLE_SHELL_TOOL=true to enable.',
       };
     }
 
@@ -47,9 +52,7 @@ export class ShellExecTool implements Tool<typeof parameters> {
       return { success: false, error: validation.error };
     }
 
-    const workingDir = cwd
-      ? `${this.workspaceDir}/${cwd}`
-      : this.workspaceDir;
+    const workingDir = cwd ? `${this.workspaceDir}/${cwd}` : this.workspaceDir;
 
     return new Promise((resolve) => {
       const child = exec(
@@ -77,7 +80,7 @@ export class ShellExecTool implements Tool<typeof parameters> {
           resolve({
             success: !error,
             result: {
-              exitCode: error ? error.code ?? 1 : 0,
+              exitCode: error ? (error.code ?? 1) : 0,
               stdout: truncate(stdout),
               stderr: truncate(stderr),
             },

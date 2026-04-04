@@ -17,7 +17,11 @@ export class ToolCall {
   @Prop({ type: MongooseSchema.Types.Mixed })
   result?: unknown;
 
-  @Prop({ required: true, enum: ['pending', 'executing', 'completed', 'failed'], default: 'pending' })
+  @Prop({
+    required: true,
+    enum: ['pending', 'executing', 'completed', 'failed'],
+    default: 'pending',
+  })
   status: string;
 
   @Prop({ default: Date.now })

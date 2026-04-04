@@ -3,7 +3,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Thread, ThreadDocument } from './thread.schema';
 import { Run, RunDocument } from './run.schema';
-import { AgentState as AgentStateDoc, AgentStateDocument } from './agent-state.schema';
+import {
+  AgentState as AgentStateDoc,
+  AgentStateDocument,
+} from './agent-state.schema';
 import {
   ThreadState,
   RunState,
@@ -19,7 +22,8 @@ export class StateStore {
   constructor(
     @InjectModel(Thread.name) private threadModel: Model<ThreadDocument>,
     @InjectModel(Run.name) private runModel: Model<RunDocument>,
-    @InjectModel(AgentStateDoc.name) private agentStateModel: Model<AgentStateDocument>,
+    @InjectModel(AgentStateDoc.name)
+    private agentStateModel: Model<AgentStateDocument>,
   ) {}
 
   // Thread operations
@@ -53,7 +57,10 @@ export class StateStore {
 
   // Tool call operations
 
-  async addToolCall(threadId: string, toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>): Promise<ToolCall> {
+  async addToolCall(
+    threadId: string,
+    toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>,
+  ): Promise<ToolCall> {
     const fullToolCall: ToolCall = {
       ...toolCall,
       id: crypto.randomUUID(),
@@ -61,14 +68,16 @@ export class StateStore {
       timestamp: new Date(),
     };
 
-    await this.threadModel.findOneAndUpdate(
-      { threadId },
-      {
-        $push: { toolCalls: fullToolCall },
-        $setOnInsert: { threadId, metadata: {} },
-      },
-      { upsert: true },
-    ).exec();
+    await this.threadModel
+      .findOneAndUpdate(
+        { threadId },
+        {
+          $push: { toolCalls: fullToolCall },
+          $setOnInsert: { threadId, metadata: {} },
+        },
+        { upsert: true },
+      )
+      .exec();
 
     return fullToolCall;
   }
@@ -86,14 +95,18 @@ export class StateStore {
       updateFields['toolCalls.$.result'] = update.result;
     }
 
-    const thread = await this.threadModel.findOneAndUpdate(
-      { threadId, 'toolCalls.id': toolCallId },
-      { $set: updateFields },
-      { returnDocument: 'after' },
-    ).exec();
+    const thread = await this.threadModel
+      .findOneAndUpdate(
+        { threadId, 'toolCalls.id': toolCallId },
+        { $set: updateFields },
+        { returnDocument: 'after' },
+      )
+      .exec();
 
     if (!thread) return undefined;
-    return thread.toolCalls.find((tc) => tc.id === toolCallId) as ToolCall | undefined;
+    return thread.toolCalls.find((tc) => tc.id === toolCallId) as
+      | ToolCall
+      | undefined;
   }
 
   // Run operations
@@ -118,11 +131,13 @@ export class StateStore {
     runId: string,
     update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error'>>,
   ): Promise<RunState | undefined> {
-    const run = await this.runModel.findOneAndUpdate(
-      { runId },
-      { $set: update },
-      { returnDocument: 'after' },
-    ).exec();
+    const run = await this.runModel
+      .findOneAndUpdate(
+        { runId },
+        { $set: update },
+        { returnDocument: 'after' },
+      )
+      .exec();
     return run ? this.toRunState(run) : undefined;
   }
 
@@ -140,24 +155,38 @@ export class StateStore {
     return this.toAgentState(state);
   }
 
-  async updateAgentState(threadId: string, update: Partial<AgentState>): Promise<AgentState> {
-    const state = await this.agentStateModel.findOneAndUpdate(
-      { threadId },
-      { $set: update },
-      { returnDocument: 'after', upsert: true },
-    ).exec();
-    return this.toAgentState(state!);
+  async updateAgentState(
+    threadId: string,
+    update: Partial<AgentState>,
+  ): Promise<AgentState> {
+    const state = await this.agentStateModel
+      .findOneAndUpdate(
+        { threadId },
+        { $set: update },
+        { returnDocument: 'after', upsert: true },
+      )
+      .exec();
+    return this.toAgentState(state);
   }
 
-  async setCustomState(threadId: string, key: string, value: unknown): Promise<void> {
-    await this.agentStateModel.findOneAndUpdate(
-      { threadId },
-      { $set: { [`custom.${key}`]: value } },
-      { upsert: true },
-    ).exec();
+  async setCustomState(
+    threadId: string,
+    key: string,
+    value: unknown,
+  ): Promise<void> {
+    await this.agentStateModel
+      .findOneAndUpdate(
+        { threadId },
+        { $set: { [`custom.${key}`]: value } },
+        { upsert: true },
+      )
+      .exec();
   }
 
-  async getCustomState<T>(threadId: string, key: string): Promise<T | undefined> {
+  async getCustomState<T>(
+    threadId: string,
+    key: string,
+  ): Promise<T | undefined> {
     const state = await this.agentStateModel.findOne({ threadId }).exec();
     return state?.custom?.[key] as T | undefined;
   }
@@ -166,27 +195,37 @@ export class StateStore {
     threadId: string,
     confirmation: AgentState['pendingConfirmations'][0],
   ): Promise<void> {
-    await this.agentStateModel.findOneAndUpdate(
-      { threadId },
-      {
-        $push: { pendingConfirmations: confirmation },
-        $setOnInsert: { threadId, custom: {} },
-      },
-      { upsert: true },
-    ).exec();
+    await this.agentStateModel
+      .findOneAndUpdate(
+        { threadId },
+        {
+          $push: { pendingConfirmations: confirmation },
+          $setOnInsert: { threadId, custom: {} },
+        },
+        { upsert: true },
+      )
+      .exec();
   }
 
-  async removePendingConfirmation(threadId: string, confirmationId: string): Promise<boolean> {
-    const result = await this.agentStateModel.findOneAndUpdate(
-      { threadId },
-      { $pull: { pendingConfirmations: { id: confirmationId } } },
-    ).exec();
+  async removePendingConfirmation(
+    threadId: string,
+    confirmationId: string,
+  ): Promise<boolean> {
+    const result = await this.agentStateModel
+      .findOneAndUpdate(
+        { threadId },
+        { $pull: { pendingConfirmations: { id: confirmationId } } },
+      )
+      .exec();
     return result !== null;
   }
 
   // Snapshot
 
-  async getSnapshot(threadId: string, runId?: string): Promise<StateSnapshot | undefined> {
+  async getSnapshot(
+    threadId: string,
+    runId?: string,
+  ): Promise<StateSnapshot | undefined> {
     const thread = await this.getThread(threadId);
     if (!thread) return undefined;
 
@@ -203,7 +242,7 @@ export class StateStore {
     return {
       threadId: doc.threadId,
       toolCalls: doc.toolCalls as ToolCall[],
-      metadata: doc.metadata as Record<string, unknown>,
+      metadata: doc.metadata,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
@@ -222,9 +261,10 @@ export class StateStore {
 
   private toAgentState(doc: AgentStateDocument): AgentState {
     return {
-      custom: doc.custom as Record<string, unknown>,
+      custom: doc.custom,
       currentStep: doc.currentStep,
-      pendingConfirmations: doc.pendingConfirmations as AgentState['pendingConfirmations'],
+      pendingConfirmations:
+        doc.pendingConfirmations as AgentState['pendingConfirmations'],
     };
   }
 }

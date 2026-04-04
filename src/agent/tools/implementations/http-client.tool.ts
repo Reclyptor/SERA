@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { validateUrl } from '../security/url-validator';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 const MAX_RESPONSE_SIZE = 100 * 1024; // 100KB
 
@@ -11,10 +15,7 @@ const parameters = z.object({
     .optional()
     .default('GET')
     .describe('HTTP method'),
-  headers: z
-    .record(z.string())
-    .optional()
-    .describe('Request headers'),
+  headers: z.record(z.string()).optional().describe('Request headers'),
   body: z
     .union([z.string(), z.record(z.unknown())])
     .optional()
@@ -106,8 +107,7 @@ export class HttpClientTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'HTTP request failed',
+        error: error instanceof Error ? error.message : 'HTTP request failed',
       };
     }
   }

@@ -2,7 +2,11 @@ import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { validatePath, pathExists } from '../security/path-validator';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 const MAX_FILE_SIZE = 512 * 1024; // 512KB
 
@@ -54,7 +58,10 @@ export class FileIOTool implements Tool<typeof parameters> {
         case 'list':
           return await this.listDirectory(resolved);
         case 'exists':
-          return { success: true, result: { exists: await pathExists(resolved) } };
+          return {
+            success: true,
+            result: { exists: await pathExists(resolved) },
+          };
         case 'delete':
           return await this.deleteFile(resolved);
         case 'mkdir':
@@ -101,7 +108,10 @@ export class FileIOTool implements Tool<typeof parameters> {
     encoding: string,
   ): Promise<ToolExecutionResult> {
     if (content === undefined) {
-      return { success: false, error: 'Content is required for write operations' };
+      return {
+        success: false,
+        error: 'Content is required for write operations',
+      };
     }
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -115,7 +125,10 @@ export class FileIOTool implements Tool<typeof parameters> {
     encoding: string,
   ): Promise<ToolExecutionResult> {
     if (content === undefined) {
-      return { success: false, error: 'Content is required for append operations' };
+      return {
+        success: false,
+        error: 'Content is required for append operations',
+      };
     }
 
     await fs.appendFile(filePath, content, encoding as BufferEncoding);
@@ -143,7 +156,10 @@ export class FileIOTool implements Tool<typeof parameters> {
 
     const stats = await fs.stat(filePath);
     if (stats.isDirectory()) {
-      return { success: false, error: 'Cannot delete directories. Use shell for that.' };
+      return {
+        success: false,
+        error: 'Cannot delete directories. Use shell for that.',
+      };
     }
 
     await fs.unlink(filePath);

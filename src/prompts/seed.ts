@@ -31,7 +31,10 @@ async function seed() {
 
   await Prompt.findOneAndUpdate(
     { slug: 'system' },
-    { content: DEFAULT_SYSTEM_PROMPT, metadata: { description: 'Main agent system prompt' } },
+    {
+      content: DEFAULT_SYSTEM_PROMPT,
+      metadata: { description: 'Main agent system prompt' },
+    },
     { upsert: true },
   );
 

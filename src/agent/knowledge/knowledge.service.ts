@@ -153,8 +153,7 @@ export class KnowledgeService {
     const stateItems = context.filter((c) => c.type === 'state');
     if (stateItems.length > 0) {
       sections.push(
-        '## Current State\n' +
-          stateItems.map((s) => s.content).join('\n'),
+        '## Current State\n' + stateItems.map((s) => s.content).join('\n'),
       );
     }
 

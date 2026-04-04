@@ -5,10 +5,7 @@ import { OrchestrationModule } from '../orchestration/orchestration.module';
 import { StateModule } from '../state/state.module';
 
 @Module({
-  imports: [
-    forwardRef(() => OrchestrationModule),
-    StateModule,
-  ],
+  imports: [forwardRef(() => OrchestrationModule), StateModule],
   providers: [StreamingGateway, AgentEventEmitter],
   exports: [AgentEventEmitter],
 })

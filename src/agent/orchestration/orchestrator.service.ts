@@ -8,7 +8,9 @@ import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { PromptsService } from '../../prompts/prompts.service';
+import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
+import { ChatsService } from '../../chats/chats.service';
 import type {
   AgentGoal,
   AgentPlan,
@@ -61,6 +63,7 @@ export class OrchestratorService {
     private readonly knowledgeService: KnowledgeService,
     private readonly promptsService: PromptsService,
     private readonly eventEmitter: AgentEventEmitter,
+    private readonly chatsService: ChatsService,
   ) {}
 
   /**
@@ -86,6 +89,7 @@ export class OrchestratorService {
       this.emitEvent(runId, threadId, 'run.started', {
         provider: resolved.provider,
         modelId: resolved.modelId,
+        chatId: goal.chatId,
       } satisfies RunStartedData);
 
       // 2. Build context
@@ -99,11 +103,18 @@ export class OrchestratorService {
         ...this.actionsService.getToolSet(toolContext),
       };
 
-      // 3. Build messages
-      const messages: CoreMessage[] = [
-        ...goal.conversationHistory,
-        { role: 'user', content: goal.userMessage },
-      ];
+      // 3. Build messages — load from chat if available, otherwise use provided history
+      let history = goal.conversationHistory;
+      if (goal.chatId && history.length === 0) {
+        const loaded = await this.chatsService.loadConversationHistory(
+          goal.chatId,
+        );
+        history = loaded as CoreMessage[];
+      }
+      const messages: CoreMessage[] =
+        history.length > 0
+          ? history
+          : [{ role: 'user', content: goal.userMessage }];
 
       // 4. Planning phase (optional)
       let plan: AgentPlan | undefined;
@@ -121,6 +132,9 @@ export class OrchestratorService {
       let replanCount = 0;
       let iterationCount = 0;
       let executionComplete = false;
+      let lastReasoningText: string | undefined;
+      let thinkingStartTime: number | null = null;
+      let lastThinkingDuration: number | undefined;
 
       while (
         !executionComplete &&
@@ -146,6 +160,9 @@ export class OrchestratorService {
           abortSignal: abortController.signal,
           onChunk: ({ chunk }) => {
             if (chunk.type === 'reasoning-delta') {
+              if (thinkingStartTime === null) {
+                thinkingStartTime = Date.now();
+              }
               this.emitEvent(runId, threadId, 'thinking.delta', {
                 content: String(chunk.text),
               } satisfies ThinkingDeltaData);
@@ -171,6 +188,13 @@ export class OrchestratorService {
         ]);
 
         if (reasoningText) {
+          lastReasoningText = reasoningText;
+          if (thinkingStartTime !== null) {
+            lastThinkingDuration = Math.round(
+              (Date.now() - thinkingStartTime) / 1000,
+            );
+            thinkingStartTime = null;
+          }
           this.emitEvent(runId, threadId, 'thinking.done', {
             content: reasoningText,
           } satisfies ThinkingDoneData);
@@ -225,7 +249,12 @@ export class OrchestratorService {
           switch (evaluation.nextAction) {
             case 'complete':
               executionComplete = true;
-              await this.completeRun(goal, evaluation.response ?? text);
+              await this.completeRun(
+                goal,
+                evaluation.response ?? text,
+                lastReasoningText,
+                lastThinkingDuration,
+              );
               break;
 
             case 'continue':
@@ -257,13 +286,23 @@ export class OrchestratorService {
 
             case 'ask_user':
               executionComplete = true;
-              await this.completeRun(goal, evaluation.followUpQuestion ?? text);
+              await this.completeRun(
+                goal,
+                evaluation.followUpQuestion ?? text,
+                lastReasoningText,
+                lastThinkingDuration,
+              );
               break;
           }
         } else {
           // No evaluation needed — treat the result as final
           executionComplete = true;
-          await this.completeRun(goal, text);
+          await this.completeRun(
+            goal,
+            text,
+            lastReasoningText,
+            lastThinkingDuration,
+          );
         }
       }
 
@@ -271,6 +310,8 @@ export class OrchestratorService {
         await this.completeRun(
           goal,
           'I was unable to fully achieve the goal after multiple attempts. Here is what I have so far.',
+          lastReasoningText,
+          lastThinkingDuration,
         );
       }
     } catch (error) {
@@ -522,10 +563,30 @@ Respond with ONLY a JSON object:
     }
   }
 
-  private async completeRun(goal: AgentGoal, response: string): Promise<void> {
+  private async completeRun(
+    goal: AgentGoal,
+    response: string,
+    thinking?: string,
+    thinkingDuration?: number,
+  ): Promise<void> {
     const { runId, threadId, userId } = goal;
 
     await this.stateService.completeRun(runId);
+
+    if (goal.chatId && response) {
+      try {
+        await this.chatsService.appendMessage(goal.chatId, {
+          id: randomUUID(),
+          role: 'assistant',
+          content: response,
+          thinking,
+          thinkingDuration,
+          createdAt: new Date(),
+        });
+      } catch (err) {
+        this.logger.warn('Failed to persist assistant message:', err);
+      }
+    }
 
     this.emitEvent(runId, threadId, 'run.completed', {
       response,

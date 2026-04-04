@@ -29,7 +29,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
 
   constructor(private configService: ConfigService) {
     super();
-    
+
     const authSecret = configService.get<string>('AUTH_SECRET');
     if (!authSecret) {
       throw new Error('AUTH_SECRET environment variable is required');
@@ -52,7 +52,9 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
       const discoveryUrl = `${this.issuer}/.well-known/openid-configuration`;
       const response = await fetch(discoveryUrl);
       if (!response.ok) {
-        throw new Error(`OIDC discovery failed: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `OIDC discovery failed: ${response.status} ${response.statusText}`,
+        );
       }
       const config = await response.json();
       const jwksUri = config.jwks_uri;
@@ -67,7 +69,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
 
   private parseCookies(cookieHeader: string): Record<string, string> {
     const cookies: Record<string, string> = {};
-    cookieHeader.split(';').forEach(cookie => {
+    cookieHeader.split(';').forEach((cookie) => {
       const [name, ...rest] = cookie.trim().split('=');
       if (name && rest.length > 0) {
         cookies[name] = rest.join('=');
@@ -76,12 +78,15 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
     return cookies;
   }
 
-  private async decryptSessionCookie(encryptedToken: string, cookieName: string): Promise<any> {
+  private async decryptSessionCookie(
+    encryptedToken: string,
+    cookieName: string,
+  ): Promise<any> {
     try {
       // Derive encryption key the same way Auth.js v5 does
       const secret = new TextEncoder().encode(this.authSecret);
       const derivedKey = await this.deriveKey(secret, cookieName);
-      
+
       const { payload } = await jose.jwtDecrypt(encryptedToken, derivedKey);
       return payload;
     } catch (error) {
@@ -90,7 +95,10 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
     }
   }
 
-  private async deriveKey(secret: Uint8Array, salt: string): Promise<Uint8Array> {
+  private async deriveKey(
+    secret: Uint8Array,
+    salt: string,
+  ): Promise<Uint8Array> {
     // Auth.js v5 uses HKDF to derive the encryption key with:
     //   hash: SHA-256
     //   ikm: AUTH_SECRET
@@ -100,13 +108,16 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
     const encoder = new TextEncoder();
     const info = encoder.encode(`Auth.js Generated Encryption Key (${salt})`);
     const saltBytes = encoder.encode(salt);
-    
+
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      secret.buffer.slice(secret.byteOffset, secret.byteOffset + secret.byteLength) as ArrayBuffer,
+      secret.buffer.slice(
+        secret.byteOffset,
+        secret.byteOffset + secret.byteLength,
+      ) as ArrayBuffer,
       'HKDF',
       false,
-      ['deriveBits']
+      ['deriveBits'],
     );
 
     const derivedBits = await crypto.subtle.deriveBits(
@@ -117,13 +128,15 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
         info: info,
       },
       keyMaterial,
-      512
+      512,
     );
 
     return new Uint8Array(derivedBits);
   }
 
-  private async validateAccessToken(accessToken: string): Promise<jose.JWTPayload> {
+  private async validateAccessToken(
+    accessToken: string,
+  ): Promise<jose.JWTPayload> {
     try {
       const jwks = await this.getJWKS();
       const { payload } = await jose.jwtVerify(accessToken, jwks, {
@@ -144,7 +157,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
     }
 
     const cookies = this.parseCookies(cookieHeader);
-    
+
     // Try both secure and non-secure cookie names
     const secureCookieName = `__Secure-${this.cookieName}`;
     let sessionCookie = cookies[secureCookieName];
@@ -154,14 +167,17 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
       sessionCookie = cookies[this.cookieName];
       usedCookieName = this.cookieName;
     }
-    
+
     if (!sessionCookie) {
       throw new UnauthorizedException('Session cookie not found');
     }
 
     // Decrypt the Auth.js session cookie (salt = cookie name used)
-    const sessionPayload = await this.decryptSessionCookie(sessionCookie, usedCookieName);
-    
+    const sessionPayload = await this.decryptSessionCookie(
+      sessionCookie,
+      usedCookieName,
+    );
+
     const accessToken = sessionPayload.accessToken as string | undefined;
     if (!accessToken) {
       throw new UnauthorizedException('No access token in session');

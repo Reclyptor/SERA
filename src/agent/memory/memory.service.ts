@@ -111,7 +111,11 @@ export class MemoryService {
     return response.data[0].embedding;
   }
 
-  private toEntry(id: string, payload: MemoryPayload, score?: number): MemoryEntry {
+  private toEntry(
+    id: string,
+    payload: MemoryPayload,
+    score?: number,
+  ): MemoryEntry {
     return {
       id,
       content: payload.content,
@@ -204,7 +208,8 @@ export class MemoryService {
     if (!(await this.ensureCollection())) return [];
 
     const entries: MemoryEntry[] = [];
-    let offset: string | number | Record<string, unknown> | undefined = undefined;
+    let offset: string | number | Record<string, unknown> | undefined =
+      undefined;
 
     // Paginate through all user memories via scroll
     while (true) {
@@ -236,7 +241,8 @@ export class MemoryService {
     if (!(await this.ensureCollection())) return [];
 
     const entries: MemoryEntry[] = [];
-    let offset: string | number | Record<string, unknown> | undefined = undefined;
+    let offset: string | number | Record<string, unknown> | undefined =
+      undefined;
 
     while (true) {
       const page = await this.qdrant.scroll(COLLECTION_NAME, {

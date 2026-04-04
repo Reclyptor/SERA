@@ -39,9 +39,7 @@ export class ActionsBootstrapService implements OnModuleInit {
     );
 
     // Notifications
-    this.actionsService.registerAction(
-      new NotificationAction(this.emitter),
-    );
+    this.actionsService.registerAction(new NotificationAction(this.emitter));
 
     // Confirmation flow
     this.actionsService.registerAction(

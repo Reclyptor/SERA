@@ -17,7 +17,7 @@ const BLOCKED_COMMANDS = [
   /\bchown\s+-R\s+.*\//i,
   />\s*\/dev\/sd/i,
   />\s*\/dev\/nvme/i,
-  /\b:()\s*\{\s*:\|:\s*&\s*\}\s*;/,  // Fork bomb
+  /\b:()\s*\{\s*:\|:\s*&\s*\}\s*;/, // Fork bomb
   /\bkillall\b/i,
   /\bpkill\s+-9\b/i,
   /\biptables\s+-F\b/i,

@@ -74,7 +74,9 @@ export class StreamingGateway implements OnGatewayDisconnect {
   ): Promise<void> {
     const { threadId, confirmationId } = payload;
     if (!threadId || !confirmationId) {
-      client.emit('error', { message: 'threadId and confirmationId are required' });
+      client.emit('error', {
+        message: 'threadId and confirmationId are required',
+      });
       return;
     }
 
@@ -89,7 +91,9 @@ export class StreamingGateway implements OnGatewayDisconnect {
   }
 
   handleDisconnect(client: Socket): void {
-    this.logger.debug(`Client ${client.id} disconnected, cleaning up subscriptions`);
+    this.logger.debug(
+      `Client ${client.id} disconnected, cleaning up subscriptions`,
+    );
     const subs = this.subscriptions.get(client.id);
     if (subs) {
       for (const sub of subs) {

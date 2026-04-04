@@ -13,10 +13,14 @@ const saveMemoryParams = z.object({
   tags: z
     .array(z.string())
     .optional()
-    .describe('Tags for categorization (e.g., "preference", "personal", "technical")'),
+    .describe(
+      'Tags for categorization (e.g., "preference", "personal", "technical")',
+    ),
 });
 
-export class SaveMemoryAction implements BackendAction<typeof saveMemoryParams> {
+export class SaveMemoryAction implements BackendAction<
+  typeof saveMemoryParams
+> {
   readonly name = 'save_memory';
   readonly description =
     'Save an important fact or preference about the user to long-term memory for future recall.';
@@ -48,14 +52,12 @@ export class SaveMemoryAction implements BackendAction<typeof saveMemoryParams> 
 
 const searchMemoryParams = z.object({
   query: z.string().describe('Search query to find relevant memories'),
-  limit: z
-    .number()
-    .optional()
-    .default(5)
-    .describe('Maximum number of results'),
+  limit: z.number().optional().default(5).describe('Maximum number of results'),
 });
 
-export class SearchMemoryAction implements BackendAction<typeof searchMemoryParams> {
+export class SearchMemoryAction implements BackendAction<
+  typeof searchMemoryParams
+> {
   readonly name = 'search_memory';
   readonly description =
     'Search long-term memory for information about the user. Use this to recall previously saved facts or preferences.';
@@ -98,7 +100,9 @@ const deleteMemoryParams = z.object({
   memoryId: z.string().describe('ID of the memory to delete'),
 });
 
-export class DeleteMemoryAction implements BackendAction<typeof deleteMemoryParams> {
+export class DeleteMemoryAction implements BackendAction<
+  typeof deleteMemoryParams
+> {
   readonly name = 'delete_memory';
   readonly description =
     'Delete a specific memory by ID. Use when the user asks to forget something.';
@@ -122,9 +126,7 @@ export class DeleteMemoryAction implements BackendAction<typeof deleteMemoryPara
 
     return {
       success: deleted,
-      result: deleted
-        ? { deleted: args.memoryId }
-        : undefined,
+      result: deleted ? { deleted: args.memoryId } : undefined,
       error: deleted ? undefined : 'Memory not found',
     };
   }

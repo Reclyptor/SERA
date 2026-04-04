@@ -1,4 +1,7 @@
-import type { AgentPlan, AgentStep } from '../orchestration/orchestration.interfaces';
+import type {
+  AgentPlan,
+  AgentStep,
+} from '../orchestration/orchestration.interfaces';
 
 export type AgentEventType =
   | 'run.started'
@@ -32,6 +35,7 @@ export interface AgentEvent {
 export interface RunStartedData {
   provider: string;
   modelId: string;
+  chatId?: string;
 }
 
 export interface RunCompletedData {

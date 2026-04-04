@@ -9,6 +9,7 @@ import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 import { TemporalModule } from '../temporal/temporal.module';
+import { ChatsModule } from '../../chats/chats.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TemporalModule } from '../temporal/temporal.module';
     KnowledgeModule,
     PromptsModule,
     TemporalModule,
+    ChatsModule,
   ],
   providers: [OrchestratorService],
   exports: [OrchestratorService, StreamingModule],

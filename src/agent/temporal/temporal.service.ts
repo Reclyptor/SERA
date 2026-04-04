@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Client,
@@ -99,9 +104,7 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
     return handle.query<OrganizeLibraryProgress>('getProgress');
   }
 
-  async getOrganizeResult(
-    workflowId: string,
-  ): Promise<OrganizeLibraryResult> {
+  async getOrganizeResult(workflowId: string): Promise<OrganizeLibraryResult> {
     this.ensureConnected();
     const handle = this.client.workflow.getHandle(workflowId);
     return handle.result();
@@ -156,14 +159,11 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
   async listSeriesRoots(): Promise<Array<{ name: string; path: string }>> {
     this.ensureConnected();
     const id = `list-roots-${Date.now()}`;
-    const handle = await this.client.workflow.start(
-      'listSeriesRootsWorkflow',
-      {
-        taskQueue: this.taskQueue,
-        workflowId: id,
-        args: [],
-      },
-    );
+    const handle = await this.client.workflow.start('listSeriesRootsWorkflow', {
+      taskQueue: this.taskQueue,
+      workflowId: id,
+      args: [],
+    });
 
     return handle.result();
   }

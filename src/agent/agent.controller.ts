@@ -14,25 +14,26 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Observable, map } from 'rxjs';
 import type { Request } from 'express';
-import type { CoreMessage } from 'ai';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
 import { StateService } from './state/state.service';
 import { ImageStorage } from './storage/image.storage';
+import { ChatsService } from '../chats/chats.service';
 import type { UploadImageResponseDto } from './upload-image.dto';
 import type { SessionUser } from '../auth/session.strategy';
 import type { OrchestratorConfig } from './orchestration/orchestration.interfaces';
 
 interface ChatRequestBody {
   message: string;
+  chatId?: string;
   threadId?: string;
-  conversationHistory?: CoreMessage[];
   config?: Partial<OrchestratorConfig>;
 }
 
 interface ChatResponse {
   runId: string;
   threadId: string;
+  chatId: string;
 }
 
 @Controller('agent')
@@ -44,12 +45,9 @@ export class AgentController {
     private readonly eventEmitter: AgentEventEmitter,
     private readonly stateService: StateService,
     private readonly imageStorage: ImageStorage,
+    private readonly chatsService: ChatsService,
   ) {}
 
-  /**
-   * Start an agent run. Returns immediately with runId/threadId.
-   * The client subscribes to /agent/stream/:runId for events.
-   */
   @Post('chat')
   async chat(
     @Req() req: Request,
@@ -68,15 +66,34 @@ export class AgentController {
     const threadId = body.threadId ?? crypto.randomUUID();
     const runId = crypto.randomUUID();
 
-    // Start the orchestrator asynchronously — don't await
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: 'user' as const,
+      content: body.message,
+      createdAt: new Date(),
+    };
+
+    let chatId: string;
+    if (body.chatId) {
+      chatId = body.chatId;
+      await this.chatsService.appendMessage(chatId, userMessage);
+    } else {
+      const chat = await this.chatsService.createWithUserMessage(
+        userId,
+        userMessage,
+      );
+      chatId = String(chat._id);
+    }
+
     this.orchestrator
       .executeGoal(
         {
           threadId,
           runId,
           userId,
+          chatId,
           userMessage: body.message,
-          conversationHistory: body.conversationHistory ?? [],
+          conversationHistory: [],
         },
         body.config,
       )
@@ -84,20 +101,21 @@ export class AgentController {
         this.logger.error(`Unhandled error in run ${runId}:`, error);
       });
 
-    return { runId, threadId };
+    return { runId, threadId, chatId };
   }
 
   /**
    * SSE stream for a run. The client connects here after POST /chat.
    */
   @Sse('stream/:runId')
-  streamRun(
-    @Param('runId') runId: string,
-  ): Observable<MessageEvent> {
+  streamRun(@Param('runId') runId: string): Observable<MessageEvent> {
     return this.eventEmitter.getStream(runId).pipe(
-      map((event) => ({
-        data: JSON.stringify(event),
-      } as MessageEvent)),
+      map(
+        (event) =>
+          ({
+            data: JSON.stringify(event),
+          }) as MessageEvent,
+      ),
     );
   }
 
@@ -135,19 +153,14 @@ export class AgentController {
 
   @Post('upload-image')
   @UseInterceptors(FileInterceptor('image'))
-  async uploadImage(
+  uploadImage(
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<UploadImageResponseDto> {
+  ): UploadImageResponseDto {
     if (!file) {
       throw new BadRequestException('No image file provided');
     }
 
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-    ];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException(
         'Invalid image type. Allowed: JPEG, PNG, GIF, WebP',

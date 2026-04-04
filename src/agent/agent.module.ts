@@ -4,9 +4,10 @@ import { AgentService } from './agent.service';
 import { ImageStorage } from './storage/image.storage';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { StateModule } from './state/state.module';
+import { ChatsModule } from '../chats/chats.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule],
+  imports: [OrchestrationModule, StateModule, ChatsModule],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

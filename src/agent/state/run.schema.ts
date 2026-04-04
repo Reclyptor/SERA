@@ -11,7 +11,11 @@ export class Run {
   @Prop({ required: true, index: true })
   threadId: string;
 
-  @Prop({ required: true, enum: ['pending', 'running', 'completed', 'failed', 'cancelled'], default: 'pending' })
+  @Prop({
+    required: true,
+    enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
+    default: 'pending',
+  })
   status: string;
 
   @Prop({ default: Date.now })

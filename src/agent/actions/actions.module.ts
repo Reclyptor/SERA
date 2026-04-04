@@ -7,11 +7,7 @@ import { StateModule } from '../state/state.module';
 import { StreamingModule } from '../streaming/streaming.module';
 
 @Module({
-  imports: [
-    MemoryModule,
-    StateModule,
-    forwardRef(() => StreamingModule),
-  ],
+  imports: [MemoryModule, StateModule, forwardRef(() => StreamingModule)],
   providers: [ActionsRegistry, ActionsService, ActionsBootstrapService],
   exports: [ActionsService, ActionsRegistry],
 })

@@ -82,7 +82,9 @@ export interface KnowledgeProvider {
   /**
    * Add a document to the knowledge base
    */
-  addDocument?(document: Omit<KnowledgeDocument, 'id'>): Promise<KnowledgeDocument>;
+  addDocument?(
+    document: Omit<KnowledgeDocument, 'id'>,
+  ): Promise<KnowledgeDocument>;
   /**
    * Remove a document from the knowledge base
    */

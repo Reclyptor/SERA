@@ -36,22 +36,39 @@ export class StateService {
 
   // Tool call management
 
-  async recordToolCall(threadId: string, name: string, args: Record<string, unknown>): Promise<ToolCall> {
+  async recordToolCall(
+    threadId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolCall> {
     return this.store.addToolCall(threadId, { name, args });
   }
 
-  async markToolCallExecuting(threadId: string, toolCallId: string): Promise<ToolCall | undefined> {
-    return this.store.updateToolCall(threadId, toolCallId, { status: 'executing' });
+  async markToolCallExecuting(
+    threadId: string,
+    toolCallId: string,
+  ): Promise<ToolCall | undefined> {
+    return this.store.updateToolCall(threadId, toolCallId, {
+      status: 'executing',
+    });
   }
 
-  async markToolCallCompleted(threadId: string, toolCallId: string, result: unknown): Promise<ToolCall | undefined> {
+  async markToolCallCompleted(
+    threadId: string,
+    toolCallId: string,
+    result: unknown,
+  ): Promise<ToolCall | undefined> {
     return this.store.updateToolCall(threadId, toolCallId, {
       status: 'completed',
       result,
     });
   }
 
-  async markToolCallFailed(threadId: string, toolCallId: string, error: string): Promise<ToolCall | undefined> {
+  async markToolCallFailed(
+    threadId: string,
+    toolCallId: string,
+    error: string,
+  ): Promise<ToolCall | undefined> {
     return this.store.updateToolCall(threadId, toolCallId, {
       status: 'failed',
       result: { error },
@@ -100,11 +117,18 @@ export class StateService {
     this.logger.debug(`Thread ${threadId} workflow step: ${step}`);
   }
 
-  async setCustomState<T>(threadId: string, key: string, value: T): Promise<void> {
+  async setCustomState<T>(
+    threadId: string,
+    key: string,
+    value: T,
+  ): Promise<void> {
     await this.store.setCustomState(threadId, key, value);
   }
 
-  async getCustomState<T>(threadId: string, key: string): Promise<T | undefined> {
+  async getCustomState<T>(
+    threadId: string,
+    key: string,
+  ): Promise<T | undefined> {
     return this.store.getCustomState<T>(threadId, key);
   }
 
@@ -124,22 +148,32 @@ export class StateService {
       message,
       createdAt: new Date(),
     });
-    this.logger.debug(`Added pending confirmation: ${id} for action: ${actionName}`);
+    this.logger.debug(
+      `Added pending confirmation: ${id} for action: ${actionName}`,
+    );
     return id;
   }
 
-  async resolvePendingConfirmation(threadId: string, confirmationId: string): Promise<boolean> {
+  async resolvePendingConfirmation(
+    threadId: string,
+    confirmationId: string,
+  ): Promise<boolean> {
     return this.store.removePendingConfirmation(threadId, confirmationId);
   }
 
-  async getPendingConfirmations(threadId: string): Promise<AgentState['pendingConfirmations']> {
+  async getPendingConfirmations(
+    threadId: string,
+  ): Promise<AgentState['pendingConfirmations']> {
     const state = await this.store.getAgentState(threadId);
     return state.pendingConfirmations;
   }
 
   // Snapshot
 
-  async getSnapshot(threadId: string, runId?: string): Promise<StateSnapshot | undefined> {
+  async getSnapshot(
+    threadId: string,
+    runId?: string,
+  ): Promise<StateSnapshot | undefined> {
     return this.store.getSnapshot(threadId, runId);
   }
 }

@@ -1,9 +1,21 @@
 import { z } from 'zod';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 const parameters = z.object({
-  query: z.string().describe('Search query. Supports operators: "exact match", -exclude, site:domain.com, filetype:pdf'),
-  maxResults: z.number().optional().default(5).describe('Number of results (1-20)'),
+  query: z
+    .string()
+    .describe(
+      'Search query. Supports operators: "exact match", -exclude, site:domain.com, filetype:pdf',
+    ),
+  maxResults: z
+    .number()
+    .optional()
+    .default(5)
+    .describe('Number of results (1-20)'),
   freshness: z
     .enum(['24h', '7d', '31d', '1y', 'any'])
     .optional()
@@ -64,7 +76,8 @@ export class WebSearchTool implements Tool<typeof parameters> {
     if (!this.apiKey) {
       return {
         success: false,
-        error: 'No search API configured. Set BRAVE_SEARCH_API_KEY to enable web search.',
+        error:
+          'No search API configured. Set BRAVE_SEARCH_API_KEY to enable web search.',
       };
     }
 

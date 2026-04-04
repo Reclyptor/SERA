@@ -1,6 +1,13 @@
 import { z } from 'zod';
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
-import type { AgentPlan, AgentStep } from '../../orchestration/orchestration.interfaces';
+import type {
+  Tool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
+import type {
+  AgentPlan,
+  AgentStep,
+} from '../../orchestration/orchestration.interfaces';
 
 /**
  * Self-referential planning tools that allow the agent to create, update,
@@ -89,7 +96,10 @@ export class UpdateStepTool implements Tool<typeof updateStepParams> {
   ): Promise<ToolExecutionResult> {
     const plan = this.planStore.get(context.runId);
     if (!plan) {
-      return { success: false, error: 'No plan exists for this run. Create one first.' };
+      return {
+        success: false,
+        error: 'No plan exists for this run. Create one first.',
+      };
     }
 
     const step = plan.steps.find((s) => s.id === args.stepId);
@@ -129,7 +139,9 @@ const evaluateProgressParams = z.object({
     .describe('Optional self-assessment of current progress'),
 });
 
-export class EvaluateProgressTool implements Tool<typeof evaluateProgressParams> {
+export class EvaluateProgressTool implements Tool<
+  typeof evaluateProgressParams
+> {
   readonly name = 'evaluate_progress';
   readonly description =
     'Evaluate current plan progress. Returns step statuses and completion percentage.';

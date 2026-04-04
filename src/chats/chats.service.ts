@@ -8,7 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
-import { Chat, ChatDocument } from './chat.schema';
+import { Chat, ChatDocument, Message } from './chat.schema';
 import { CreateChatDto } from './create-chat.dto';
 import { UpdateChatDto } from './update-chat.dto';
 
@@ -46,7 +46,9 @@ export class ChatsService {
     } catch (error) {
       this.logger.error('Failed to generate title:', error);
       // Fallback to first 50 chars of message
-      return firstMessage.slice(0, 50) + (firstMessage.length > 50 ? '...' : '');
+      return (
+        firstMessage.slice(0, 50) + (firstMessage.length > 50 ? '...' : '')
+      );
     }
   }
 
@@ -114,6 +116,42 @@ export class ChatsService {
       createdAt: m.createdAt ?? new Date(),
     }));
     return chat.save();
+  }
+
+  async createWithUserMessage(
+    userID: string,
+    message: Message,
+  ): Promise<ChatDocument> {
+    const chat = new this.chatModel({
+      userID,
+      title: 'New Chat',
+      messages: [message],
+    });
+    const saved = await chat.save();
+
+    this.generateTitle(message.content)
+      .then((title) =>
+        this.chatModel.findByIdAndUpdate(saved._id, { title }).exec(),
+      )
+      .catch((err) => this.logger.error('Failed to update chat title:', err));
+
+    return saved;
+  }
+
+  async appendMessage(chatID: string, message: Message): Promise<void> {
+    await this.chatModel
+      .findByIdAndUpdate(chatID, {
+        $push: { messages: message },
+      })
+      .exec();
+  }
+
+  async loadConversationHistory(
+    chatID: string,
+  ): Promise<{ role: string; content: string }[]> {
+    const chat = await this.chatModel.findById(chatID).exec();
+    if (!chat) return [];
+    return chat.messages.map((m) => ({ role: m.role, content: m.content }));
   }
 
   async remove(chatID: string, userID: string): Promise<void> {

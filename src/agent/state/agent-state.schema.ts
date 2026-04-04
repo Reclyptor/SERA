@@ -21,7 +21,8 @@ export class PendingConfirmation {
   createdAt: Date;
 }
 
-export const PendingConfirmationSchema = SchemaFactory.createForClass(PendingConfirmation);
+export const PendingConfirmationSchema =
+  SchemaFactory.createForClass(PendingConfirmation);
 
 @Schema({ timestamps: true })
 export class AgentState {

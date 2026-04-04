@@ -90,7 +90,9 @@ export class PromptsService {
   /**
    * List all prompts (without content, for overview).
    */
-  async list(): Promise<Pick<Prompt, 'slug' | 'metadata' | 'createdAt' | 'updatedAt'>[]> {
+  async list(): Promise<
+    Pick<Prompt, 'slug' | 'metadata' | 'createdAt' | 'updatedAt'>[]
+  > {
     return this.promptModel
       .find()
       .select('slug metadata createdAt updatedAt')
