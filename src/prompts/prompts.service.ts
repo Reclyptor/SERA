@@ -57,7 +57,7 @@ export class PromptsService {
       .findOneAndUpdate(
         { slug },
         { content, ...(metadata && { metadata }) },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       )
       .exec();
 

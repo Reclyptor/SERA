@@ -89,7 +89,7 @@ export class StateStore {
     const thread = await this.threadModel.findOneAndUpdate(
       { threadId, 'toolCalls.id': toolCallId },
       { $set: updateFields },
-      { new: true },
+      { returnDocument: 'after' },
     ).exec();
 
     if (!thread) return undefined;
@@ -121,7 +121,7 @@ export class StateStore {
     const run = await this.runModel.findOneAndUpdate(
       { runId },
       { $set: update },
-      { new: true },
+      { returnDocument: 'after' },
     ).exec();
     return run ? this.toRunState(run) : undefined;
   }
@@ -144,7 +144,7 @@ export class StateStore {
     const state = await this.agentStateModel.findOneAndUpdate(
       { threadId },
       { $set: update },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     ).exec();
     return this.toAgentState(state!);
   }
