@@ -14,6 +14,12 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
+  @Prop()
+  thinking?: string;
+
+  @Prop()
+  thinkingDuration?: number;
+
   @Prop({ default: Date.now })
   createdAt: Date;
 }
