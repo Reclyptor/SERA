@@ -12,7 +12,6 @@ const ALLOWED_COLLECTIONS = new Set([
   'threads',
   'runs',
   'agentstates',
-  'memories',
 ]);
 
 const parameters = z.object({
