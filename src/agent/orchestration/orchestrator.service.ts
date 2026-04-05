@@ -150,7 +150,9 @@ export class OrchestratorService {
           messages.push({ role: 'user', content: 'Continue.' });
         }
 
-        // Execute with tools — stream for real-time thinking/text deltas
+        let accumulatedReasoning = '';
+        let accumulatedText = '';
+
         const streamResult = this.modelRouter.stream({
           messages,
           tools,
@@ -158,53 +160,60 @@ export class OrchestratorService {
           stopSteps: cfg.maxSteps,
           options: goal.modelOptions,
           abortSignal: abortController.signal,
-          onChunk: ({ chunk }) => {
-            if (chunk.type === 'reasoning-delta') {
-              if (thinkingStartTime === null) {
-                thinkingStartTime = Date.now();
-              }
-              this.emitEvent(runId, threadId, 'thinking.delta', {
-                content: String(chunk.text),
-              } satisfies ThinkingDeltaData);
-            } else if (chunk.type === 'text-delta') {
-              this.emitEvent(runId, threadId, 'text.delta', {
-                content: String(chunk.text),
-              } satisfies TextDeltaData);
-            } else if (chunk.type === 'tool-call') {
-              this.emitEvent(runId, threadId, 'tool_call.started', {
-                toolCallId: String(chunk.toolCallId),
-                toolName: String(chunk.toolName),
-                args: (chunk.input ?? {}) as Record<string, unknown>,
-              } satisfies ToolCallStartedData);
-            }
-          },
         });
 
-        const [text, reasoningText, steps, streamResponse] = await Promise.all([
-          streamResult.text,
-          streamResult.reasoningText,
+        for await (const part of streamResult.fullStream) {
+          switch (part.type) {
+            case 'reasoning-start':
+              thinkingStartTime = Date.now();
+              break;
+            case 'reasoning-delta':
+              accumulatedReasoning += part.text;
+              this.emitEvent(runId, threadId, 'thinking.delta', {
+                content: part.text,
+              } satisfies ThinkingDeltaData);
+              break;
+            case 'reasoning-end':
+              if (thinkingStartTime !== null) {
+                lastThinkingDuration = Math.round(
+                  (Date.now() - thinkingStartTime) / 1000,
+                );
+                thinkingStartTime = null;
+              }
+              this.emitEvent(runId, threadId, 'thinking.done', {
+                content: accumulatedReasoning,
+              } satisfies ThinkingDoneData);
+              break;
+            case 'text-delta':
+              accumulatedText += part.text;
+              this.emitEvent(runId, threadId, 'text.delta', {
+                content: part.text,
+              } satisfies TextDeltaData);
+              break;
+            case 'tool-call':
+              this.emitEvent(runId, threadId, 'tool_call.started', {
+                toolCallId: String(part.toolCallId),
+                toolName: String(part.toolName),
+                args: (part.input ?? {}) as Record<string, unknown>,
+              } satisfies ToolCallStartedData);
+              break;
+          }
+        }
+
+        if (accumulatedReasoning) {
+          lastReasoningText = accumulatedReasoning;
+        }
+
+        if (accumulatedText) {
+          this.emitEvent(runId, threadId, 'text.done', {
+            content: accumulatedText,
+          } satisfies TextDoneData);
+        }
+
+        const [steps, streamResponse] = await Promise.all([
           streamResult.steps,
           streamResult.response,
         ]);
-
-        if (reasoningText) {
-          lastReasoningText = reasoningText;
-          if (thinkingStartTime !== null) {
-            lastThinkingDuration = Math.round(
-              (Date.now() - thinkingStartTime) / 1000,
-            );
-            thinkingStartTime = null;
-          }
-          this.emitEvent(runId, threadId, 'thinking.done', {
-            content: reasoningText,
-          } satisfies ThinkingDoneData);
-        }
-
-        if (text) {
-          this.emitEvent(runId, threadId, 'text.done', {
-            content: text,
-          } satisfies TextDoneData);
-        }
 
         // Track tool calls in state
         const hadToolCalls = steps.some((s) => s.toolCalls.length > 0);
@@ -231,10 +240,10 @@ export class OrchestratorService {
         }
 
         // 6. Evaluation phase — skip when no tools were called (pure conversational turn)
-        if (cfg.evaluationEnabled && text && hadToolCalls) {
+        if (cfg.evaluationEnabled && accumulatedText && hadToolCalls) {
           const evaluation = await this.evaluateResult(
             goal,
-            text,
+            accumulatedText,
             plan,
             systemPrompt,
             abortController.signal,
@@ -251,7 +260,7 @@ export class OrchestratorService {
               executionComplete = true;
               await this.completeRun(
                 goal,
-                evaluation.response ?? text,
+                evaluation.response ?? accumulatedText,
                 lastReasoningText,
                 lastThinkingDuration,
               );
@@ -288,7 +297,7 @@ export class OrchestratorService {
               executionComplete = true;
               await this.completeRun(
                 goal,
-                evaluation.followUpQuestion ?? text,
+                evaluation.followUpQuestion ?? accumulatedText,
                 lastReasoningText,
                 lastThinkingDuration,
               );
@@ -299,7 +308,7 @@ export class OrchestratorService {
           executionComplete = true;
           await this.completeRun(
             goal,
-            text,
+            accumulatedText,
             lastReasoningText,
             lastThinkingDuration,
           );

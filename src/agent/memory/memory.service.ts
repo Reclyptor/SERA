@@ -378,11 +378,28 @@ Return only the JSON array, nothing else:`,
     if (!textBlock || textBlock.type !== 'text') return [];
 
     try {
-      const facts = JSON.parse(textBlock.text) as string[];
+      let raw = textBlock.text.trim();
+      // Strip markdown code fences if the model wrapped its response
+      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        raw = fenceMatch[1].trim();
+      }
+      // Extract the JSON array even if surrounded by extra text
+      const arrayMatch = raw.match(/\[[\s\S]*\]/);
+      if (!arrayMatch) {
+        this.logger.warn(
+          `No JSON array found in extraction response: ${raw.slice(0, 200)}`,
+        );
+        return [];
+      }
+
+      const facts = JSON.parse(arrayMatch[0]) as string[];
+      if (!Array.isArray(facts)) return [];
+
       const memories: MemoryEntry[] = [];
 
       for (const fact of facts) {
-        if (fact && fact.trim()) {
+        if (typeof fact === 'string' && fact.trim()) {
           const memory = await this.add(userId, fact.trim(), {
             metadata: { source: 'conversation_extraction' },
             tags: ['auto-extracted'],
@@ -395,8 +412,11 @@ Return only the JSON array, nothing else:`,
         `Extracted ${memories.length} memories for user ${userId}`,
       );
       return memories;
-    } catch {
-      this.logger.warn('Failed to parse extracted facts');
+    } catch (err) {
+      this.logger.warn(
+        'Failed to parse extracted facts:',
+        err instanceof Error ? err.message : err,
+      );
       return [];
     }
   }
