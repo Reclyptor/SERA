@@ -17,6 +17,7 @@ import type { Request } from 'express';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
 import { StateService } from './state/state.service';
+import { AgentRouterService } from '../agents/agent-router.service';
 import { ImageStorage } from './storage/image.storage';
 import { ChatsService } from '../chats/chats.service';
 import type { UploadImageResponseDto } from './upload-image.dto';
@@ -27,6 +28,7 @@ interface ChatRequestBody {
   message: string;
   chatId?: string;
   threadId?: string;
+  agentId?: string;
   config?: Partial<OrchestratorConfig>;
 }
 
@@ -44,6 +46,7 @@ export class AgentController {
     private readonly orchestrator: OrchestratorService,
     private readonly eventEmitter: AgentEventEmitter,
     private readonly stateService: StateService,
+    private readonly agentRouter: AgentRouterService,
     private readonly imageStorage: ImageStorage,
     private readonly chatsService: ChatsService,
   ) {}
@@ -85,6 +88,10 @@ export class AgentController {
       chatId = String(chat._id);
     }
 
+    const agentId =
+      body.agentId ??
+      (await this.agentRouter.resolve({ userId, chatId, threadId }));
+
     this.orchestrator
       .executeGoal(
         {
@@ -92,6 +99,7 @@ export class AgentController {
           runId,
           userId,
           chatId,
+          agentId: agentId ?? undefined,
           userMessage: body.message,
           conversationHistory: [],
         },

@@ -6,9 +6,11 @@ export interface AgentGoal {
   runId: string;
   userId: string;
   chatId?: string;
+  agentId?: string;
   userMessage: string;
   conversationHistory: CoreMessage[];
   modelOptions?: ModelRequestOptions;
+  isHeartbeat?: boolean;
 }
 
 export interface OrchestratorConfig {

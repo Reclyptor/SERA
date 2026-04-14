@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ToolSet } from 'ai';
-import { ToolsRegistry } from './tools.registry';
+import { ToolsRegistry, ToolPolicyFilter } from './tools.registry';
 import {
   Tool,
   ToolExecutionContext,
@@ -23,6 +23,20 @@ export class ToolsService {
    */
   getToolSet(context: ToolExecutionContext): ToolSet {
     return this.registry.toAISDKToolSet(context);
+  }
+
+  /**
+   * Get a filtered ToolSet based on an agent's tool policy.
+   */
+  getFilteredToolSet(
+    context: ToolExecutionContext,
+    policy: ToolPolicyFilter,
+  ): ToolSet {
+    return this.registry.toFilteredToolSet(context, policy);
+  }
+
+  getAllToolNames(): string[] {
+    return this.registry.getAllNames();
   }
 
   async executeTool(

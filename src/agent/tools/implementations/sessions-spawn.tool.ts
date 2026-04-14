@@ -26,6 +26,10 @@ const parameters = z.object({
     .string()
     .optional()
     .describe('Goal or purpose for the new session'),
+  agentId: z
+    .string()
+    .optional()
+    .describe('Agent ID to route this session to a specific agent configuration'),
   metadata: z
     .record(z.unknown())
     .optional()
@@ -44,7 +48,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { goal, metadata } = args;
+    const { goal, agentId, metadata } = args;
     const threadId = randomUUID();
 
     try {
@@ -58,6 +62,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
           runId: run.runId,
           status: run.status,
           goal,
+          agentId,
           metadata,
           createdAt: thread.createdAt,
         },

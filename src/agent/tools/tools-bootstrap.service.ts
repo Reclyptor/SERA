@@ -6,6 +6,7 @@ import { ToolsService } from './tools.service';
 import { MemoryService } from '../memory/memory.service';
 import { StateService } from '../state/state.service';
 import { ChatsService } from '../../chats/chats.service';
+import { AgentsService } from '../../agents/agents.service';
 import {
   ReadTool,
   WriteTool,
@@ -45,6 +46,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly memoryService: MemoryService,
     private readonly stateService: StateService,
     private readonly chatsService: ChatsService,
+    private readonly agentsService: AgentsService,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
@@ -107,7 +109,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new SessionsSpawnTool(this.stateService));
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
     this.toolsService.registerTool(new SubagentsTool(this.connection));
-    this.toolsService.registerTool(new AgentsListTool());
+    this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
     this.logger.log(
       `Registered 26 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,

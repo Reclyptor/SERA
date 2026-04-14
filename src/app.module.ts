@@ -4,6 +4,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AgentModule } from './agent/agent.module';
+import { AgentsModule } from './agents/agents.module';
+import { SkillsModule } from './agent/skills/skills.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session.guard';
 import { RedisModule } from './redis/redis.module';
@@ -25,6 +27,8 @@ import { PromptsModule } from './prompts/prompts.module';
     RedisModule,
     AuthModule,
     AgentModule,
+    AgentsModule,
+    SkillsModule,
     ChatsModule,
     PromptsModule,
   ],

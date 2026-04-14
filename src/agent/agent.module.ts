@@ -5,9 +5,11 @@ import { ImageStorage } from './storage/image.storage';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { StateModule } from './state/state.module';
 import { ChatsModule } from '../chats/chats.module';
+import { AgentsModule } from '../agents/agents.module';
+import { HeartbeatModule } from './heartbeat/heartbeat.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule, ChatsModule],
+  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

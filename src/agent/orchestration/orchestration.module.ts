@@ -10,6 +10,8 @@ import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 import { TemporalModule } from '../temporal/temporal.module';
 import { ChatsModule } from '../../chats/chats.module';
+import { AgentsModule } from '../../agents/agents.module';
+import { SkillsModule } from '../skills/skills.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { ChatsModule } from '../../chats/chats.module';
     PromptsModule,
     TemporalModule,
     ChatsModule,
+    AgentsModule,
+    SkillsModule,
   ],
   providers: [OrchestratorService],
   exports: [OrchestratorService, StreamingModule],

@@ -5,24 +5,29 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 
-const ALL_TOOLS = [
-  'read', 'write', 'edit', 'apply_patch',
-  'exec', 'bash', 'process', 'code_execution',
-  'web_search', 'web_fetch', 'x_search', 'browser',
-  'image', 'image_generate', 'tts',
-  'memory_search', 'memory_get',
-  'message',
-  'cron',
-  'sessions_list', 'sessions_history', 'sessions_send', 'sessions_spawn',
-  'session_status', 'subagents', 'agents_list',
-];
+export interface AgentsServiceLike {
+  findAll(): Promise<
+    Array<{
+      agentId: string;
+      name: string;
+      description: string;
+      enabled: boolean;
+      toolPolicy: { mode: string; tools: string[] };
+    }>
+  >;
+}
 
 const parameters = z.object({
   includeTools: z
     .boolean()
     .optional()
     .default(false)
-    .describe('Whether to include the list of available tools for each agent'),
+    .describe('Whether to include tool policy details for each agent'),
+  enabledOnly: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe('Only show enabled agents'),
 });
 
 export class AgentsListTool implements Tool<typeof parameters> {
@@ -31,31 +36,38 @@ export class AgentsListTool implements Tool<typeof parameters> {
     'List available agent configurations and their capabilities.';
   readonly parameters = parameters;
 
+  constructor(private readonly agentsService: AgentsServiceLike) {}
+
   async execute(
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const agents = [
-      {
-        id: 'default',
-        name: 'SERA Agent',
-        description: 'General-purpose AI assistant with tool access',
-        status: 'available',
-        capabilities: [
-          'web_search',
-          'web_fetch',
-          'file_operations',
-          'code_execution',
-          'memory',
-          'planning',
-        ],
-        ...(args.includeTools && { tools: ALL_TOOLS }),
-      },
-    ];
+    try {
+      let agents = await this.agentsService.findAll();
 
-    return {
-      success: true,
-      result: { agentCount: agents.length, agents },
-    };
+      if (args.enabledOnly) {
+        agents = agents.filter((a) => a.enabled);
+      }
+
+      const result = agents.map((a) => ({
+        agentId: a.agentId,
+        name: a.name,
+        description: a.description,
+        enabled: a.enabled,
+        ...(args.includeTools && {
+          toolPolicy: a.toolPolicy,
+        }),
+      }));
+
+      return {
+        success: true,
+        result: { agentCount: result.length, agents: result },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list agents',
+      };
+    }
   }
 }

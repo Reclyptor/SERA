@@ -8,6 +8,8 @@ import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { PromptsService } from '../../prompts/prompts.service';
+import { AgentsService } from '../../agents/agents.service';
+import { SkillsService } from '../skills/skills.service';
 import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';
@@ -28,6 +30,7 @@ import type {
 } from '../streaming/stream.interfaces';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
 import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
+import type { AgentConfig } from '../../agents/agent-config.schema';
 
 @Injectable()
 export class OrchestratorService {
@@ -45,6 +48,8 @@ export class OrchestratorService {
     private readonly promptsService: PromptsService,
     private readonly eventEmitter: AgentEventEmitter,
     private readonly chatsService: ChatsService,
+    private readonly agentsService: AgentsService,
+    private readonly skillsService: SkillsService,
   ) {}
 
   async executeGoal(
@@ -61,7 +66,15 @@ export class OrchestratorService {
       await this.stateService.getOrCreateThread(threadId);
       await this.stateService.startRun(threadId, runId);
 
-      const resolved = this.modelRouter.resolveModel(goal.modelOptions);
+      const agentConfig = goal.agentId
+        ? await this.agentsService.findById(goal.agentId)
+        : null;
+
+      const effectiveModelOptions = {
+        ...agentConfig?.modelOptions,
+        ...goal.modelOptions,
+      };
+      const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
       this.emitEvent(runId, threadId, 'run.started', {
         provider: resolved.provider,
         modelId: resolved.modelId,
@@ -71,10 +84,19 @@ export class OrchestratorService {
       const systemPrompt = await this.buildSystemPrompt(
         userId,
         goal.userMessage,
+        agentConfig,
       );
+
       const toolContext = { threadId, runId, userId };
+      const agentTools =
+        agentConfig?.toolPolicy && agentConfig.toolPolicy.tools.length > 0
+          ? this.toolsService.getFilteredToolSet(
+              toolContext,
+              agentConfig.toolPolicy,
+            )
+          : this.toolsService.getToolSet(toolContext);
       const tools = {
-        ...this.toolsService.getToolSet(toolContext),
+        ...agentTools,
         ...this.actionsService.getToolSet(toolContext),
       };
 
@@ -113,7 +135,7 @@ export class OrchestratorService {
           tools,
           system: systemPrompt,
           stopSteps: cfg.maxSteps,
-          options: goal.modelOptions,
+          options: effectiveModelOptions,
           abortSignal: abortController.signal,
         });
 
@@ -244,20 +266,30 @@ export class OrchestratorService {
   private async buildSystemPrompt(
     userId: string,
     query: string,
+    agentConfig?: AgentConfig | null,
   ): Promise<string> {
     let basePrompt: string;
-    try {
-      basePrompt =
-        (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
-    } catch (error) {
-      this.logger.warn(
-        'Failed to load system prompt from DB, using default:',
-        error,
-      );
-      basePrompt = DEFAULT_SYSTEM_PROMPT;
+
+    if (agentConfig?.systemPrompt) {
+      basePrompt = agentConfig.systemPrompt;
+    } else {
+      try {
+        basePrompt =
+          (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
+      } catch (error) {
+        this.logger.warn(
+          'Failed to load system prompt from DB, using default:',
+          error,
+        );
+        basePrompt = DEFAULT_SYSTEM_PROMPT;
+      }
     }
 
     const parts: string[] = [basePrompt];
+
+    if (agentConfig?.personality) {
+      parts.push(`## Identity\n${agentConfig.personality}`);
+    }
 
     try {
       const memoryContext = await this.memoryService.getContextForQuery(
@@ -282,6 +314,19 @@ export class OrchestratorService {
           this.knowledgeService.formatContextForPrompt(knowledgeContext),
         );
       }
+    } catch {
+      // Supplementary context — safe to skip
+    }
+
+    try {
+      const availableTools = this.toolsService.getAllToolNames();
+      const skills = await this.skillsService.findRelevant(
+        query,
+        agentConfig?.agentId,
+        availableTools,
+      );
+      const skillsPrompt = this.skillsService.formatForPrompt(skills);
+      if (skillsPrompt) parts.push(skillsPrompt);
     } catch {
       // Supplementary context — safe to skip
     }
@@ -318,16 +363,18 @@ export class OrchestratorService {
       response,
     } satisfies RunCompletedData);
 
-    const lastUserMsg = goal.userMessage;
-    if (lastUserMsg && response) {
-      this.memoryService
-        .extractAndStore(
-          userId,
-          `User: ${lastUserMsg}\n\nAssistant: ${response}`,
-        )
-        .catch((err) => {
-          this.logger.warn('Memory extraction failed:', err);
-        });
+    if (!goal.isHeartbeat) {
+      const lastUserMsg = goal.userMessage;
+      if (lastUserMsg && response) {
+        this.memoryService
+          .extractAndStore(
+            userId,
+            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
+          )
+          .catch((err) => {
+            this.logger.warn('Memory extraction failed:', err);
+          });
+      }
     }
   }
 
