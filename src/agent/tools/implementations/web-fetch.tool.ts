@@ -19,7 +19,7 @@ const parameters = z.object({
   body: z
     .union([z.string(), z.record(z.unknown())])
     .optional()
-    .describe('Request body (string or JSON object)'),
+    .describe('Request body'),
   timeoutMs: z
     .number()
     .optional()
@@ -27,10 +27,10 @@ const parameters = z.object({
     .describe('Timeout in milliseconds'),
 });
 
-export class HttpClientTool implements Tool<typeof parameters> {
-  readonly name = 'http_request';
+export class WebFetchTool implements Tool<typeof parameters> {
+  readonly name = 'web_fetch';
   readonly description =
-    'Make HTTP requests to external APIs and web endpoints. Supports GET, POST, PUT, PATCH, DELETE.';
+    'Fetch content from web URLs. Supports all HTTP methods with headers and body. Use for API calls and retrieving web page content.';
   readonly parameters = parameters;
 
   async execute(
@@ -39,7 +39,6 @@ export class HttpClientTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { url, method, headers, body, timeoutMs } = args;
 
-    // Validate URL
     const validation = validateUrl(url);
     if (!validation.valid) {
       return { success: false, error: validation.error };
@@ -65,7 +64,6 @@ export class HttpClientTool implements Tool<typeof parameters> {
         signal: AbortSignal.timeout(timeoutMs),
       });
 
-      // Read response with size limit
       const contentLength = response.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
         return {
@@ -81,12 +79,11 @@ export class HttpClientTool implements Tool<typeof parameters> {
       }
 
       const text = await response.text();
-      const responseBody =
-        text.length > MAX_RESPONSE_SIZE
-          ? text.slice(0, MAX_RESPONSE_SIZE) + '\n[...truncated]'
-          : text;
+      const truncated = text.length > MAX_RESPONSE_SIZE;
+      const responseBody = truncated
+        ? text.slice(0, MAX_RESPONSE_SIZE) + '\n[...truncated]'
+        : text;
 
-      // Try to parse as JSON
       let parsedBody: unknown = responseBody;
       try {
         parsedBody = JSON.parse(responseBody);
@@ -101,13 +98,13 @@ export class HttpClientTool implements Tool<typeof parameters> {
           statusText: response.statusText,
           headers: Object.fromEntries(response.headers),
           body: parsedBody,
-          truncated: text.length > MAX_RESPONSE_SIZE,
+          truncated,
         },
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'HTTP request failed',
+        error: error instanceof Error ? error.message : 'Fetch request failed',
       };
     }
   }

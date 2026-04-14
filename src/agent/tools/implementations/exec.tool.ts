@@ -7,14 +7,14 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 
-const MAX_OUTPUT_SIZE = 64 * 1024; // 64KB
+const MAX_OUTPUT_SIZE = 64 * 1024;
 
 const parameters = z.object({
   command: z.string().describe('Shell command to execute'),
   cwd: z
     .string()
     .optional()
-    .describe('Working directory (relative to workspace)'),
+    .describe('Working directory relative to workspace'),
   timeoutMs: z
     .number()
     .optional()
@@ -22,10 +22,10 @@ const parameters = z.object({
     .describe('Timeout in milliseconds'),
 });
 
-export class ShellExecTool implements Tool<typeof parameters> {
-  readonly name = 'shell_exec';
+export class ExecTool implements Tool<typeof parameters> {
+  readonly name = 'exec';
   readonly description =
-    'Execute shell commands in a sandboxed workspace. Dangerous commands are blocked.';
+    'Execute a shell command in the workspace. Dangerous commands are blocked for safety.';
   readonly parameters = parameters;
 
   constructor(
@@ -89,7 +89,6 @@ export class ShellExecTool implements Tool<typeof parameters> {
         },
       );
 
-      // Ensure child doesn't outlive the timeout
       setTimeout(() => {
         child.kill('SIGTERM');
       }, timeoutMs + 1000);
