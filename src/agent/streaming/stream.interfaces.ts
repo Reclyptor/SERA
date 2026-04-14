@@ -1,8 +1,3 @@
-import type {
-  AgentPlan,
-  AgentStep,
-} from '../orchestration/orchestration.interfaces';
-
 export type AgentEventType =
   | 'run.started'
   | 'run.completed'
@@ -15,9 +10,6 @@ export type AgentEventType =
   | 'tool_call.executing'
   | 'tool_call.result'
   | 'tool_call.error'
-  | 'plan.created'
-  | 'plan.step_updated'
-  | 'evaluation.done'
   | 'confirmation.required'
   | 'confirmation.resolved'
   | 'error';
@@ -29,8 +21,6 @@ export interface AgentEvent {
   timestamp: number;
   data: unknown;
 }
-
-// Event data shapes
 
 export interface RunStartedData {
   provider: string;
@@ -79,22 +69,6 @@ export interface ToolCallErrorData {
   toolCallId: string;
   toolName: string;
   error: string;
-}
-
-export interface PlanCreatedData {
-  plan: AgentPlan;
-}
-
-export interface PlanStepUpdatedData {
-  step: AgentStep;
-  stepIndex: number;
-  totalSteps: number;
-}
-
-export interface EvaluationDoneData {
-  goalAchieved: boolean;
-  reasoning: string;
-  nextAction: string;
 }
 
 export interface ConfirmationRequiredData {
