@@ -26,6 +26,11 @@ export class AgentsService {
       personality: dto.personality,
       modelOptions: dto.modelOptions,
       toolPolicy: dto.toolPolicy ?? { mode: 'deny', tools: [] },
+      workspaceDir: dto.workspaceDir,
+      messagingPolicy: dto.messagingPolicy ?? {
+        enabled: false,
+        allowedAgents: [],
+      },
       enabled: dto.enabled ?? true,
     });
     return agent.save();

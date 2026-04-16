@@ -28,6 +28,7 @@ export { MemoryGetTool } from './memory-get.tool';
 // Automation & messaging
 export { CronTool } from './cron.tool';
 export { MessageTool } from './message.tool';
+export { AgentMessageTool } from './agent-message.tool';
 
 // Sessions & agents
 export { SessionsListTool } from './sessions-list.tool';

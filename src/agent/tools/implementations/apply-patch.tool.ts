@@ -32,13 +32,17 @@ export class ApplyPatchTool implements Tool<typeof parameters> {
 
   constructor(private readonly workspaceDir: string) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { path: filePath, patch } = args;
 
-    const validation = validatePath(filePath, this.workspaceDir);
+    const validation = validatePath(filePath, this.resolveWorkspace(context));
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

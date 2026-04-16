@@ -35,9 +35,13 @@ export class BashTool implements Tool<typeof parameters> {
     private readonly enabled: boolean = false,
   ) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return {
@@ -54,7 +58,8 @@ export class BashTool implements Tool<typeof parameters> {
       return { success: false, error: validation.error };
     }
 
-    const workingDir = cwd ? `${this.workspaceDir}/${cwd}` : this.workspaceDir;
+    const workspace = this.resolveWorkspace(context);
+    const workingDir = cwd ? `${workspace}/${cwd}` : workspace;
 
     return new Promise((resolve) => {
       const child = exec(

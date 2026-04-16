@@ -40,9 +40,13 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
     private readonly enabled: boolean = false,
   ) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return {
@@ -54,7 +58,8 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
 
     const { language, code, timeoutMs } = args;
     const config = LANGUAGE_CONFIG[language];
-    const tmpDir = path.join(this.workspaceDir, '.tmp');
+    const workspace = this.resolveWorkspace(context);
+    const tmpDir = path.join(workspace, '.tmp');
     const filename = `exec_${randomUUID()}${config.ext}`;
     const filePath = path.join(tmpDir, filename);
 
@@ -66,7 +71,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
         const child = exec(
           `${config.runner} ${filePath}`,
           {
-            cwd: this.workspaceDir,
+            cwd: workspace,
             timeout: timeoutMs,
             maxBuffer: MAX_OUTPUT_SIZE,
             env: { ...process.env, PATH: process.env.PATH },

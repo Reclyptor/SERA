@@ -26,13 +26,17 @@ export class EditTool implements Tool<typeof parameters> {
 
   constructor(private readonly workspaceDir: string) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { path: filePath, old_text, new_text, all } = args;
 
-    const validation = validatePath(filePath, this.workspaceDir);
+    const validation = validatePath(filePath, this.resolveWorkspace(context));
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

@@ -36,9 +36,13 @@ export class ImageTool implements Tool<typeof parameters> {
     private readonly workspaceDir?: string,
   ) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string | undefined {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     if (!this.apiKey) {
       return {
@@ -51,7 +55,7 @@ export class ImageTool implements Tool<typeof parameters> {
     const { source, question } = args;
 
     try {
-      const imageUrl = await this.resolveImageUrl(source);
+      const imageUrl = await this.resolveImageUrl(source, context);
 
       const response = await fetch(
         'https://api.openai.com/v1/chat/completions',
@@ -103,18 +107,19 @@ export class ImageTool implements Tool<typeof parameters> {
     }
   }
 
-  private async resolveImageUrl(source: string): Promise<string> {
+  private async resolveImageUrl(source: string, context: ToolExecutionContext): Promise<string> {
     if (source.startsWith('http://') || source.startsWith('https://')) {
       return source;
     }
 
-    if (!this.workspaceDir) {
+    const workspace = this.resolveWorkspace(context);
+    if (!workspace) {
       throw new Error(
         'Workspace directory not configured for file-based image analysis',
       );
     }
 
-    const validation = validatePath(source, this.workspaceDir);
+    const validation = validatePath(source, workspace);
     if (!validation.valid) {
       throw new Error(validation.error);
     }

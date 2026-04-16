@@ -10,6 +10,11 @@ export class ModelOptionsDto {
   temperature?: number;
 }
 
+export class MessagingPolicyDto {
+  enabled?: boolean;
+  allowedAgents?: string[];
+}
+
 export class CreateAgentDto {
   agentId: string;
   name: string;
@@ -18,6 +23,8 @@ export class CreateAgentDto {
   personality?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
+  workspaceDir?: string;
+  messagingPolicy?: MessagingPolicyDto;
   enabled?: boolean;
 }
 
@@ -28,5 +35,7 @@ export class UpdateAgentDto {
   personality?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
+  workspaceDir?: string;
+  messagingPolicy?: MessagingPolicyDto;
   enabled?: boolean;
 }

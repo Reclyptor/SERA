@@ -4,6 +4,8 @@ export interface ToolExecutionContext {
   threadId: string;
   runId: string;
   userId?: string;
+  agentId?: string;
+  workspaceDir?: string;
   metadata?: Record<string, unknown>;
 }
 

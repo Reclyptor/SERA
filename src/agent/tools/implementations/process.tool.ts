@@ -46,13 +46,17 @@ export class ProcessTool implements Tool<typeof parameters> {
     private readonly enabled: boolean = false,
   ) {}
 
+  private resolveWorkspace(context: ToolExecutionContext): string {
+    return context.workspaceDir ?? this.workspaceDir;
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     switch (args.operation) {
       case 'start':
-        return this.start(args.command);
+        return this.start(args.command, context);
       case 'list':
         return this.list();
       case 'output':
@@ -62,7 +66,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     }
   }
 
-  private async start(command?: string): Promise<ToolExecutionResult> {
+  private async start(command: string | undefined, context: ToolExecutionContext): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return {
         success: false,
@@ -83,7 +87,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     const processId = randomUUID();
     const child = spawn(command, {
       shell: true,
-      cwd: this.workspaceDir,
+      cwd: this.resolveWorkspace(context),
       env: { ...process.env, PATH: process.env.PATH },
     });
 

@@ -87,7 +87,13 @@ export class OrchestratorService {
         agentConfig,
       );
 
-      const toolContext = { threadId, runId, userId };
+      const toolContext = {
+        threadId,
+        runId,
+        userId,
+        agentId: goal.agentId,
+        workspaceDir: agentConfig?.workspaceDir,
+      };
       const agentTools =
         agentConfig?.toolPolicy && agentConfig.toolPolicy.tools.length > 0
           ? this.toolsService.getFilteredToolSet(

@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import { ToolsService } from './tools.service';
@@ -27,6 +28,7 @@ import {
   MemoryGetTool,
   CronTool,
   MessageTool,
+  AgentMessageTool,
   SessionsListTool,
   SessionsHistoryTool,
   SessionsSendTool,
@@ -47,6 +49,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly stateService: StateService,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
+    private readonly moduleRef: ModuleRef,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
@@ -100,6 +103,18 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new CronTool());
     this.toolsService.registerTool(new MessageTool(this.chatsService));
 
+    // Agent-to-agent messaging (orchestrator resolved lazily to avoid circular deps)
+    const lazyOrchestrator: import('./implementations/agent-message.tool').OrchestratorLike = {
+      executeGoal: (goal, config) => {
+        const { OrchestratorService } = require('../orchestration/orchestrator.service');
+        const orchestrator = this.moduleRef.get(OrchestratorService, { strict: false });
+        return orchestrator.executeGoal(goal, config);
+      },
+    };
+    this.toolsService.registerTool(
+      new AgentMessageTool(this.agentsService, lazyOrchestrator),
+    );
+
     // Sessions & agents
     this.toolsService.registerTool(new SessionsListTool(this.connection));
     this.toolsService.registerTool(
@@ -112,7 +127,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
     this.logger.log(
-      `Registered 26 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 27 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 }

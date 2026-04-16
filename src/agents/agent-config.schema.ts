@@ -31,6 +31,18 @@ export class ModelOptions {
 
 export const ModelOptionsSchema = SchemaFactory.createForClass(ModelOptions);
 
+@Schema()
+export class MessagingPolicy {
+  @Prop({ default: false })
+  enabled: boolean;
+
+  @Prop({ type: [String], default: [] })
+  allowedAgents: string[];
+}
+
+export const MessagingPolicySchema =
+  SchemaFactory.createForClass(MessagingPolicy);
+
 @Schema({ timestamps: true })
 export class AgentConfig {
   @Prop({ required: true, unique: true, index: true })
@@ -53,6 +65,15 @@ export class AgentConfig {
 
   @Prop({ type: ToolPolicySchema, default: { mode: 'deny', tools: [] } })
   toolPolicy: ToolPolicy;
+
+  @Prop()
+  workspaceDir?: string;
+
+  @Prop({
+    type: MessagingPolicySchema,
+    default: { enabled: false, allowedAgents: [] },
+  })
+  messagingPolicy: MessagingPolicy;
 
   @Prop({ default: true })
   enabled: boolean;
