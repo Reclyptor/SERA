@@ -92,6 +92,12 @@ export class AgentController {
       body.agentId ??
       (await this.agentRouter.resolve({ userId, chatId, threadId }));
 
+    if (!agentId) {
+      throw new BadRequestException(
+        'No agent could be resolved. Ensure a default agent binding exists.',
+      );
+    }
+
     this.orchestrator
       .executeGoal(
         {
@@ -99,7 +105,7 @@ export class AgentController {
           runId,
           userId,
           chatId,
-          agentId: agentId ?? undefined,
+          agentId,
           userMessage: body.message,
           conversationHistory: [],
         },

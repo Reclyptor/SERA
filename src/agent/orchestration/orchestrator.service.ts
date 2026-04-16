@@ -66,12 +66,10 @@ export class OrchestratorService {
       await this.stateService.getOrCreateThread(threadId);
       await this.stateService.startRun(threadId, runId);
 
-      const agentConfig = goal.agentId
-        ? await this.agentsService.findById(goal.agentId)
-        : null;
+      const agentConfig = await this.agentsService.findByIdOrThrow(goal.agentId);
 
       const effectiveModelOptions = {
-        ...agentConfig?.modelOptions,
+        ...agentConfig.modelOptions,
         ...goal.modelOptions,
       };
       const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
@@ -92,10 +90,10 @@ export class OrchestratorService {
         runId,
         userId,
         agentId: goal.agentId,
-        workspaceDir: agentConfig?.workspaceDir,
+        workspaceDir: agentConfig.workspaceDir,
       };
       const agentTools =
-        agentConfig?.toolPolicy && agentConfig.toolPolicy.tools.length > 0
+        agentConfig.toolPolicy.tools.length > 0
           ? this.toolsService.getFilteredToolSet(
               toolContext,
               agentConfig.toolPolicy,
@@ -272,11 +270,11 @@ export class OrchestratorService {
   private async buildSystemPrompt(
     userId: string,
     query: string,
-    agentConfig?: AgentConfig | null,
+    agentConfig: AgentConfig,
   ): Promise<string> {
     let basePrompt: string;
 
-    if (agentConfig?.systemPrompt) {
+    if (agentConfig.systemPrompt) {
       basePrompt = agentConfig.systemPrompt;
     } else {
       try {
@@ -293,7 +291,7 @@ export class OrchestratorService {
 
     const parts: string[] = [basePrompt];
 
-    if (agentConfig?.personality) {
+    if (agentConfig.personality) {
       parts.push(`## Identity\n${agentConfig.personality}`);
     }
 
@@ -328,7 +326,7 @@ export class OrchestratorService {
       const availableTools = this.toolsService.getAllToolNames();
       const skills = await this.skillsService.findRelevant(
         query,
-        agentConfig?.agentId,
+        agentConfig.agentId,
         availableTools,
       );
       const skillsPrompt = this.skillsService.formatForPrompt(skills);

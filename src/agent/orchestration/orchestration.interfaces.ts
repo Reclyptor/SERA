@@ -6,7 +6,7 @@ export interface AgentGoal {
   runId: string;
   userId: string;
   chatId?: string;
-  agentId?: string;
+  agentId: string;
   userMessage: string;
   conversationHistory: CoreMessage[];
   modelOptions?: ModelRequestOptions;

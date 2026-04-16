@@ -23,7 +23,7 @@ export interface OrchestratorLike {
       threadId: string;
       runId: string;
       userId: string;
-      agentId?: string;
+      agentId: string;
       userMessage: string;
       conversationHistory: unknown[];
     },
@@ -62,13 +62,6 @@ export class AgentMessageTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { targetAgentId, message, maxSteps } = args;
     const senderAgentId = context.agentId;
-
-    if (!senderAgentId) {
-      return {
-        success: false,
-        error: 'Agent messaging requires an agent context. This run has no associated agent.',
-      };
-    }
 
     const sender = await this.agentsService.findById(senderAgentId);
     if (!sender) {

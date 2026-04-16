@@ -4,6 +4,7 @@ import { AgentConfig, AgentConfigSchema } from './agent-config.schema';
 import { AgentBinding, AgentBindingSchema } from './agent-binding.schema';
 import { AgentsService } from './agents.service';
 import { AgentRouterService } from './agent-router.service';
+import { AgentsBootstrapService } from './agents-bootstrap.service';
 import { AgentsController } from './agents.controller';
 
 @Module({
@@ -14,7 +15,7 @@ import { AgentsController } from './agents.controller';
     ]),
   ],
   controllers: [AgentsController],
-  providers: [AgentsService, AgentRouterService],
+  providers: [AgentsService, AgentRouterService, AgentsBootstrapService],
   exports: [AgentsService, AgentRouterService],
 })
 export class AgentsModule {}
