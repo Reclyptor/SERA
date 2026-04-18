@@ -28,6 +28,13 @@ export interface SpawnRouterLike {
   }): Promise<string | null>;
 }
 
+export interface SpawnRunReaderLike {
+  getRunResponse(runId: string): Promise<{
+    status: string;
+    response?: string;
+  } | null>;
+}
+
 const parameters = z.object({
   goal: z
     .string()
@@ -46,24 +53,35 @@ const parameters = z.object({
     .optional()
     .default(2)
     .describe('Max outer loop iterations for the spawned run'),
+  waitForResult: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('If true, block until the spawned run completes and return its response. If false, return immediately with the runId.'),
+  timeoutMs: z
+    .number()
+    .optional()
+    .default(120_000)
+    .describe('Timeout in ms when waitForResult is true (default: 120000)'),
 });
 
 export class SessionsSpawnTool implements Tool<typeof parameters> {
   readonly name = 'sessions_spawn';
   readonly description =
-    'Spawn a new agent session that executes a goal autonomously. Returns immediately with the runId — use the subagents tool to poll for status and retrieve the response.';
+    'Spawn a new agent session that executes a goal autonomously. Set waitForResult=true to block until it completes, or false to get a runId for polling via subagents.';
   readonly parameters = parameters;
 
   constructor(
     private readonly orchestrator: SpawnOrchestratorLike,
     private readonly router: SpawnRouterLike,
+    private readonly runReader: SpawnRunReaderLike,
   ) {}
 
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { goal, maxSteps, maxIterations } = args;
+    const { goal, maxSteps, maxIterations, waitForResult, timeoutMs } = args;
     const threadId = randomUUID();
     const runId = randomUUID();
 
@@ -81,29 +99,57 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
       };
     }
 
-    this.orchestrator
-      .executeGoal(
-        {
-          threadId,
-          runId,
-          userId: context.userId ?? `spawn:${context.agentId}`,
-          agentId,
-          userMessage: goal,
-          conversationHistory: [],
-        },
-        { maxSteps, maxIterations },
-      )
-      .catch(() => {});
+    const goalPromise = this.orchestrator.executeGoal(
+      {
+        threadId,
+        runId,
+        userId: context.userId ?? `spawn:${context.agentId}`,
+        agentId,
+        userMessage: goal,
+        conversationHistory: [],
+      },
+      { maxSteps, maxIterations },
+    );
+
+    const baseResult = { threadId, runId, agentId, goal };
+
+    if (waitForResult) {
+      try {
+        await Promise.race([
+          goalPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), timeoutMs),
+          ),
+        ]);
+
+        const run = await this.runReader.getRunResponse(runId);
+        return {
+          success: true,
+          result: {
+            ...baseResult,
+            status: run?.status ?? 'completed',
+            response: run?.response ?? null,
+          },
+        };
+      } catch (err) {
+        if (err instanceof Error && err.message === 'timeout') {
+          return {
+            success: true,
+            result: { ...baseResult, status: 'running', timedOut: true },
+          };
+        }
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Spawn failed',
+        };
+      }
+    }
+
+    goalPromise.catch(() => {});
 
     return {
       success: true,
-      result: {
-        threadId,
-        runId,
-        agentId,
-        goal,
-        status: 'spawned',
-      },
+      result: { ...baseResult, status: 'spawned' },
     };
   }
 }

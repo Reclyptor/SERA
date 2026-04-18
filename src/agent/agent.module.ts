@@ -9,9 +9,10 @@ import { AgentsModule } from '../agents/agents.module';
 import { HeartbeatModule } from './heartbeat/heartbeat.module';
 import { CronModule } from './cron/cron.module';
 import { TasksModule } from './tasks/tasks.module';
+import { TriggersModule } from './triggers/triggers.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule],
+  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

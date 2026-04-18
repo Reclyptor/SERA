@@ -31,6 +31,13 @@ export interface OrchestratorLike {
   ): Promise<void>;
 }
 
+export interface RunReaderLike {
+  getRunResponse(runId: string): Promise<{
+    status: string;
+    response?: string;
+  } | null>;
+}
+
 const parameters = z.object({
   targetAgentId: z
     .string()
@@ -43,24 +50,35 @@ const parameters = z.object({
     .optional()
     .default(10)
     .describe('Max tool steps for the target agent run'),
+  waitForResult: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('If true, block until the target agent completes and return its response. If false, return immediately with the runId.'),
+  timeoutMs: z
+    .number()
+    .optional()
+    .default(120_000)
+    .describe('Timeout in ms when waitForResult is true (default: 120000)'),
 });
 
 export class AgentMessageTool implements Tool<typeof parameters> {
   readonly name = 'agent_message';
   readonly description =
-    'Send a message to another agent, triggering a new run on the target. Requires messaging to be enabled and the target agent to be in your allowlist.';
+    'Send a message to another agent, triggering a new run on the target. Set waitForResult=true to block until the target completes and get its response inline.';
   readonly parameters = parameters;
 
   constructor(
     private readonly agentsService: AgentMessagingServiceLike,
     private readonly orchestrator: OrchestratorLike,
+    private readonly runReader: RunReaderLike,
   ) {}
 
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { targetAgentId, message, maxSteps } = args;
+    const { targetAgentId, message, maxSteps, waitForResult, timeoutMs } = args;
     const senderAgentId = context.agentId;
 
     const sender = await this.agentsService.findById(senderAgentId);
@@ -108,29 +126,66 @@ export class AgentMessageTool implements Tool<typeof parameters> {
 
     const prefixedMessage = `[Message from agent "${sender.name}" (${senderAgentId})]\n\n${message}`;
 
-    this.orchestrator
-      .executeGoal(
-        {
-          threadId,
-          runId,
-          userId: context.userId ?? `agent:${senderAgentId}`,
-          agentId: targetAgentId,
-          userMessage: prefixedMessage,
-          conversationHistory: [],
-        },
-        { maxSteps, maxIterations: 2 },
-      )
-      .catch(() => {});
+    const goalPromise = this.orchestrator.executeGoal(
+      {
+        threadId,
+        runId,
+        userId: context.userId ?? `agent:${senderAgentId}`,
+        agentId: targetAgentId,
+        userMessage: prefixedMessage,
+        conversationHistory: [],
+      },
+      { maxSteps, maxIterations: 2 },
+    );
+
+    const baseResult = {
+      threadId,
+      runId,
+      targetAgentId,
+      targetAgentName: target.name,
+    };
+
+    if (waitForResult) {
+      try {
+        await Promise.race([
+          goalPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), timeoutMs),
+          ),
+        ]);
+
+        const run = await this.runReader.getRunResponse(runId);
+        return {
+          success: true,
+          result: {
+            ...baseResult,
+            status: run?.status ?? 'completed',
+            response: run?.response ?? null,
+          },
+        };
+      } catch (err) {
+        if (err instanceof Error && err.message === 'timeout') {
+          return {
+            success: true,
+            result: {
+              ...baseResult,
+              status: 'running',
+              timedOut: true,
+            },
+          };
+        }
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Agent message failed',
+        };
+      }
+    }
+
+    goalPromise.catch(() => {});
 
     return {
       success: true,
-      result: {
-        threadId,
-        runId,
-        targetAgentId,
-        targetAgentName: target.name,
-        messageSent: true,
-      },
+      result: { ...baseResult, messageSent: true },
     };
   }
 }
