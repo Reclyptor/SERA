@@ -143,17 +143,47 @@ export class AgentController {
   }
 
   /**
-   * Resolve a pending confirmation.
+   * Resolve a pending confirmation (approve or reject).
    */
   @Post('confirm/:threadId/:confirmationId')
   async confirm(
     @Param('threadId') threadId: string,
     @Param('confirmationId') confirmationId: string,
+    @Body() body: { approved: boolean; feedback?: string },
+    @Req() req: Request,
   ): Promise<{ resolved: boolean }> {
-    const resolved = await this.stateService.resolvePendingConfirmation(
+    const userId = (req as Request & { user?: SessionUser }).user?.sub;
+
+    const confirmation = await this.stateService.getConfirmation(
       threadId,
       confirmationId,
     );
+    if (!confirmation) {
+      return { resolved: false };
+    }
+
+    const resolved = await this.stateService.resolveConfirmation(
+      threadId,
+      confirmationId,
+      {
+        approved: body.approved,
+        feedback: body.feedback,
+        resolvedBy: userId,
+      },
+    );
+
+    if (resolved && confirmation.runId) {
+      this.eventEmitter.emitEvent(
+        confirmation.runId,
+        threadId,
+        'confirmation.resolved',
+        {
+          confirmationId,
+          approved: body.approved,
+        },
+      );
+    }
+
     return { resolved };
   }
 

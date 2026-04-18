@@ -43,6 +43,11 @@ export interface AgentState {
     actionName: string;
     args: Record<string, unknown>;
     message: string;
+    runId?: string;
+    status: 'pending' | 'approved' | 'rejected';
+    feedback?: string;
+    resolvedBy?: string;
+    resolvedAt?: Date;
     createdAt: Date;
   }>;
 }

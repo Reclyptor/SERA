@@ -83,9 +83,10 @@ export class StreamingGateway implements OnGatewayDisconnect {
     this.logger.debug(
       `Client ${client.id} resolving confirmation ${confirmationId} for thread ${threadId}`,
     );
-    const resolved = await this.stateService.resolvePendingConfirmation(
+    const resolved = await this.stateService.resolveConfirmation(
       threadId,
       confirmationId,
+      { approved: true },
     );
     client.emit('confirm_ack', { threadId, confirmationId, resolved });
   }

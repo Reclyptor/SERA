@@ -140,6 +140,7 @@ export class StateService {
     actionName: string,
     args: Record<string, unknown>,
     message: string,
+    runId?: string,
   ): Promise<string> {
     const id = crypto.randomUUID();
     await this.store.addPendingConfirmation(threadId, {
@@ -147,6 +148,8 @@ export class StateService {
       actionName,
       args,
       message,
+      runId,
+      status: 'pending',
       createdAt: new Date(),
     });
     this.logger.debug(
@@ -155,7 +158,22 @@ export class StateService {
     return id;
   }
 
-  async resolvePendingConfirmation(
+  async resolveConfirmation(
+    threadId: string,
+    confirmationId: string,
+    decision: { approved: boolean; feedback?: string; resolvedBy?: string },
+  ): Promise<boolean> {
+    return this.store.resolveConfirmation(threadId, confirmationId, decision);
+  }
+
+  async getConfirmation(
+    threadId: string,
+    confirmationId: string,
+  ): Promise<AgentState['pendingConfirmations'][0] | undefined> {
+    return this.store.getConfirmation(threadId, confirmationId);
+  }
+
+  async removePendingConfirmation(
     threadId: string,
     confirmationId: string,
   ): Promise<boolean> {

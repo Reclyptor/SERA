@@ -17,6 +17,25 @@ export class PendingConfirmation {
   @Prop({ required: true })
   message: string;
 
+  @Prop()
+  runId?: string;
+
+  @Prop({
+    required: true,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+  })
+  status: string;
+
+  @Prop()
+  feedback?: string;
+
+  @Prop()
+  resolvedBy?: string;
+
+  @Prop()
+  resolvedAt?: Date;
+
   @Prop({ default: Date.now })
   createdAt: Date;
 }

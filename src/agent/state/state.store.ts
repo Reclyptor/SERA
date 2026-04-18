@@ -207,6 +207,46 @@ export class StateStore {
       .exec();
   }
 
+  async resolveConfirmation(
+    threadId: string,
+    confirmationId: string,
+    decision: { approved: boolean; feedback?: string; resolvedBy?: string },
+  ): Promise<boolean> {
+    const result = await this.agentStateModel
+      .findOneAndUpdate(
+        { threadId, 'pendingConfirmations.id': confirmationId },
+        {
+          $set: {
+            'pendingConfirmations.$.status': decision.approved
+              ? 'approved'
+              : 'rejected',
+            'pendingConfirmations.$.feedback': decision.feedback,
+            'pendingConfirmations.$.resolvedBy': decision.resolvedBy,
+            'pendingConfirmations.$.resolvedAt': new Date(),
+          },
+        },
+      )
+      .exec();
+    return result !== null;
+  }
+
+  async getConfirmation(
+    threadId: string,
+    confirmationId: string,
+  ): Promise<AgentState['pendingConfirmations'][0] | undefined> {
+    const state = await this.agentStateModel
+      .findOne({ threadId, 'pendingConfirmations.id': confirmationId })
+      .exec();
+    const found = state?.pendingConfirmations?.find(
+      (c: { id: string }) => c.id === confirmationId,
+    );
+    if (!found) return undefined;
+    return {
+      ...found,
+      status: found.status as 'pending' | 'approved' | 'rejected',
+    };
+  }
+
   async removePendingConfirmation(
     threadId: string,
     confirmationId: string,
