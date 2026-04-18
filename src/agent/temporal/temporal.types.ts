@@ -3,6 +3,21 @@
  * These must stay in sync with SERAEX's shared/types.ts.
  */
 
+// ── Sandbox Exec ──
+
+export interface SandboxExecInput {
+  command: string;
+  cwd?: string;
+  timeoutMs: number;
+  env?: Record<string, string>;
+}
+
+export interface SandboxExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 // ── Workflow Inputs / Outputs ──
 
 export interface OrganizeLibraryInput {

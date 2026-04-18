@@ -43,6 +43,30 @@ export class MessagingPolicy {
 export const MessagingPolicySchema =
   SchemaFactory.createForClass(MessagingPolicy);
 
+@Schema()
+export class SandboxConfig {
+  @Prop({ default: false })
+  enabled: boolean;
+
+  @Prop({ default: 'node:20-slim' })
+  image: string;
+
+  @Prop({ default: 512 })
+  memoryMb: number;
+
+  @Prop({ default: 1024 })
+  cpuShares: number;
+
+  @Prop({ default: false })
+  networkEnabled: boolean;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  envVars: Record<string, string>;
+}
+
+export const SandboxConfigSchema =
+  SchemaFactory.createForClass(SandboxConfig);
+
 @Schema({ timestamps: true })
 export class AgentConfig {
   @Prop({ required: true, unique: true, index: true })
@@ -74,6 +98,9 @@ export class AgentConfig {
     default: { enabled: false, allowedAgents: [] },
   })
   messagingPolicy: MessagingPolicy;
+
+  @Prop({ type: SandboxConfigSchema })
+  sandboxConfig?: SandboxConfig;
 
   @Prop({ default: true })
   enabled: boolean;

@@ -10,9 +10,10 @@ import { HeartbeatModule } from './heartbeat/heartbeat.module';
 import { CronModule } from './cron/cron.module';
 import { TasksModule } from './tasks/tasks.module';
 import { TriggersModule } from './triggers/triggers.module';
+import { SandboxModule } from './sandbox/sandbox.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule],
+  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule, SandboxModule],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

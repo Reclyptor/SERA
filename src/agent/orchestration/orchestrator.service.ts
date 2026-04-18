@@ -85,12 +85,23 @@ export class OrchestratorService {
         agentConfig,
       );
 
+      const sandbox = agentConfig.sandboxConfig?.enabled
+        ? {
+            image: agentConfig.sandboxConfig.image,
+            memoryMb: agentConfig.sandboxConfig.memoryMb,
+            cpuShares: agentConfig.sandboxConfig.cpuShares,
+            networkEnabled: agentConfig.sandboxConfig.networkEnabled,
+            envVars: agentConfig.sandboxConfig.envVars ?? {},
+          }
+        : undefined;
+
       const toolContext = {
         threadId,
         runId,
         userId,
         agentId: goal.agentId,
         workspaceDir: agentConfig.workspaceDir,
+        sandbox,
       };
       const agentTools =
         agentConfig.toolPolicy.tools.length > 0

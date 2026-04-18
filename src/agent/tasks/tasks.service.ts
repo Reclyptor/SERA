@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { TaskPlan, TaskPlanDocument, Task } from './task.schema';
@@ -60,11 +65,21 @@ export class TasksService {
     planId: string,
     taskId: string,
     update: {
-      status: 'in_progress' | 'completed' | 'failed' | 'skipped';
+      status: 'pending' | 'in_progress' | 'waiting' | 'completed' | 'failed' | 'skipped';
       result?: string;
       runId?: string;
+      waitMeta?: Record<string, unknown>;
     },
+    expectedRevision?: number,
   ): Promise<TaskPlan> {
+    const filter: Record<string, unknown> = {
+      planId,
+      'tasks.taskId': taskId,
+    };
+    if (expectedRevision !== undefined) {
+      filter.revision = expectedRevision;
+    }
+
     const setFields: Record<string, unknown> = {
       'tasks.$.status': update.status,
     };
@@ -74,16 +89,33 @@ export class TasksService {
     if (update.runId !== undefined) {
       setFields['tasks.$.runId'] = update.runId;
     }
+    if (update.status === 'waiting' && update.waitMeta) {
+      setFields['tasks.$.waitMeta'] = update.waitMeta;
+    }
+    if (update.status !== 'waiting') {
+      setFields['tasks.$.waitMeta'] = null;
+    }
+
+    const updateOp: Record<string, unknown> = { $set: setFields };
+    if (expectedRevision !== undefined) {
+      updateOp.$inc = { revision: 1 };
+    }
 
     const plan = await this.taskPlanModel
-      .findOneAndUpdate(
-        { planId, 'tasks.taskId': taskId },
-        { $set: setFields },
-        { returnDocument: 'after' },
-      )
+      .findOneAndUpdate(filter, updateOp, { returnDocument: 'after' })
       .exec();
 
     if (!plan) {
+      if (expectedRevision !== undefined) {
+        const exists = await this.taskPlanModel
+          .findOne({ planId, 'tasks.taskId': taskId })
+          .exec();
+        if (exists) {
+          throw new ConflictException(
+            `Revision mismatch: expected ${expectedRevision}, current is ${exists.revision}`,
+          );
+        }
+      }
       throw new NotFoundException(
         `Plan "${planId}" or task "${taskId}" not found`,
       );
@@ -91,6 +123,101 @@ export class TasksService {
 
     await this.reconcilePlanStatus(plan);
     return plan;
+  }
+
+  async cancelPlan(planId: string): Promise<TaskPlan> {
+    const plan = await this.taskPlanModel.findOne({ planId }).exec();
+    if (!plan) {
+      throw new NotFoundException(`Plan "${planId}" not found`);
+    }
+
+    if (['completed', 'failed', 'cancelled'].includes(plan.status)) {
+      return plan;
+    }
+
+    const bulkUpdates: Record<string, unknown> = {
+      status: 'cancelled',
+    };
+
+    const pendingIndices: number[] = [];
+    plan.tasks.forEach((t, i) => {
+      if (['pending', 'waiting'].includes(t.status)) {
+        pendingIndices.push(i);
+      }
+    });
+
+    for (const idx of pendingIndices) {
+      bulkUpdates[`tasks.${idx}.status`] = 'skipped';
+      bulkUpdates[`tasks.${idx}.waitMeta`] = null;
+    }
+
+    const updated = await this.taskPlanModel
+      .findOneAndUpdate(
+        { planId },
+        { $set: bulkUpdates, $inc: { revision: 1 } },
+        { returnDocument: 'after' },
+      )
+      .exec();
+
+    const activeRunIds = plan.tasks
+      .filter((t) => t.status === 'in_progress' && t.runId)
+      .map((t) => t.runId!);
+
+    if (activeRunIds.length > 0) {
+      this.logger.warn(
+        `Plan "${planId}" cancelled with ${activeRunIds.length} active run(s): ${activeRunIds.join(', ')}`,
+      );
+    }
+
+    return updated!;
+  }
+
+  async setState(
+    planId: string,
+    key: string,
+    value: unknown,
+    expectedRevision?: number,
+  ): Promise<TaskPlan> {
+    const filter: Record<string, unknown> = { planId };
+    if (expectedRevision !== undefined) {
+      filter.revision = expectedRevision;
+    }
+
+    const updateOp: Record<string, unknown> = {
+      $set: { [`stateJson.${key}`]: value },
+    };
+    if (expectedRevision !== undefined) {
+      updateOp.$inc = { revision: 1 };
+    }
+
+    const plan = await this.taskPlanModel
+      .findOneAndUpdate(filter, updateOp, { returnDocument: 'after' })
+      .exec();
+
+    if (!plan) {
+      if (expectedRevision !== undefined) {
+        const exists = await this.taskPlanModel.findOne({ planId }).exec();
+        if (exists) {
+          throw new ConflictException(
+            `Revision mismatch: expected ${expectedRevision}, current is ${exists.revision}`,
+          );
+        }
+      }
+      throw new NotFoundException(`Plan "${planId}" not found`);
+    }
+
+    return plan;
+  }
+
+  async getState(planId: string): Promise<Record<string, unknown>> {
+    const plan = await this.taskPlanModel
+      .findOne({ planId })
+      .select('stateJson')
+      .exec();
+    if (!plan) {
+      throw new NotFoundException(`Plan "${planId}" not found`);
+    }
+    return plan.stateJson ?? {};
   }
 
   private async reconcilePlanStatus(plan: TaskPlanDocument): Promise<void> {

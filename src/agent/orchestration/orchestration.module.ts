@@ -12,6 +12,7 @@ import { TemporalModule } from '../temporal/temporal.module';
 import { ChatsModule } from '../../chats/chats.module';
 import { AgentsModule } from '../../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { SkillsModule } from '../skills/skills.module';
     ChatsModule,
     AgentsModule,
     SkillsModule,
+    SandboxModule,
   ],
   providers: [OrchestratorService],
   exports: [OrchestratorService, StreamingModule],

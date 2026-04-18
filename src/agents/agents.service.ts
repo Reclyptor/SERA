@@ -31,6 +31,7 @@ export class AgentsService {
         enabled: false,
         allowedAgents: [],
       },
+      sandboxConfig: dto.sandboxConfig,
       enabled: dto.enabled ?? true,
     });
     return agent.save();

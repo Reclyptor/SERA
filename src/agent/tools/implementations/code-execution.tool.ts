@@ -8,6 +8,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+import type { SandboxRunnerLike } from './sandbox.types';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -38,6 +39,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
   constructor(
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
+    private readonly sandboxRunner?: SandboxRunnerLike,
   ) {}
 
   private resolveWorkspace(context: ToolExecutionContext): string {
@@ -67,6 +69,22 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
     await fs.writeFile(filePath, code, 'utf-8');
 
     try {
+      if (context.sandbox && this.sandboxRunner) {
+        const containerPath = `.tmp/${filename}`;
+        const result = await this.sandboxRunner.exec({
+          command: `${config.runner} ${containerPath}`,
+          timeoutMs,
+          workspaceDir: workspace,
+          agentId: context.agentId,
+          sandbox: context.sandbox,
+        });
+        return {
+          success: result.exitCode === 0,
+          result: { language, ...result },
+          error: result.exitCode !== 0 ? result.stderr : undefined,
+        };
+      }
+
       return await new Promise((resolve) => {
         const child = exec(
           `${config.runner} ${filePath}`,

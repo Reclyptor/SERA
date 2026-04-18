@@ -19,6 +19,8 @@ import type {
   ReviewDecision,
   DetectionConfirmation,
   FileTreeNode,
+  SandboxExecInput,
+  SandboxExecResult,
 } from './temporal.types';
 
 @Injectable()
@@ -163,6 +165,22 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
       taskQueue: this.taskQueue,
       workflowId: id,
       args: [],
+    });
+
+    return handle.result();
+  }
+
+  // ── Workflow: sandboxExec ──
+
+  async sandboxExec(input: SandboxExecInput): Promise<SandboxExecResult> {
+    this.ensureConnected();
+    const id = `sandbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const handle = await this.client.workflow.start('sandboxExecWorkflow', {
+      taskQueue: this.taskQueue,
+      workflowId: id,
+      args: [input],
+      workflowExecutionTimeout: '10 minutes',
     });
 
     return handle.result();

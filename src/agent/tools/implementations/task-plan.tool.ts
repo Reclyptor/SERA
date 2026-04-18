@@ -15,6 +15,7 @@ export interface TasksServiceLike {
     planId: string;
     goal: string;
     status: string;
+    revision: number;
     tasks: Array<{
       taskId: string;
       description: string;
@@ -26,6 +27,8 @@ export interface TasksServiceLike {
     planId: string;
     goal: string;
     status: string;
+    revision: number;
+    stateJson: Record<string, unknown>;
     tasks: Array<{
       taskId: string;
       description: string;
@@ -33,6 +36,7 @@ export interface TasksServiceLike {
       result?: string;
       runId?: string;
       order: number;
+      waitMeta?: Record<string, unknown>;
     }>;
   }>;
   listPlans(filters: {
@@ -43,6 +47,7 @@ export interface TasksServiceLike {
       planId: string;
       goal: string;
       status: string;
+      revision: number;
       tasks: Array<{
         taskId: string;
         description: string;
@@ -55,11 +60,25 @@ export interface TasksServiceLike {
     planId: string,
     taskId: string,
     update: {
-      status: 'in_progress' | 'completed' | 'failed' | 'skipped';
+      status: 'pending' | 'in_progress' | 'waiting' | 'completed' | 'failed' | 'skipped';
       result?: string;
       runId?: string;
+      waitMeta?: Record<string, unknown>;
     },
-  ): Promise<unknown>;
+    expectedRevision?: number,
+  ): Promise<{ revision: number }>;
+  cancelPlan(planId: string): Promise<{
+    planId: string;
+    status: string;
+    revision: number;
+  }>;
+  setState(
+    planId: string,
+    key: string,
+    value: unknown,
+    expectedRevision?: number,
+  ): Promise<{ revision: number }>;
+  getState(planId: string): Promise<Record<string, unknown>>;
   deletePlan(planId: string): Promise<boolean>;
 }
 
@@ -70,6 +89,9 @@ const parameters = z.object({
       'get_plan',
       'list_plans',
       'update_task',
+      'cancel_plan',
+      'set_state',
+      'get_state',
       'delete_plan',
     ])
     .describe('Operation to perform'),
@@ -84,13 +106,13 @@ const parameters = z.object({
   planId: z
     .string()
     .optional()
-    .describe('Plan ID (required for get_plan, update_task, delete_plan)'),
+    .describe('Plan ID (required for most operations except list_plans)'),
   taskId: z
     .string()
     .optional()
     .describe('Task ID within a plan (required for update_task)'),
   status: z
-    .enum(['in_progress', 'completed', 'failed', 'skipped'])
+    .enum(['pending', 'in_progress', 'waiting', 'completed', 'failed', 'skipped'])
     .optional()
     .describe('New task status (required for update_task)'),
   result: z
@@ -101,6 +123,22 @@ const parameters = z.object({
     .string()
     .optional()
     .describe('Run ID if this task was delegated to a sub-agent (for update_task)'),
+  waitMeta: z
+    .record(z.unknown())
+    .optional()
+    .describe('Metadata for a waiting task — e.g. what event or condition to resume on (for update_task with status=waiting)'),
+  expectedRevision: z
+    .number()
+    .optional()
+    .describe('Optimistic concurrency: only apply the mutation if the plan is at this revision (for update_task, set_state)'),
+  key: z
+    .string()
+    .optional()
+    .describe('State key to set (required for set_state)'),
+  value: z
+    .unknown()
+    .optional()
+    .describe('State value to set (required for set_state)'),
 });
 
 export class TaskPlanTool implements Tool<typeof parameters> {
@@ -125,6 +163,12 @@ export class TaskPlanTool implements Tool<typeof parameters> {
           return await this.listPlans(context);
         case 'update_task':
           return await this.updateTask(args);
+        case 'cancel_plan':
+          return await this.cancelPlan(args.planId);
+        case 'set_state':
+          return await this.setState(args);
+        case 'get_state':
+          return await this.getState(args.planId);
         case 'delete_plan':
           return await this.deletePlan(args.planId);
       }
@@ -160,6 +204,7 @@ export class TaskPlanTool implements Tool<typeof parameters> {
         planId: plan.planId,
         goal: plan.goal,
         status: plan.status,
+        revision: plan.revision,
         tasks: plan.tasks.map((t) => ({
           taskId: t.taskId,
           description: t.description,
@@ -183,6 +228,8 @@ export class TaskPlanTool implements Tool<typeof parameters> {
         planId: plan.planId,
         goal: plan.goal,
         status: plan.status,
+        revision: plan.revision,
+        stateJson: plan.stateJson,
         tasks: plan.tasks.map((t) => ({
           taskId: t.taskId,
           description: t.description,
@@ -190,6 +237,7 @@ export class TaskPlanTool implements Tool<typeof parameters> {
           result: t.result,
           runId: t.runId,
           order: t.order,
+          waitMeta: t.waitMeta,
         })),
       },
     };
@@ -208,6 +256,7 @@ export class TaskPlanTool implements Tool<typeof parameters> {
         planId: p.planId,
         goal: p.goal,
         status: p.status,
+        revision: p.revision,
         taskCount: p.tasks.length,
         completed: p.tasks.filter((t) => t.status === 'completed').length,
         failed: p.tasks.filter((t) => t.status === 'failed').length,
@@ -225,16 +274,77 @@ export class TaskPlanTool implements Tool<typeof parameters> {
       };
     }
 
-    await this.tasksService.updateTask(args.planId, args.taskId, {
-      status: args.status,
-      result: args.result,
-      runId: args.runId,
-    });
+    const plan = await this.tasksService.updateTask(
+      args.planId,
+      args.taskId,
+      {
+        status: args.status,
+        result: args.result,
+        runId: args.runId,
+        waitMeta: args.waitMeta,
+      },
+      args.expectedRevision,
+    );
 
     return {
       success: true,
-      result: { planId: args.planId, taskId: args.taskId, status: args.status },
+      result: {
+        planId: args.planId,
+        taskId: args.taskId,
+        status: args.status,
+        revision: plan.revision,
+      },
     };
+  }
+
+  private async cancelPlan(planId?: string): Promise<ToolExecutionResult> {
+    if (!planId) {
+      return { success: false, error: 'planId is required for cancel_plan' };
+    }
+
+    const plan = await this.tasksService.cancelPlan(planId);
+
+    return {
+      success: true,
+      result: {
+        planId: plan.planId,
+        status: plan.status,
+        revision: plan.revision,
+      },
+    };
+  }
+
+  private async setState(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.planId || !args.key) {
+      return {
+        success: false,
+        error: 'planId and key are required for set_state',
+      };
+    }
+
+    const plan = await this.tasksService.setState(
+      args.planId,
+      args.key,
+      args.value,
+      args.expectedRevision,
+    );
+
+    return {
+      success: true,
+      result: { planId: args.planId, key: args.key, revision: plan.revision },
+    };
+  }
+
+  private async getState(planId?: string): Promise<ToolExecutionResult> {
+    if (!planId) {
+      return { success: false, error: 'planId is required for get_state' };
+    }
+
+    const state = await this.tasksService.getState(planId);
+
+    return { success: true, result: state };
   }
 
   private async deletePlan(planId?: string): Promise<ToolExecutionResult> {

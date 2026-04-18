@@ -1,11 +1,20 @@
 import type { z } from 'zod';
 
+export interface SandboxContext {
+  image: string;
+  memoryMb: number;
+  cpuShares: number;
+  networkEnabled: boolean;
+  envVars: Record<string, string>;
+}
+
 export interface ToolExecutionContext {
   threadId: string;
   runId: string;
   userId?: string;
   agentId: string;
   workspaceDir?: string;
+  sandbox?: SandboxContext;
   metadata?: Record<string, unknown>;
 }
 

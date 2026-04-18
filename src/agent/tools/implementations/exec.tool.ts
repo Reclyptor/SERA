@@ -6,6 +6,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+import type { SandboxRunnerLike } from './sandbox.types';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -31,6 +32,7 @@ export class ExecTool implements Tool<typeof parameters> {
   constructor(
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
+    private readonly sandboxRunner?: SandboxRunnerLike,
   ) {}
 
   private resolveWorkspace(context: ToolExecutionContext): string {
@@ -57,6 +59,23 @@ export class ExecTool implements Tool<typeof parameters> {
     }
 
     const workspace = this.resolveWorkspace(context);
+
+    if (context.sandbox && this.sandboxRunner) {
+      const result = await this.sandboxRunner.exec({
+        command,
+        cwd,
+        timeoutMs,
+        workspaceDir: workspace,
+        agentId: context.agentId,
+        sandbox: context.sandbox,
+      });
+      return {
+        success: result.exitCode === 0,
+        result,
+        error: result.exitCode !== 0 ? result.stderr : undefined,
+      };
+    }
+
     const workingDir = cwd ? `${workspace}/${cwd}` : workspace;
 
     return new Promise((resolve) => {

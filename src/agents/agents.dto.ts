@@ -15,6 +15,15 @@ export class MessagingPolicyDto {
   allowedAgents?: string[];
 }
 
+export class SandboxConfigDto {
+  enabled?: boolean;
+  image?: string;
+  memoryMb?: number;
+  cpuShares?: number;
+  networkEnabled?: boolean;
+  envVars?: Record<string, string>;
+}
+
 export class CreateAgentDto {
   agentId: string;
   name: string;
@@ -25,6 +34,7 @@ export class CreateAgentDto {
   toolPolicy?: ToolPolicyDto;
   workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
+  sandboxConfig?: SandboxConfigDto;
   enabled?: boolean;
 }
 
@@ -37,5 +47,6 @@ export class UpdateAgentDto {
   toolPolicy?: ToolPolicyDto;
   workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
+  sandboxConfig?: SandboxConfigDto;
   enabled?: boolean;
 }

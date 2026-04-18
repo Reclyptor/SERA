@@ -75,12 +75,20 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new EditTool(workspace));
     this.toolsService.registerTool(new ApplyPatchTool(workspace));
 
+    // Sandbox runner (lazy — resolved only when sandbox is configured on an agent)
+    const lazySandboxRunner: import('./implementations/sandbox.types').SandboxRunnerLike = {
+      exec: (opts) => {
+        const { SandboxRunnerService } = require('../sandbox/sandbox-runner.service');
+        return this.moduleRef.get(SandboxRunnerService, { strict: false }).exec(opts);
+      },
+    };
+
     // Runtime
-    this.toolsService.registerTool(new ExecTool(workspace, shellEnabled));
-    this.toolsService.registerTool(new BashTool(workspace, shellEnabled));
+    this.toolsService.registerTool(new ExecTool(workspace, shellEnabled, lazySandboxRunner));
+    this.toolsService.registerTool(new BashTool(workspace, shellEnabled, lazySandboxRunner));
     this.toolsService.registerTool(new ProcessTool(workspace, shellEnabled));
     this.toolsService.registerTool(
-      new CodeExecutionTool(workspace, shellEnabled),
+      new CodeExecutionTool(workspace, shellEnabled, lazySandboxRunner),
     );
 
     // Web & search
@@ -165,27 +173,21 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
     // Task decomposition (lazily resolved to avoid circular deps)
+    const resolveTasksService = () => {
+      const { TasksService } = require('../tasks/tasks.service');
+      return this.moduleRef.get(TasksService, { strict: false });
+    };
     const lazyTasksService: import('./implementations/task-plan.tool').TasksServiceLike = {
-      createPlan: (data) => {
-        const { TasksService } = require('../tasks/tasks.service');
-        return this.moduleRef.get(TasksService, { strict: false }).createPlan(data);
-      },
-      getPlan: (planId) => {
-        const { TasksService } = require('../tasks/tasks.service');
-        return this.moduleRef.get(TasksService, { strict: false }).getPlan(planId);
-      },
-      listPlans: (filters) => {
-        const { TasksService } = require('../tasks/tasks.service');
-        return this.moduleRef.get(TasksService, { strict: false }).listPlans(filters);
-      },
-      updateTask: (planId, taskId, update) => {
-        const { TasksService } = require('../tasks/tasks.service');
-        return this.moduleRef.get(TasksService, { strict: false }).updateTask(planId, taskId, update);
-      },
-      deletePlan: (planId) => {
-        const { TasksService } = require('../tasks/tasks.service');
-        return this.moduleRef.get(TasksService, { strict: false }).deletePlan(planId);
-      },
+      createPlan: (data) => resolveTasksService().createPlan(data),
+      getPlan: (planId) => resolveTasksService().getPlan(planId),
+      listPlans: (filters) => resolveTasksService().listPlans(filters),
+      updateTask: (planId, taskId, update, expectedRevision) =>
+        resolveTasksService().updateTask(planId, taskId, update, expectedRevision),
+      cancelPlan: (planId) => resolveTasksService().cancelPlan(planId),
+      setState: (planId, key, value, expectedRevision) =>
+        resolveTasksService().setState(planId, key, value, expectedRevision),
+      getState: (planId) => resolveTasksService().getState(planId),
+      deletePlan: (planId) => resolveTasksService().deletePlan(planId),
     };
     this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
 

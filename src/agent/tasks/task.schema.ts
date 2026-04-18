@@ -13,7 +13,7 @@ export class Task {
 
   @Prop({
     required: true,
-    enum: ['pending', 'in_progress', 'completed', 'failed', 'skipped'],
+    enum: ['pending', 'in_progress', 'waiting', 'completed', 'failed', 'skipped'],
     default: 'pending',
   })
   status: string;
@@ -26,6 +26,9 @@ export class Task {
 
   @Prop({ required: true })
   order: number;
+
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  waitMeta?: Record<string, unknown>;
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
@@ -49,10 +52,16 @@ export class TaskPlan {
 
   @Prop({
     required: true,
-    enum: ['planning', 'executing', 'completed', 'failed'],
+    enum: ['planning', 'executing', 'completed', 'failed', 'cancelled'],
     default: 'planning',
   })
   status: string;
+
+  @Prop({ default: 0 })
+  revision: number;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  stateJson: Record<string, unknown>;
 
   createdAt: Date;
   updatedAt: Date;
