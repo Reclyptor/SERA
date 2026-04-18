@@ -22,6 +22,7 @@ export interface RunState {
   startedAt: Date;
   completedAt?: Date;
   error?: string;
+  response?: string;
 }
 
 export interface AgentState {

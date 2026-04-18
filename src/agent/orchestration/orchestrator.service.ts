@@ -346,7 +346,7 @@ export class OrchestratorService {
   ): Promise<void> {
     const { runId, threadId, userId } = goal;
 
-    await this.stateService.completeRun(runId);
+    await this.stateService.completeRun(runId, response);
 
     if (goal.chatId && response) {
       try {

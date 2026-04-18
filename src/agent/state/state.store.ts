@@ -129,7 +129,7 @@ export class StateStore {
 
   async updateRun(
     runId: string,
-    update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error'>>,
+    update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error' | 'response'>>,
   ): Promise<RunState | undefined> {
     const run = await this.runModel
       .findOneAndUpdate(

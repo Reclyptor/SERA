@@ -26,6 +26,9 @@ export class Run {
 
   @Prop()
   error?: string;
+
+  @Prop()
+  response?: string;
 }
 
 export const RunSchema = SchemaFactory.createForClass(Run);

@@ -5,15 +5,35 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 
-interface CronJob {
-  id: string;
-  schedule: string;
-  command: string;
-  description: string;
-  enabled: boolean;
-  createdAt: Date;
-  lastRun: Date | null;
-  nextRun: string | null;
+export interface CronSchedulerLike {
+  create(data: {
+    agentId: string;
+    schedule: string;
+    command: string;
+    description?: string;
+    enabled?: boolean;
+  }): Promise<{
+    jobId: string;
+    schedule: string;
+    command: string;
+    description: string;
+    enabled: boolean;
+    nextRunAt?: Date;
+  }>;
+  findAll(agentId?: string): Promise<
+    Array<{
+      jobId: string;
+      agentId: string;
+      schedule: string;
+      command: string;
+      description: string;
+      enabled: boolean;
+      lastRunAt?: Date;
+      nextRunAt?: Date;
+    }>
+  >;
+  remove(jobId: string): Promise<boolean>;
+  setEnabled(jobId: string, enabled: boolean): Promise<unknown>;
 }
 
 const CRON_REGEX =
@@ -32,7 +52,7 @@ const parameters = z.object({
   command: z
     .string()
     .optional()
-    .describe('Command or task to schedule (required for create)'),
+    .describe('Instruction or goal for the agent to execute on schedule (required for create)'),
   description: z.string().optional().describe('Human-readable description'),
   jobId: z
     .string()
@@ -43,20 +63,20 @@ const parameters = z.object({
 export class CronTool implements Tool<typeof parameters> {
   readonly name = 'cron';
   readonly description =
-    'Manage scheduled jobs. Create, list, delete, and view scheduled tasks.';
+    'Manage persistent scheduled jobs. Jobs survive restarts and execute as autonomous agent runs on their cron schedule.';
   readonly parameters = parameters;
 
-  private static readonly jobs = new Map<string, CronJob>();
+  constructor(private readonly scheduler: CronSchedulerLike) {}
 
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     switch (args.operation) {
       case 'create':
-        return this.create(args);
+        return this.create(args, context);
       case 'list':
-        return this.list();
+        return this.list(context);
       case 'delete':
         return this.delete(args.jobId);
       case 'enable':
@@ -66,7 +86,10 @@ export class CronTool implements Tool<typeof parameters> {
     }
   }
 
-  private create(args: z.infer<typeof parameters>): ToolExecutionResult {
+  private async create(
+    args: z.infer<typeof parameters>,
+    context: ToolExecutionContext,
+  ): Promise<ToolExecutionResult> {
     if (!args.schedule || !args.command) {
       return {
         success: false,
@@ -81,55 +104,73 @@ export class CronTool implements Tool<typeof parameters> {
       };
     }
 
-    const jobId = crypto.randomUUID();
-    const job: CronJob = {
-      id: jobId,
-      schedule: args.schedule,
-      command: args.command,
-      description: args.description ?? '',
-      enabled: true,
-      createdAt: new Date(),
-      lastRun: null,
-      nextRun: null,
-    };
+    try {
+      const job = await this.scheduler.create({
+        agentId: context.agentId,
+        schedule: args.schedule,
+        command: args.command,
+        description: args.description,
+      });
 
-    CronTool.jobs.set(jobId, job);
-
-    return {
-      success: true,
-      result: {
-        jobId,
-        schedule: job.schedule,
-        command: job.command,
-        description: job.description,
-      },
-    };
+      return {
+        success: true,
+        result: {
+          jobId: job.jobId,
+          schedule: job.schedule,
+          command: job.command,
+          description: job.description,
+          nextRunAt: job.nextRunAt,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create job',
+      };
+    }
   }
 
-  private list(): ToolExecutionResult {
-    return {
-      success: true,
-      result: Array.from(CronTool.jobs.values()),
-    };
+  private async list(context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    try {
+      const jobs = await this.scheduler.findAll(context.agentId);
+      return {
+        success: true,
+        result: jobs.map((j) => ({
+          jobId: j.jobId,
+          agentId: j.agentId,
+          schedule: j.schedule,
+          command: j.command,
+          description: j.description,
+          enabled: j.enabled,
+          lastRunAt: j.lastRunAt,
+          nextRunAt: j.nextRunAt,
+        })),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list jobs',
+      };
+    }
   }
 
-  private delete(jobId: string | undefined): ToolExecutionResult {
+  private async delete(jobId: string | undefined): Promise<ToolExecutionResult> {
     if (!jobId) {
       return { success: false, error: 'jobId is required for delete operation' };
     }
 
-    if (!CronTool.jobs.has(jobId)) {
+    const deleted = await this.scheduler.remove(jobId);
+    if (!deleted) {
       return { success: false, error: `Job "${jobId}" not found` };
     }
 
-    CronTool.jobs.delete(jobId);
     return { success: true, result: { deleted: jobId } };
   }
 
-  private setEnabled(
+  private async setEnabled(
     jobId: string | undefined,
     enabled: boolean,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     if (!jobId) {
       return {
         success: false,
@@ -137,13 +178,10 @@ export class CronTool implements Tool<typeof parameters> {
       };
     }
 
-    const job = CronTool.jobs.get(jobId);
+    const job = await this.scheduler.setEnabled(jobId, enabled);
     if (!job) {
       return { success: false, error: `Job "${jobId}" not found` };
     }
-
-    job.enabled = enabled;
-    CronTool.jobs.set(jobId, job);
 
     return { success: true, result: { jobId, enabled } };
   }

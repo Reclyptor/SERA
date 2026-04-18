@@ -84,10 +84,11 @@ export class StateService {
     return run;
   }
 
-  async completeRun(runId: string): Promise<RunState | undefined> {
+  async completeRun(runId: string, response?: string): Promise<RunState | undefined> {
     return this.store.updateRun(runId, {
       status: 'completed',
       completedAt: new Date(),
+      ...(response && { response }),
     });
   }
 

@@ -8,6 +8,7 @@ import { MemoryService } from '../memory/memory.service';
 import { StateService } from '../state/state.service';
 import { ChatsService } from '../../chats/chats.service';
 import { AgentsService } from '../../agents/agents.service';
+import { AgentRouterService } from '../../agents/agent-router.service';
 import {
   ReadTool,
   WriteTool,
@@ -36,6 +37,7 @@ import {
   SessionStatusTool,
   SubagentsTool,
   AgentsListTool,
+  TaskPlanTool,
 } from './implementations';
 
 @Injectable()
@@ -49,6 +51,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly stateService: StateService,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
+    private readonly agentRouter: AgentRouterService,
     private readonly moduleRef: ModuleRef,
     @InjectConnection() private readonly connection: Connection,
   ) {}
@@ -100,7 +103,25 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new MemoryGetTool(this.memoryService));
 
     // Automation & messaging
-    this.toolsService.registerTool(new CronTool());
+    const lazyCronScheduler: import('./implementations/cron.tool').CronSchedulerLike = {
+      create: (data) => {
+        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).create(data);
+      },
+      findAll: (agentId) => {
+        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).findAll(agentId);
+      },
+      remove: (jobId) => {
+        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).remove(jobId);
+      },
+      setEnabled: (jobId, enabled) => {
+        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).setEnabled(jobId, enabled);
+      },
+    };
+    this.toolsService.registerTool(new CronTool(lazyCronScheduler));
     this.toolsService.registerTool(new MessageTool(this.chatsService));
 
     // Agent-to-agent messaging (orchestrator resolved lazily to avoid circular deps)
@@ -121,13 +142,40 @@ export class ToolsBootstrapService implements OnModuleInit {
       new SessionsHistoryTool(this.chatsService),
     );
     this.toolsService.registerTool(new SessionsSendTool(this.chatsService));
-    this.toolsService.registerTool(new SessionsSpawnTool(this.stateService));
+    this.toolsService.registerTool(
+      new SessionsSpawnTool(lazyOrchestrator, this.agentRouter),
+    );
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
     this.toolsService.registerTool(new SubagentsTool(this.connection));
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
+    // Task decomposition (lazily resolved to avoid circular deps)
+    const lazyTasksService: import('./implementations/task-plan.tool').TasksServiceLike = {
+      createPlan: (data) => {
+        const { TasksService } = require('../tasks/tasks.service');
+        return this.moduleRef.get(TasksService, { strict: false }).createPlan(data);
+      },
+      getPlan: (planId) => {
+        const { TasksService } = require('../tasks/tasks.service');
+        return this.moduleRef.get(TasksService, { strict: false }).getPlan(planId);
+      },
+      listPlans: (filters) => {
+        const { TasksService } = require('../tasks/tasks.service');
+        return this.moduleRef.get(TasksService, { strict: false }).listPlans(filters);
+      },
+      updateTask: (planId, taskId, update) => {
+        const { TasksService } = require('../tasks/tasks.service');
+        return this.moduleRef.get(TasksService, { strict: false }).updateTask(planId, taskId, update);
+      },
+      deletePlan: (planId) => {
+        const { TasksService } = require('../tasks/tasks.service');
+        return this.moduleRef.get(TasksService, { strict: false }).deletePlan(planId);
+      },
+    };
+    this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
+
     this.logger.log(
-      `Registered 27 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 29 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 }

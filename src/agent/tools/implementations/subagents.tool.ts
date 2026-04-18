@@ -81,6 +81,7 @@ export class SubagentsTool implements Tool<typeof parameters> {
                 runId: d.runId,
                 threadId: d.threadId,
                 status: d.status,
+                response: d.response ?? null,
               })),
             },
           };

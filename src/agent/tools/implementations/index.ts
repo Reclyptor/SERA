@@ -38,4 +38,5 @@ export { SessionsSpawnTool } from './sessions-spawn.tool';
 export { SessionStatusTool } from './session-status.tool';
 export { SubagentsTool } from './subagents.tool';
 export { AgentsListTool } from './agents-list.tool';
+export { TaskPlanTool } from './task-plan.tool';
 
