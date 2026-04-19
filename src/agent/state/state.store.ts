@@ -141,6 +141,49 @@ export class StateStore {
     return run ? this.toRunState(run) : undefined;
   }
 
+  async listRuns(
+    filter: { threadID?: string; status?: RunState['status']; runIDs?: string[] },
+    options: { limit?: number; sort?: 'asc' | 'desc' } = {},
+  ): Promise<RunState[]> {
+    const query: Record<string, unknown> = {};
+    if (filter.threadID) query.threadID = filter.threadID;
+    if (filter.status) query.status = filter.status;
+    if (filter.runIDs?.length) query.runID = { $in: filter.runIDs };
+
+    const docs = await this.runModel
+      .find(query)
+      .sort({ startedAt: options.sort === 'asc' ? 1 : -1 })
+      .limit(options.limit ?? 50)
+      .exec();
+
+    return docs.map((d) => this.toRunState(d));
+  }
+
+  async cancelRuns(runIDs: string[]): Promise<number> {
+    const result = await this.runModel
+      .updateMany(
+        { runID: { $in: runIDs }, status: 'running' },
+        { $set: { status: 'cancelled', completedAt: new Date() } },
+      )
+      .exec();
+    return result.modifiedCount;
+  }
+
+  async listThreads(
+    options: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] } = {},
+  ): Promise<ThreadState[]> {
+    const query: Record<string, unknown> = {};
+    if (options.threadIDs?.length) query.threadID = { $in: options.threadIDs };
+
+    const docs = await this.threadModel
+      .find(query)
+      .sort({ updatedAt: options.sort === 'asc' ? 1 : -1 })
+      .limit(options.limit ?? 50)
+      .exec();
+
+    return docs.map((d) => this.toThreadState(d));
+  }
+
   // Agent state operations
 
   async getAgentState(threadID: string): Promise<AgentState> {
@@ -296,6 +339,7 @@ export class StateStore {
       startedAt: doc.startedAt,
       completedAt: doc.completedAt,
       error: doc.error,
+      response: doc.response,
     };
   }
 

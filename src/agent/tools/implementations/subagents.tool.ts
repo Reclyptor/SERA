@@ -1,10 +1,24 @@
 import { z } from 'zod';
-import { Connection } from 'mongoose';
 import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+
+export interface SubagentsStateLike {
+  listRuns(
+    filter: { threadID?: string; runIDs?: string[] },
+    options?: { limit?: number; sort?: 'asc' | 'desc' },
+  ): Promise<Array<{
+    runID: string;
+    threadID: string;
+    status: string;
+    startedAt: Date;
+    completedAt?: Date;
+    response?: string;
+  }>>;
+  cancelRuns(runIDs: string[]): Promise<number>;
+}
 
 const parameters = z.object({
   operation: z
@@ -26,7 +40,7 @@ export class SubagentsTool implements Tool<typeof parameters> {
     'Coordinate and manage sub-agents. List spawned sub-agents, check their status, or cancel them.';
   readonly parameters = parameters;
 
-  constructor(private readonly connection: Connection) {}
+  constructor(private readonly stateService: SubagentsStateLike) {}
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -35,23 +49,17 @@ export class SubagentsTool implements Tool<typeof parameters> {
     const { operation, runIDs, threadID } = args;
 
     try {
-      const runs = this.connection.collection('runs');
-
       switch (operation) {
         case 'list': {
-          const filter: Record<string, unknown> = {};
-          if (threadID) filter.threadID = threadID;
-
-          const docs = await runs
-            .find(filter)
-            .sort({ startedAt: -1 })
-            .limit(50)
-            .toArray();
+          const runs = await this.stateService.listRuns(
+            { threadID },
+            { limit: 50, sort: 'desc' },
+          );
 
           return {
             success: true,
             result: {
-              agents: docs.map((d) => ({
+              agents: runs.map((d) => ({
                 runID: d.runID,
                 threadID: d.threadID,
                 status: d.status,
@@ -70,14 +78,12 @@ export class SubagentsTool implements Tool<typeof parameters> {
             };
           }
 
-          const docs = await runs
-            .find({ runID: { $in: runIDs } })
-            .toArray();
+          const runs = await this.stateService.listRuns({ runIDs });
 
           return {
             success: true,
             result: {
-              agents: docs.map((d) => ({
+              agents: runs.map((d) => ({
                 runID: d.runID,
                 threadID: d.threadID,
                 status: d.status,
@@ -95,14 +101,11 @@ export class SubagentsTool implements Tool<typeof parameters> {
             };
           }
 
-          const result = await runs.updateMany(
-            { runID: { $in: runIDs }, status: 'running' },
-            { $set: { status: 'cancelled', completedAt: new Date() } },
-          );
+          const cancelled = await this.stateService.cancelRuns(runIDs);
 
           return {
             success: true,
-            result: { cancelled: result.modifiedCount },
+            result: { cancelled },
           };
         }
       }

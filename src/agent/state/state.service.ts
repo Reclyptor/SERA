@@ -107,6 +107,27 @@ export class StateService {
     });
   }
 
+  async getRun(runID: string): Promise<RunState | undefined> {
+    return this.store.getRun(runID);
+  }
+
+  async listRuns(
+    filter: { threadID?: string; status?: RunState['status']; runIDs?: string[] },
+    options: { limit?: number; sort?: 'asc' | 'desc' } = {},
+  ): Promise<RunState[]> {
+    return this.store.listRuns(filter, options);
+  }
+
+  async cancelRuns(runIDs: string[]): Promise<number> {
+    return this.store.cancelRuns(runIDs);
+  }
+
+  async listThreads(
+    options: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] } = {},
+  ): Promise<ThreadState[]> {
+    return this.store.listThreads(options);
+  }
+
   // Agent state management
 
   async getAgentState(threadID: string): Promise<AgentState> {

@@ -1,10 +1,29 @@
 import { z } from 'zod';
-import { Connection } from 'mongoose';
 import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+
+export interface SessionsListStateLike {
+  listThreads(
+    options?: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] },
+  ): Promise<Array<{
+    threadID: string;
+    metadata: Record<string, unknown>;
+    createdAt: Date;
+    updatedAt: Date;
+  }>>;
+  listRuns(
+    filter: { threadID?: string; status?: string },
+    options?: { limit?: number; sort?: 'asc' | 'desc' },
+  ): Promise<Array<{
+    runID: string;
+    threadID: string;
+    status: string;
+    startedAt: Date;
+  }>>;
+}
 
 const parameters = z.object({
   limit: z
@@ -26,7 +45,7 @@ export class SessionsListTool implements Tool<typeof parameters> {
     'List active sessions (threads) and their runs. Shows session metadata and status.';
   readonly parameters = parameters;
 
-  constructor(private readonly connection: Connection) {}
+  constructor(private readonly stateService: SessionsListStateLike) {}
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -36,52 +55,52 @@ export class SessionsListTool implements Tool<typeof parameters> {
     const { status } = args;
 
     try {
-      const threads = this.connection.collection('threads');
-      const runs = this.connection.collection('runs');
-
-      let threadDocs: Array<Record<string, unknown>>;
+      let threads: Array<{
+        threadID: string;
+        metadata: Record<string, unknown>;
+        createdAt: Date;
+        updatedAt: Date;
+      }>;
 
       if (status !== 'all') {
-        const matchingRuns = await runs
-          .find({ status })
-          .project({ threadID: 1 })
-          .toArray();
+        const matchingRuns = await this.stateService.listRuns(
+          { status: status as string },
+          { limit: 500 },
+        );
 
         const threadIDs = [
-          ...new Set(matchingRuns.map((r) => r.threadID as string)),
+          ...new Set(matchingRuns.map((r) => r.threadID)),
         ];
 
-        threadDocs = await threads
-          .find({ threadID: { $in: threadIDs } })
-          .sort({ updatedAt: -1 })
-          .limit(limit)
-          .toArray();
+        threads = await this.stateService.listThreads({
+          threadIDs,
+          sort: 'desc',
+          limit,
+        });
       } else {
-        threadDocs = await threads
-          .find({})
-          .sort({ updatedAt: -1 })
-          .limit(limit)
-          .toArray();
+        threads = await this.stateService.listThreads({
+          sort: 'desc',
+          limit,
+        });
       }
 
       const sessions = await Promise.all(
-        threadDocs.map(async (thread) => {
-          const latestRun = await runs
-            .find({ threadID: thread.threadID })
-            .sort({ startedAt: -1 })
-            .limit(1)
-            .toArray();
+        threads.map(async (thread) => {
+          const latestRuns = await this.stateService.listRuns(
+            { threadID: thread.threadID },
+            { limit: 1, sort: 'desc' },
+          );
 
           return {
             threadID: thread.threadID,
             metadata: thread.metadata ?? {},
             createdAt: thread.createdAt,
             updatedAt: thread.updatedAt,
-            latestRun: latestRun[0]
+            latestRun: latestRuns[0]
               ? {
-                  runID: latestRun[0].runID,
-                  status: latestRun[0].status,
-                  startedAt: latestRun[0].startedAt,
+                  runID: latestRuns[0].runID,
+                  status: latestRuns[0].status,
+                  startedAt: latestRuns[0].startedAt,
                 }
               : undefined,
           };

@@ -1,8 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
 import { ToolsService } from './tools.service';
 import { ToolsRegistry } from './tools.registry';
 import { MemoryService } from '../memory/memory.service';
@@ -57,7 +55,6 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly agentsService: AgentsService,
     private readonly agentRouter: AgentRouterService,
     private readonly moduleRef: ModuleRef,
-    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   onModuleInit() {
@@ -127,13 +124,11 @@ export class ToolsBootstrapService implements OnModuleInit {
     };
     const runReader: import('./implementations/agent-message.tool').RunReaderLike = {
       getRunResponse: async (runID: string) => {
-        const doc = await this.connection
-          .collection('runs')
-          .findOne({ runID });
-        if (!doc) return null;
+        const run = await this.stateService.getRun(runID);
+        if (!run) return null;
         return {
-          status: doc.status as string,
-          response: doc.response as string | undefined,
+          status: run.status,
+          response: run.response,
         };
       },
     };
@@ -143,7 +138,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     );
 
     // Sessions & agents
-    this.toolsService.registerTool(new SessionsListTool(this.connection));
+    this.toolsService.registerTool(new SessionsListTool(this.stateService));
     this.toolsService.registerTool(
       new SessionsHistoryTool(this.chatsService),
     );
@@ -152,7 +147,7 @@ export class ToolsBootstrapService implements OnModuleInit {
       new SessionsSpawnTool(lazyOrchestrator, this.agentRouter, runReader),
     );
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
-    this.toolsService.registerTool(new SubagentsTool(this.connection));
+    this.toolsService.registerTool(new SubagentsTool(this.stateService));
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
     // Task decomposition (lazily resolved to avoid circular deps)
