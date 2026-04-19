@@ -8,8 +8,17 @@ export class Prompt {
   @Prop({ required: true, unique: true })
   slug: string;
 
+  @Prop()
+  extends?: string;
+
   @Prop({ required: true })
   content: string;
+
+  @Prop()
+  description?: string;
+
+  @Prop()
+  seedHash?: string;
 
   @Prop({ type: Object, default: {} })
   metadata: Record<string, unknown>;

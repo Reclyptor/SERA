@@ -3,6 +3,10 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      { "include": "prompts/seeds/*.md", "watchAssets": true },
+      { "include": "agent/skills/seeds/*.md", "watchAssets": true }
+    ]
   }
 }

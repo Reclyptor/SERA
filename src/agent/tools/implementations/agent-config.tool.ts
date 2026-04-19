@@ -10,12 +10,12 @@ export interface SelfConfigAgentsLike {
     agentID: string;
     name: string;
     description: string;
-    personality?: string;
+    promptSlug?: string;
     enabled: boolean;
   } | null>;
   update(
     agentID: string,
-    dto: { personality?: string; description?: string },
+    dto: { promptSlug?: string; description?: string },
   ): Promise<unknown>;
 }
 
@@ -48,45 +48,45 @@ export interface SelfConfigHeartbeatLike {
 
 export interface SelfConfigSkillsLike {
   create(dto: {
-    skillID: string;
     name: string;
+    displayName?: string;
     description: string;
     content: string;
-    triggerTools?: string[];
+    allowedTools?: string[];
     triggerKeywords?: string[];
     agentIDs?: string[];
     priority?: number;
     enabled?: boolean;
-  }): Promise<{ skillID: string; name: string }>;
+  }): Promise<{ name: string; displayName?: string }>;
   findAll(): Promise<
     Array<{
-      skillID: string;
       name: string;
+      displayName?: string;
       description: string;
       agentIDs: string[];
       enabled: boolean;
     }>
   >;
   update(
-    skillID: string,
+    name: string,
     dto: {
-      name?: string;
+      displayName?: string;
       description?: string;
       content?: string;
-      triggerTools?: string[];
+      allowedTools?: string[];
       triggerKeywords?: string[];
       priority?: number;
       enabled?: boolean;
     },
   ): Promise<unknown>;
-  remove(skillID: string): Promise<boolean>;
+  remove(name: string): Promise<boolean>;
 }
 
 const parameters = z.object({
   operation: z
     .enum([
       'get_config',
-      'update_personality',
+      'update_config',
       'get_heartbeat',
       'update_heartbeat',
       'list_skills',
@@ -95,14 +95,14 @@ const parameters = z.object({
       'delete_skill',
     ])
     .describe('Operation to perform on own agent configuration'),
-  personality: z
+  promptSlug: z
     .string()
     .optional()
-    .describe('New personality text (for update_personality)'),
+    .describe('Prompt slug to use for this agent (for update_config)'),
   description: z
     .string()
     .optional()
-    .describe('New agent description (for update_personality)'),
+    .describe('New agent description (for update_config)'),
   heartbeat: z
     .object({
       intervalMinutes: z.number().optional(),
@@ -120,11 +120,11 @@ const parameters = z.object({
     .describe('Heartbeat settings (for update_heartbeat)'),
   skill: z
     .object({
-      skillID: z.string().optional(),
       name: z.string().optional(),
+      displayName: z.string().optional(),
       description: z.string().optional(),
       content: z.string().optional(),
-      triggerTools: z.array(z.string()).optional(),
+      allowedTools: z.array(z.string()).optional(),
       triggerKeywords: z.array(z.string()).optional(),
       priority: z.number().optional(),
       enabled: z.boolean().optional(),
@@ -155,8 +155,8 @@ export class AgentConfigTool implements Tool<typeof parameters> {
       switch (args.operation) {
         case 'get_config':
           return await this.getConfig(agentID);
-        case 'update_personality':
-          return await this.updatePersonality(agentID, args);
+        case 'update_config':
+          return await this.updateConfig(agentID, args);
         case 'get_heartbeat':
           return await this.getHeartbeat(agentID);
         case 'update_heartbeat':
@@ -189,24 +189,24 @@ export class AgentConfigTool implements Tool<typeof parameters> {
         agentID: config.agentID,
         name: config.name,
         description: config.description,
-        personality: config.personality,
+        promptSlug: config.promptSlug,
         enabled: config.enabled,
       },
     };
   }
 
-  private async updatePersonality(
+  private async updateConfig(
     agentID: string,
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
     const update: Record<string, string> = {};
-    if (args.personality !== undefined) update.personality = args.personality;
+    if (args.promptSlug !== undefined) update.promptSlug = args.promptSlug;
     if (args.description !== undefined) update.description = args.description;
 
     if (Object.keys(update).length === 0) {
       return {
         success: false,
-        error: 'Provide personality and/or description to update',
+        error: 'Provide promptSlug and/or description to update',
       };
     }
 
@@ -254,8 +254,8 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     return {
       success: true,
       result: mine.map((s) => ({
-        skillID: s.skillID,
         name: s.name,
+        displayName: s.displayName,
         description: s.description,
         scoped: s.agentIDs.includes(agentID),
         enabled: s.enabled,
@@ -275,11 +275,11 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     }
 
     const skill = await this.skills.create({
-      skillID: args.skill.skillID ?? crypto.randomUUID(),
       name: args.skill.name,
+      displayName: args.skill.displayName,
       description: args.skill.description ?? '',
       content: args.skill.content,
-      triggerTools: args.skill.triggerTools,
+      allowedTools: args.skill.allowedTools,
       triggerKeywords: args.skill.triggerKeywords,
       agentIDs: [agentID],
       priority: args.skill.priority,
@@ -288,33 +288,33 @@ export class AgentConfigTool implements Tool<typeof parameters> {
 
     return {
       success: true,
-      result: { skillID: skill.skillID, name: skill.name, agentID },
+      result: { name: skill.name, agentID },
     };
   }
 
   private async updateSkill(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.skill?.skillID) {
-      return { success: false, error: 'skill.skillID is required for update_skill' };
+    if (!args.skill?.name) {
+      return { success: false, error: 'skill.name is required for update_skill' };
     }
 
-    const { skillID, ...rest } = args.skill;
-    await this.skills.update(skillID, rest);
-    return { success: true, result: { skillID, updated: true } };
+    const { name, ...rest } = args.skill;
+    await this.skills.update(name, rest);
+    return { success: true, result: { name, updated: true } };
   }
 
   private async deleteSkill(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.skill?.skillID) {
-      return { success: false, error: 'skill.skillID is required for delete_skill' };
+    if (!args.skill?.name) {
+      return { success: false, error: 'skill.name is required for delete_skill' };
     }
 
-    const deleted = await this.skills.remove(args.skill.skillID);
+    const deleted = await this.skills.remove(args.skill.name);
     if (!deleted) {
-      return { success: false, error: `Skill "${args.skill.skillID}" not found` };
+      return { success: false, error: `Skill "${args.skill.name}" not found` };
     }
-    return { success: true, result: { deleted: args.skill.skillID } };
+    return { success: true, result: { deleted: args.skill.name } };
   }
 }

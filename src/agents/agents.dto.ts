@@ -33,8 +33,7 @@ export class CreateAgentDto {
   agentID: string;
   name: string;
   description?: string;
-  systemPrompt?: string;
-  personality?: string;
+  promptSlug?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
   workspaceDir?: string;
@@ -47,8 +46,7 @@ export class CreateAgentDto {
 export class UpdateAgentDto {
   name?: string;
   description?: string;
-  systemPrompt?: string;
-  personality?: string;
+  promptSlug?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
   workspaceDir?: string;

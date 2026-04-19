@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { CoreMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
+import { PromptsService } from '../../prompts/prompts.service';
 
 const CHARS_PER_TOKEN: Record<string, number> = {
   anthropic: 3.5,
@@ -20,13 +21,6 @@ const PROTECTED_TAIL_TOKENS = 30_000;
 const PROTECTED_HEAD_COUNT = 2;
 const TOOL_OUTPUT_PRUNE_THRESHOLD = 2_000;
 
-const SUMMARY_SYSTEM_PROMPT =
-  'You are a conversation summarizer. Produce a concise structured summary of the conversation excerpt below. ' +
-  'Use this format:\n\n## Resolved\nBullet points of questions answered or tasks completed.\n\n' +
-  '## Pending\nBullet points of open questions or in-progress tasks.\n\n' +
-  '## Key Facts\nImportant context, decisions, or constraints established.\n\n' +
-  'Be concise. Preserve all actionable details. Do not include greetings or filler.';
-
 @Injectable()
 export class ContextCompressorService {
   private readonly logger = new Logger(ContextCompressorService.name);
@@ -35,6 +29,7 @@ export class ContextCompressorService {
   constructor(
     private readonly configService: ConfigService,
     private readonly modelRouter: ModelRouterService,
+    private readonly promptsService: PromptsService,
   ) {
     this.contextWindows = { ...DEFAULT_CONTEXT_WINDOWS };
 
@@ -148,8 +143,12 @@ export class ContextCompressorService {
     const middleText = this.messagesToText(middle);
 
     try {
+      const summaryPrompt =
+        (await this.promptsService.get('summary')) ??
+        'Summarize the conversation excerpt. Preserve actionable details.';
+
       const result = await this.modelRouter.generate({
-        system: SUMMARY_SYSTEM_PROMPT,
+        system: summaryPrompt,
         messages: [{ role: 'user', content: middleText }],
         maxOutputTokens: 2048,
         temperature: 0.2,

@@ -11,11 +11,7 @@ import {
   HeartbeatConfigDocument,
 } from './heartbeat.schema';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
-
-const DEFAULT_HEARTBEAT_MESSAGE =
-  '[Heartbeat] You have been activated for a periodic check. ' +
-  'Review any pending tasks, scheduled items, or proactive work you should do. ' +
-  'If nothing needs attention, respond briefly.';
+import { PromptsService } from '../../prompts/prompts.service';
 
 @Injectable()
 export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
@@ -28,6 +24,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(HeartbeatConfig.name)
     private readonly heartbeatModel: Model<HeartbeatConfigDocument>,
     private readonly orchestrator: OrchestratorService,
+    private readonly promptsService: PromptsService,
   ) {}
 
   onModuleInit() {
@@ -113,7 +110,9 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
       `Firing heartbeat for agent "${config.agentID}" (run: ${runID})`,
     );
 
-    let message = DEFAULT_HEARTBEAT_MESSAGE;
+    let message =
+      (await this.promptsService.get('heartbeat')) ??
+      '[Heartbeat] Periodic check activated. Review pending tasks.';
     if (config.checklist.length > 0) {
       const items = config.checklist.map((item) => `- ${item}`).join('\n');
       message += `\n\nChecklist:\n${items}`;

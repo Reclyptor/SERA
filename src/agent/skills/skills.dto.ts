@@ -1,29 +1,29 @@
-export class SkillRequirementsDto {
+export class SkillCompatibilityDto {
   tools?: string[];
   env?: string[];
 }
 
 export class CreateSkillDto {
-  skillID: string;
   name: string;
+  displayName?: string;
   description: string;
   content: string;
-  triggerTools?: string[];
+  allowedTools?: string[];
   triggerKeywords?: string[];
   agentIDs?: string[];
   priority?: number;
   enabled?: boolean;
-  requirements?: SkillRequirementsDto;
+  compatibility?: SkillCompatibilityDto;
 }
 
 export class UpdateSkillDto {
-  name?: string;
+  displayName?: string;
   description?: string;
   content?: string;
-  triggerTools?: string[];
+  allowedTools?: string[];
   triggerKeywords?: string[];
   agentIDs?: string[];
   priority?: number;
   enabled?: boolean;
-  requirements?: SkillRequirementsDto;
+  compatibility?: SkillCompatibilityDto;
 }

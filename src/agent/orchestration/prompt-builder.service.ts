@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PromptsService } from '../../prompts/prompts.service';
+import { PromptsService, PromptVariables } from '../../prompts/prompts.service';
 import { MemoryService } from '../memory/memory.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { SkillsService } from '../skills/skills.service';
 import { ToolsService } from '../tools/tools.service';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
-import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
 import type { AgentConfig } from '../../agents/agent-config.schema';
 
 @Injectable()
@@ -26,37 +25,30 @@ export class PromptBuilderService {
     agentConfig: AgentConfig,
     frozenMemoryContext?: string,
   ): Promise<string> {
-    let basePrompt: string;
+    const promptSlug = agentConfig.promptSlug ?? 'system';
 
-    if (agentConfig.systemPrompt) {
-      basePrompt = agentConfig.systemPrompt;
-    } else {
-      try {
-        basePrompt =
-          (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
-      } catch (error) {
-        this.logger.warn(
-          'Failed to load system prompt from DB, using default:',
-          error,
-        );
-        basePrompt = DEFAULT_SYSTEM_PROMPT;
-      }
+    const variables: PromptVariables = {
+      agentName: agentConfig.name,
+      agentID: agentConfig.agentID,
+      userID,
+      workspaceDir: agentConfig.workspaceDir,
+    };
+
+    const basePrompt = await this.promptsService.resolve(promptSlug, variables);
+    if (!basePrompt) {
+      this.logger.error(
+        `Prompt "${promptSlug}" not found in database. Ensure prompts have been seeded.`,
+      );
+      throw new Error(`Prompt "${promptSlug}" not found`);
     }
 
     const parts: string[] = [basePrompt];
-
-    if (agentConfig.personality) {
-      parts.push(`## Identity\n${agentConfig.personality}`);
-    }
 
     if (frozenMemoryContext) {
       parts.push(frozenMemoryContext);
     }
 
     try {
-      // Register a single MemoryKnowledgeProvider per user request.
-      // We re-register each call so the provider always uses the current userID,
-      // avoiding the previous bug where a stale provider served the wrong user's memories.
       const memoryProvider = new MemoryKnowledgeProvider(
         this.memoryService,
         userID,

@@ -4,6 +4,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { ContentScannerService } from '../security/content-scanner.service';
+import { PromptsService } from '../../prompts/prompts.service';
 
 export interface MemoryEntry {
   id: string;
@@ -46,6 +47,7 @@ export class MemoryService {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly promptsService: PromptsService,
     @Optional() private readonly contentScanner?: ContentScannerService,
   ) {
     this.anthropic = new Anthropic();
@@ -323,24 +325,17 @@ export class MemoryService {
     userID: string,
     conversation: string,
   ): Promise<MemoryEntry[]> {
+    const extractionPrompt =
+      (await this.promptsService.get('extraction')) ??
+      'Extract important facts about the user. Return ONLY a JSON array of strings.';
+
     const response = await this.anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       messages: [
         {
           role: 'user',
-          content: `Extract important facts, preferences, and information about the user from this conversation that would be useful to remember for future interactions. Return ONLY a JSON array of strings, each being a distinct fact. If no memorable facts, return an empty array [].
-
-Conversation:
-${conversation}
-
-Examples of good facts to extract:
-- "User prefers dark mode"
-- "User's name is John"
-- "User works as a software engineer"
-- "User is learning Spanish"
-
-Return only the JSON array, nothing else:`,
+          content: `${extractionPrompt}\n\nConversation:\n${conversation}`,
         },
       ],
     });

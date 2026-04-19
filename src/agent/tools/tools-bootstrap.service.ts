@@ -174,8 +174,8 @@ export class ToolsBootstrapService implements OnModuleInit {
     const lazySkills: import('./implementations/agent-config.tool').SelfConfigSkillsLike = {
       create: (dto) => this.resolveSkillsService().create(dto),
       findAll: () => this.resolveSkillsService().findAll(),
-      update: (skillID, dto) => this.resolveSkillsService().update(skillID, dto),
-      remove: (skillID) => this.resolveSkillsService().remove(skillID),
+      update: (name, dto) => this.resolveSkillsService().update(name, dto),
+      remove: (name) => this.resolveSkillsService().remove(name),
     };
     this.toolsService.registerTool(
       new AgentConfigTool(this.agentsService, lazyHeartbeat, lazySkills),

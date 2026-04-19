@@ -91,10 +91,7 @@ export class AgentConfig {
   description: string;
 
   @Prop()
-  systemPrompt?: string;
-
-  @Prop()
-  personality?: string;
+  promptSlug?: string;
 
   @Prop({ type: ModelOptionsSchema })
   modelOptions?: ModelOptions;

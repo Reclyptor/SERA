@@ -4,7 +4,7 @@ import { HydratedDocument } from 'mongoose';
 export type SkillDocument = HydratedDocument<Skill>;
 
 @Schema()
-export class SkillRequirements {
+export class SkillCompatibility {
   @Prop({ type: [String], default: [] })
   tools: string[];
 
@@ -12,16 +12,16 @@ export class SkillRequirements {
   env: string[];
 }
 
-export const SkillRequirementsSchema =
-  SchemaFactory.createForClass(SkillRequirements);
+export const SkillCompatibilitySchema =
+  SchemaFactory.createForClass(SkillCompatibility);
 
 @Schema({ timestamps: true })
 export class Skill {
   @Prop({ required: true, unique: true, index: true })
-  skillID: string;
-
-  @Prop({ required: true })
   name: string;
+
+  @Prop()
+  displayName?: string;
 
   @Prop({ required: true })
   description: string;
@@ -30,7 +30,7 @@ export class Skill {
   content: string;
 
   @Prop({ type: [String], default: [], index: true })
-  triggerTools: string[];
+  allowedTools: string[];
 
   @Prop({ type: [String], default: [], index: true })
   triggerKeywords: string[];
@@ -44,8 +44,11 @@ export class Skill {
   @Prop({ default: true })
   enabled: boolean;
 
-  @Prop({ type: SkillRequirementsSchema })
-  requirements?: SkillRequirements;
+  @Prop({ type: SkillCompatibilitySchema })
+  compatibility?: SkillCompatibility;
+
+  @Prop()
+  seedHash?: string;
 
   createdAt: Date;
   updatedAt: Date;

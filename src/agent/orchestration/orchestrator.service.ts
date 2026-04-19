@@ -28,6 +28,7 @@ import type {
 import { ContextCompressorService } from '../context/context-compressor.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
+import { PromptsService } from '../../prompts/prompts.service';
 
 @Injectable()
 export class OrchestratorService {
@@ -46,6 +47,7 @@ export class OrchestratorService {
     private readonly skillsService: SkillsService,
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
+    private readonly promptsService: PromptsService,
   ) {}
 
   async executeGoal(
@@ -360,15 +362,12 @@ export class OrchestratorService {
     toolCallCount: number,
   ): Promise<void> {
     try {
+      const skillEvalPrompt =
+        (await this.promptsService.get('evaluation')) ??
+        'Evaluate whether this interaction should become a reusable skill. Respond with JSON: {"create": false} or {"create": true, "name": "kebab-case-id", "displayName": "Human Name", "description": "...", "content": "...", "triggerKeywords": [...]}';
+
       const result = await this.modelRouter.generate({
-        system:
-          'You evaluate whether an AI agent interaction should be distilled into a reusable skill. ' +
-          'A skill is a prompt template that guides the agent through a specific type of task. ' +
-          'Only propose a skill if the interaction shows a repeatable pattern (not a one-off task). ' +
-          'Respond with ONLY valid JSON: either {"create": false} or ' +
-          '{"create": true, "skillID": "kebab-case-id", "name": "Human Name", ' +
-          '"description": "One line description", "content": "The skill prompt template with {{placeholders}}", ' +
-          '"triggerKeywords": ["keyword1", "keyword2"]}',
+        system: skillEvalPrompt,
         messages: [
           {
             role: 'user',
@@ -390,28 +389,28 @@ export class OrchestratorService {
 
       const evaluation = JSON.parse(raw) as {
         create: boolean;
-        skillID?: string;
         name?: string;
+        displayName?: string;
         description?: string;
         content?: string;
         triggerKeywords?: string[];
       };
 
-      if (!evaluation.create || !evaluation.skillID || !evaluation.content) {
+      if (!evaluation.create || !evaluation.name || !evaluation.content) {
         return;
       }
 
-      const existing = await this.skillsService.findByID(evaluation.skillID);
+      const existing = await this.skillsService.findByName(evaluation.name);
       if (existing) {
         this.logger.debug(
-          `Skill "${evaluation.skillID}" already exists, skipping auto-creation`,
+          `Skill "${evaluation.name}" already exists, skipping auto-creation`,
         );
         return;
       }
 
       await this.skillsService.create({
-        skillID: evaluation.skillID,
-        name: evaluation.name ?? evaluation.skillID,
+        name: evaluation.name,
+        displayName: evaluation.displayName,
         description: evaluation.description ?? '',
         content: evaluation.content,
         triggerKeywords: evaluation.triggerKeywords ?? [],
@@ -421,7 +420,7 @@ export class OrchestratorService {
       });
 
       this.logger.log(
-        `Auto-created skill "${evaluation.skillID}" from run ${goal.runID}`,
+        `Auto-created skill "${evaluation.name}" from run ${goal.runID}`,
       );
     } catch (err) {
       this.logger.debug(

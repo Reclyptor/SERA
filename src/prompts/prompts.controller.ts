@@ -20,19 +20,31 @@ export class PromptsController {
 
   @Get(':slug')
   async get(@Param('slug') slug: string) {
-    const content = await this.promptsService.get(slug);
-    if (content === null) {
+    const prompt = await this.promptsService.getDocument(slug);
+    if (!prompt) {
       throw new NotFoundException(`Prompt "${slug}" not found`);
     }
-    return { slug, content };
+    return {
+      slug: prompt.slug,
+      extends: prompt.extends,
+      content: prompt.content,
+      description: prompt.description,
+      metadata: prompt.metadata,
+    };
   }
 
   @Put(':slug')
   upsert(
     @Param('slug') slug: string,
-    @Body() body: { content: string; metadata?: Record<string, unknown> },
+    @Body()
+    body: {
+      content: string;
+      extends?: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+    },
   ) {
-    return this.promptsService.upsert(slug, body.content, body.metadata);
+    return this.promptsService.upsert(slug, body);
   }
 
   @Delete(':slug')
