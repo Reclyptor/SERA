@@ -66,7 +66,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
           await this.fire(config);
         } catch (err) {
           this.logger.error(
-            `Heartbeat for agent "${config.agentId}" failed:`,
+            `Heartbeat for agent "${config.agentID}" failed:`,
             err,
           );
         }
@@ -100,11 +100,11 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async fire(config: HeartbeatConfig): Promise<void> {
-    const threadId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
+    const threadID = crypto.randomUUID();
+    const runID = crypto.randomUUID();
 
     this.logger.log(
-      `Firing heartbeat for agent "${config.agentId}" (run: ${runId})`,
+      `Firing heartbeat for agent "${config.agentID}" (run: ${runID})`,
     );
 
     let message = DEFAULT_HEARTBEAT_MESSAGE;
@@ -118,17 +118,17 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     );
 
     await this.heartbeatModel.updateOne(
-      { agentId: config.agentId },
+      { agentID: config.agentID },
       { lastRunAt: new Date(), nextRunAt },
     );
 
     this.orchestrator
       .executeGoal(
         {
-          threadId,
-          runId,
-          userId: `heartbeat:${config.agentId}`,
-          agentId: config.agentId,
+          threadID,
+          runID,
+          userID: `heartbeat:${config.agentID}`,
+          agentID: config.agentID,
           userMessage: message,
           conversationHistory: [],
           isHeartbeat: true,
@@ -136,14 +136,14 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
         { maxSteps: 10, maxIterations: 2 },
       )
       .catch((err) => {
-        this.logger.error(`Heartbeat run ${runId} failed:`, err);
+        this.logger.error(`Heartbeat run ${runID} failed:`, err);
       });
   }
 
   // CRUD
 
   async create(data: {
-    agentId: string;
+    agentID: string;
     intervalMinutes?: number;
     activeHours?: { start: number; end: number; timezone?: string };
     checklist?: string[];
@@ -163,12 +163,12 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     return this.heartbeatModel.find().sort({ createdAt: -1 }).exec();
   }
 
-  async findByAgent(agentId: string): Promise<HeartbeatConfig | null> {
-    return this.heartbeatModel.findOne({ agentId }).exec();
+  async findByAgent(agentID: string): Promise<HeartbeatConfig | null> {
+    return this.heartbeatModel.findOne({ agentID }).exec();
   }
 
   async update(
-    agentId: string,
+    agentID: string,
     data: Partial<{
       intervalMinutes: number;
       activeHours: { start: number; end: number; timezone?: string };
@@ -186,13 +186,13 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     }
 
     return this.heartbeatModel
-      .findOneAndUpdate({ agentId }, { $set: update }, { new: true })
+      .findOneAndUpdate({ agentID }, { $set: update }, { new: true })
       .exec();
   }
 
-  async remove(agentId: string): Promise<boolean> {
+  async remove(agentID: string): Promise<boolean> {
     const result = await this.heartbeatModel
-      .deleteOne({ agentId })
+      .deleteOne({ agentID })
       .exec();
     return result.deletedCount > 0;
   }

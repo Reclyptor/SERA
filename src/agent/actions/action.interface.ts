@@ -1,9 +1,9 @@
 import type { z } from 'zod';
 
 export interface ActionExecutionContext {
-  threadId: string;
-  runId: string;
-  userId?: string;
+  threadID: string;
+  runID: string;
+  userID?: string;
   metadata?: Record<string, unknown>;
 }
 

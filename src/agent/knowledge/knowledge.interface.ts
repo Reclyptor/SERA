@@ -13,8 +13,8 @@ export interface KnowledgeDocument {
 }
 
 export interface KnowledgeChunk {
-  documentId: string;
-  chunkId: string;
+  documentID: string;
+  chunkID: string;
   content: string;
   /**
    * Start position in original document
@@ -88,5 +88,5 @@ export interface KnowledgeProvider {
   /**
    * Remove a document from the knowledge base
    */
-  removeDocument?(documentId: string): Promise<boolean>;
+  removeDocument?(documentID: string): Promise<boolean>;
 }

@@ -9,7 +9,7 @@ export interface SandboxExecOptions {
   cwd?: string;
   timeoutMs?: number;
   workspaceDir: string;
-  agentId: string;
+  agentID: string;
   sandbox: SandboxContext;
 }
 

@@ -6,22 +6,22 @@ import type {
 } from '../tool.interface';
 
 export interface SelfConfigAgentsLike {
-  findById(agentId: string): Promise<{
-    agentId: string;
+  findByID(agentID: string): Promise<{
+    agentID: string;
     name: string;
     description: string;
     personality?: string;
     enabled: boolean;
   } | null>;
   update(
-    agentId: string,
+    agentID: string,
     dto: { personality?: string; description?: string },
   ): Promise<unknown>;
 }
 
 export interface SelfConfigHeartbeatLike {
-  findByAgent(agentId: string): Promise<{
-    agentId: string;
+  findByAgent(agentID: string): Promise<{
+    agentID: string;
     intervalMinutes: number;
     activeHours?: { start: number; end: number; timezone?: string };
     checklist: string[];
@@ -29,14 +29,14 @@ export interface SelfConfigHeartbeatLike {
     enabled: boolean;
   } | null>;
   create(data: {
-    agentId: string;
+    agentID: string;
     intervalMinutes?: number;
     activeHours?: { start: number; end: number; timezone?: string };
     checklist?: string[];
     enabled?: boolean;
   }): Promise<unknown>;
   update(
-    agentId: string,
+    agentID: string,
     data: Partial<{
       intervalMinutes: number;
       activeHours: { start: number; end: number; timezone?: string };
@@ -48,27 +48,27 @@ export interface SelfConfigHeartbeatLike {
 
 export interface SelfConfigSkillsLike {
   create(dto: {
-    skillId: string;
+    skillID: string;
     name: string;
     description: string;
     content: string;
     triggerTools?: string[];
     triggerKeywords?: string[];
-    agentIds?: string[];
+    agentIDs?: string[];
     priority?: number;
     enabled?: boolean;
-  }): Promise<{ skillId: string; name: string }>;
+  }): Promise<{ skillID: string; name: string }>;
   findAll(): Promise<
     Array<{
-      skillId: string;
+      skillID: string;
       name: string;
       description: string;
-      agentIds: string[];
+      agentIDs: string[];
       enabled: boolean;
     }>
   >;
   update(
-    skillId: string,
+    skillID: string,
     dto: {
       name?: string;
       description?: string;
@@ -79,7 +79,7 @@ export interface SelfConfigSkillsLike {
       enabled?: boolean;
     },
   ): Promise<unknown>;
-  remove(skillId: string): Promise<boolean>;
+  remove(skillID: string): Promise<boolean>;
 }
 
 const parameters = z.object({
@@ -120,7 +120,7 @@ const parameters = z.object({
     .describe('Heartbeat settings (for update_heartbeat)'),
   skill: z
     .object({
-      skillId: z.string().optional(),
+      skillID: z.string().optional(),
       name: z.string().optional(),
       description: z.string().optional(),
       content: z.string().optional(),
@@ -149,22 +149,22 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const agentId = context.agentId;
+    const agentID = context.agentID;
 
     try {
       switch (args.operation) {
         case 'get_config':
-          return await this.getConfig(agentId);
+          return await this.getConfig(agentID);
         case 'update_personality':
-          return await this.updatePersonality(agentId, args);
+          return await this.updatePersonality(agentID, args);
         case 'get_heartbeat':
-          return await this.getHeartbeat(agentId);
+          return await this.getHeartbeat(agentID);
         case 'update_heartbeat':
-          return await this.updateHeartbeat(agentId, args);
+          return await this.updateHeartbeat(agentID, args);
         case 'list_skills':
-          return await this.listSkills(agentId);
+          return await this.listSkills(agentID);
         case 'create_skill':
-          return await this.createSkill(agentId, args);
+          return await this.createSkill(agentID, args);
         case 'update_skill':
           return await this.updateSkill(args);
         case 'delete_skill':
@@ -178,15 +178,15 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     }
   }
 
-  private async getConfig(agentId: string): Promise<ToolExecutionResult> {
-    const config = await this.agents.findById(agentId);
+  private async getConfig(agentID: string): Promise<ToolExecutionResult> {
+    const config = await this.agents.findByID(agentID);
     if (!config) {
-      return { success: false, error: `Agent "${agentId}" not found` };
+      return { success: false, error: `Agent "${agentID}" not found` };
     }
     return {
       success: true,
       result: {
-        agentId: config.agentId,
+        agentID: config.agentID,
         name: config.name,
         description: config.description,
         personality: config.personality,
@@ -196,7 +196,7 @@ export class AgentConfigTool implements Tool<typeof parameters> {
   }
 
   private async updatePersonality(
-    agentId: string,
+    agentID: string,
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
     const update: Record<string, string> = {};
@@ -210,61 +210,61 @@ export class AgentConfigTool implements Tool<typeof parameters> {
       };
     }
 
-    await this.agents.update(agentId, update);
-    return { success: true, result: { agentId, updated: Object.keys(update) } };
+    await this.agents.update(agentID, update);
+    return { success: true, result: { agentID, updated: Object.keys(update) } };
   }
 
-  private async getHeartbeat(agentId: string): Promise<ToolExecutionResult> {
-    const config = await this.heartbeat.findByAgent(agentId);
+  private async getHeartbeat(agentID: string): Promise<ToolExecutionResult> {
+    const config = await this.heartbeat.findByAgent(agentID);
     if (!config) {
       return {
         success: true,
-        result: { agentId, heartbeat: null, message: 'No heartbeat configured' },
+        result: { agentID, heartbeat: null, message: 'No heartbeat configured' },
       };
     }
     return { success: true, result: config };
   }
 
   private async updateHeartbeat(
-    agentId: string,
+    agentID: string,
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
     if (!args.heartbeat) {
       return { success: false, error: 'heartbeat object is required' };
     }
 
-    const existing = await this.heartbeat.findByAgent(agentId);
+    const existing = await this.heartbeat.findByAgent(agentID);
     if (!existing) {
       await this.heartbeat.create({
-        agentId,
+        agentID,
         ...args.heartbeat,
       });
-      return { success: true, result: { agentId, action: 'created' } };
+      return { success: true, result: { agentID, action: 'created' } };
     }
 
-    await this.heartbeat.update(agentId, args.heartbeat);
-    return { success: true, result: { agentId, action: 'updated' } };
+    await this.heartbeat.update(agentID, args.heartbeat);
+    return { success: true, result: { agentID, action: 'updated' } };
   }
 
-  private async listSkills(agentId: string): Promise<ToolExecutionResult> {
+  private async listSkills(agentID: string): Promise<ToolExecutionResult> {
     const all = await this.skills.findAll();
     const mine = all.filter(
-      (s) => s.agentIds.length === 0 || s.agentIds.includes(agentId),
+      (s) => s.agentIDs.length === 0 || s.agentIDs.includes(agentID),
     );
     return {
       success: true,
       result: mine.map((s) => ({
-        skillId: s.skillId,
+        skillID: s.skillID,
         name: s.name,
         description: s.description,
-        scoped: s.agentIds.includes(agentId),
+        scoped: s.agentIDs.includes(agentID),
         enabled: s.enabled,
       })),
     };
   }
 
   private async createSkill(
-    agentId: string,
+    agentID: string,
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
     if (!args.skill?.name || !args.skill?.content) {
@@ -275,46 +275,46 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     }
 
     const skill = await this.skills.create({
-      skillId: args.skill.skillId ?? crypto.randomUUID(),
+      skillID: args.skill.skillID ?? crypto.randomUUID(),
       name: args.skill.name,
       description: args.skill.description ?? '',
       content: args.skill.content,
       triggerTools: args.skill.triggerTools,
       triggerKeywords: args.skill.triggerKeywords,
-      agentIds: [agentId],
+      agentIDs: [agentID],
       priority: args.skill.priority,
       enabled: args.skill.enabled,
     });
 
     return {
       success: true,
-      result: { skillId: skill.skillId, name: skill.name, agentId },
+      result: { skillID: skill.skillID, name: skill.name, agentID },
     };
   }
 
   private async updateSkill(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.skill?.skillId) {
-      return { success: false, error: 'skill.skillId is required for update_skill' };
+    if (!args.skill?.skillID) {
+      return { success: false, error: 'skill.skillID is required for update_skill' };
     }
 
-    const { skillId, ...rest } = args.skill;
-    await this.skills.update(skillId, rest);
-    return { success: true, result: { skillId, updated: true } };
+    const { skillID, ...rest } = args.skill;
+    await this.skills.update(skillID, rest);
+    return { success: true, result: { skillID, updated: true } };
   }
 
   private async deleteSkill(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.skill?.skillId) {
-      return { success: false, error: 'skill.skillId is required for delete_skill' };
+    if (!args.skill?.skillID) {
+      return { success: false, error: 'skill.skillID is required for delete_skill' };
     }
 
-    const deleted = await this.skills.remove(args.skill.skillId);
+    const deleted = await this.skills.remove(args.skill.skillID);
     if (!deleted) {
-      return { success: false, error: `Skill "${args.skill.skillId}" not found` };
+      return { success: false, error: `Skill "${args.skill.skillID}" not found` };
     }
-    return { success: true, result: { deleted: args.skill.skillId } };
+    return { success: true, result: { deleted: args.skill.skillID } };
   }
 }

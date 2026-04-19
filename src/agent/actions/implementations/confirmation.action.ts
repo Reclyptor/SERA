@@ -43,20 +43,20 @@ export class RequestConfirmationAction implements BackendAction<
     args: z.infer<typeof parameters>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
-    const confirmationId = await this.stateService.addPendingConfirmation(
-      context.threadId,
+    const confirmationID = await this.stateService.addPendingConfirmation(
+      context.threadID,
       args.actionName,
       args.actionArgs,
       args.message,
-      context.runId,
+      context.runID,
     );
 
     this.emitter.emitEvent(
-      context.runId,
-      context.threadId,
+      context.runID,
+      context.threadID,
       'confirmation.required',
       {
-        confirmationId,
+        confirmationID,
         actionName: args.actionName,
         args: args.actionArgs,
         message: args.message,
@@ -70,21 +70,21 @@ export class RequestConfirmationAction implements BackendAction<
       await this.sleep(POLL_INTERVAL_MS);
 
       const confirmation = await this.stateService.getConfirmation(
-        context.threadId,
-        confirmationId,
+        context.threadID,
+        confirmationID,
       );
 
       if (!confirmation || confirmation.status === 'pending') continue;
 
       await this.stateService.removePendingConfirmation(
-        context.threadId,
-        confirmationId,
+        context.threadID,
+        confirmationID,
       );
 
       return {
         success: true,
         result: {
-          confirmationId,
+          confirmationID,
           decision: confirmation.status,
           approved: confirmation.status === 'approved',
           feedback: confirmation.feedback ?? null,
@@ -93,14 +93,14 @@ export class RequestConfirmationAction implements BackendAction<
     }
 
     await this.stateService.removePendingConfirmation(
-      context.threadId,
-      confirmationId,
+      context.threadID,
+      confirmationID,
     );
 
     return {
       success: true,
       result: {
-        confirmationId,
+        confirmationID,
         decision: 'timed_out',
         approved: false,
         feedback: null,

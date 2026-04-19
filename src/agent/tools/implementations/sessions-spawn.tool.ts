@@ -9,10 +9,10 @@ import type {
 export interface SpawnOrchestratorLike {
   executeGoal(
     goal: {
-      threadId: string;
-      runId: string;
-      userId: string;
-      agentId: string;
+      threadID: string;
+      runID: string;
+      userID: string;
+      agentID: string;
       userMessage: string;
       conversationHistory: unknown[];
     },
@@ -22,14 +22,14 @@ export interface SpawnOrchestratorLike {
 
 export interface SpawnRouterLike {
   resolve(context: {
-    userId?: string;
-    chatId?: string;
-    threadId?: string;
+    userID?: string;
+    chatID?: string;
+    threadID?: string;
   }): Promise<string | null>;
 }
 
 export interface SpawnRunReaderLike {
-  getRunResponse(runId: string): Promise<{
+  getRunResponse(runID: string): Promise<{
     status: string;
     response?: string;
   } | null>;
@@ -39,7 +39,7 @@ const parameters = z.object({
   goal: z
     .string()
     .describe('Goal or instruction for the spawned agent session'),
-  agentId: z
+  agentID: z
     .string()
     .optional()
     .describe('Agent ID to route this session to. If omitted, uses the default agent binding.'),
@@ -57,7 +57,7 @@ const parameters = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('If true, block until the spawned run completes and return its response. If false, return immediately with the runId.'),
+    .describe('If true, block until the spawned run completes and return its response. If false, return immediately with the runID.'),
   timeoutMs: z
     .number()
     .optional()
@@ -68,7 +68,7 @@ const parameters = z.object({
 export class SessionsSpawnTool implements Tool<typeof parameters> {
   readonly name = 'sessions_spawn';
   readonly description =
-    'Spawn a new agent session that executes a goal autonomously. Set waitForResult=true to block until it completes, or false to get a runId for polling via subagents.';
+    'Spawn a new agent session that executes a goal autonomously. Set waitForResult=true to block until it completes, or false to get a runID for polling via subagents.';
   readonly parameters = parameters;
 
   constructor(
@@ -82,36 +82,36 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { goal, maxSteps, maxIterations, waitForResult, timeoutMs } = args;
-    const threadId = randomUUID();
-    const runId = randomUUID();
+    const threadID = randomUUID();
+    const runID = randomUUID();
 
-    const agentId =
-      args.agentId ??
+    const agentID =
+      args.agentID ??
       (await this.router.resolve({
-        userId: context.userId,
-        threadId,
+        userID: context.userID,
+        threadID,
       }));
 
-    if (!agentId) {
+    if (!agentID) {
       return {
         success: false,
-        error: 'No agent could be resolved. Provide an agentId or ensure a default binding exists.',
+        error: 'No agent could be resolved. Provide an agentID or ensure a default binding exists.',
       };
     }
 
     const goalPromise = this.orchestrator.executeGoal(
       {
-        threadId,
-        runId,
-        userId: context.userId ?? `spawn:${context.agentId}`,
-        agentId,
+        threadID,
+        runID,
+        userID: context.userID ?? `spawn:${context.agentID}`,
+        agentID,
         userMessage: goal,
         conversationHistory: [],
       },
       { maxSteps, maxIterations },
     );
 
-    const baseResult = { threadId, runId, agentId, goal };
+    const baseResult = { threadID, runID, agentID, goal };
 
     if (waitForResult) {
       try {
@@ -122,7 +122,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
           ),
         ]);
 
-        const run = await this.runReader.getRunResponse(runId);
+        const run = await this.runReader.getRunResponse(runID);
         return {
           success: true,
           result: {

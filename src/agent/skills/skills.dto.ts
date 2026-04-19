@@ -4,13 +4,13 @@ export class SkillRequirementsDto {
 }
 
 export class CreateSkillDto {
-  skillId: string;
+  skillID: string;
   name: string;
   description: string;
   content: string;
   triggerTools?: string[];
   triggerKeywords?: string[];
-  agentIds?: string[];
+  agentIDs?: string[];
   priority?: number;
   enabled?: boolean;
   requirements?: SkillRequirementsDto;
@@ -22,7 +22,7 @@ export class UpdateSkillDto {
   content?: string;
   triggerTools?: string[];
   triggerKeywords?: string[];
-  agentIds?: string[];
+  agentIDs?: string[];
   priority?: number;
   enabled?: boolean;
   requirements?: SkillRequirementsDto;

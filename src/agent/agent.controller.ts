@@ -26,16 +26,16 @@ import type { OrchestratorConfig } from './orchestration/orchestration.interface
 
 interface ChatRequestBody {
   message: string;
-  chatId?: string;
-  threadId?: string;
-  agentId?: string;
+  chatID?: string;
+  threadID?: string;
+  agentID?: string;
   config?: Partial<OrchestratorConfig>;
 }
 
 interface ChatResponse {
-  runId: string;
-  threadId: string;
-  chatId: string;
+  runID: string;
+  threadID: string;
+  chatID: string;
 }
 
 @Controller('agent')
@@ -57,8 +57,8 @@ export class AgentController {
     @Body() body: ChatRequestBody,
   ): Promise<ChatResponse> {
     const user = (req as Request & { user?: SessionUser }).user;
-    const userId = user?.sub;
-    if (!userId) {
+    const userID = user?.sub;
+    if (!userID) {
       throw new BadRequestException('Authentication required');
     }
 
@@ -66,8 +66,8 @@ export class AgentController {
       throw new BadRequestException('Message is required');
     }
 
-    const threadId = body.threadId ?? crypto.randomUUID();
-    const runId = crypto.randomUUID();
+    const threadID = body.threadID ?? crypto.randomUUID();
+    const runID = crypto.randomUUID();
 
     const userMessage = {
       id: crypto.randomUUID(),
@@ -76,23 +76,23 @@ export class AgentController {
       createdAt: new Date(),
     };
 
-    let chatId: string;
-    if (body.chatId) {
-      chatId = body.chatId;
-      await this.chatsService.appendMessage(chatId, userMessage);
+    let chatID: string;
+    if (body.chatID) {
+      chatID = body.chatID;
+      await this.chatsService.appendMessage(chatID, userMessage);
     } else {
       const chat = await this.chatsService.createWithUserMessage(
-        userId,
+        userID,
         userMessage,
       );
-      chatId = String(chat._id);
+      chatID = String(chat._id);
     }
 
-    const agentId =
-      body.agentId ??
-      (await this.agentRouter.resolve({ userId, chatId, threadId }));
+    const agentID =
+      body.agentID ??
+      (await this.agentRouter.resolve({ userID, chatID, threadID }));
 
-    if (!agentId) {
+    if (!agentID) {
       throw new BadRequestException(
         'No agent could be resolved. Ensure a default agent binding exists.',
       );
@@ -101,29 +101,29 @@ export class AgentController {
     this.orchestrator
       .executeGoal(
         {
-          threadId,
-          runId,
-          userId,
-          chatId,
-          agentId,
+          threadID,
+          runID,
+          userID,
+          chatID,
+          agentID,
           userMessage: body.message,
           conversationHistory: [],
         },
         body.config,
       )
       .catch((error) => {
-        this.logger.error(`Unhandled error in run ${runId}:`, error);
+        this.logger.error(`Unhandled error in run ${runID}:`, error);
       });
 
-    return { runId, threadId, chatId };
+    return { runID, threadID, chatID };
   }
 
   /**
    * SSE stream for a run. The client connects here after POST /chat.
    */
-  @Sse('stream/:runId')
-  streamRun(@Param('runId') runId: string): Observable<MessageEvent> {
-    return this.eventEmitter.getStream(runId).pipe(
+  @Sse('stream/:runID')
+  streamRun(@Param('runID') runID: string): Observable<MessageEvent> {
+    return this.eventEmitter.getStream(runID).pipe(
       map(
         (event) =>
           ({
@@ -136,49 +136,49 @@ export class AgentController {
   /**
    * Cancel a running execution.
    */
-  @Post('cancel/:runId')
-  cancel(@Param('runId') runId: string): { cancelled: boolean } {
-    const cancelled = this.orchestrator.cancelRun(runId);
+  @Post('cancel/:runID')
+  cancel(@Param('runID') runID: string): { cancelled: boolean } {
+    const cancelled = this.orchestrator.cancelRun(runID);
     return { cancelled };
   }
 
   /**
    * Resolve a pending confirmation (approve or reject).
    */
-  @Post('confirm/:threadId/:confirmationId')
+  @Post('confirm/:threadID/:confirmationID')
   async confirm(
-    @Param('threadId') threadId: string,
-    @Param('confirmationId') confirmationId: string,
+    @Param('threadID') threadID: string,
+    @Param('confirmationID') confirmationID: string,
     @Body() body: { approved: boolean; feedback?: string },
     @Req() req: Request,
   ): Promise<{ resolved: boolean }> {
-    const userId = (req as Request & { user?: SessionUser }).user?.sub;
+    const userID = (req as Request & { user?: SessionUser }).user?.sub;
 
     const confirmation = await this.stateService.getConfirmation(
-      threadId,
-      confirmationId,
+      threadID,
+      confirmationID,
     );
     if (!confirmation) {
       return { resolved: false };
     }
 
     const resolved = await this.stateService.resolveConfirmation(
-      threadId,
-      confirmationId,
+      threadID,
+      confirmationID,
       {
         approved: body.approved,
         feedback: body.feedback,
-        resolvedBy: userId,
+        resolvedBy: userID,
       },
     );
 
-    if (resolved && confirmation.runId) {
+    if (resolved && confirmation.runID) {
       this.eventEmitter.emitEvent(
-        confirmation.runId,
-        threadId,
+        confirmation.runID,
+        threadID,
         'confirmation.resolved',
         {
-          confirmationId,
+          confirmationID,
           approved: body.approved,
         },
       );
@@ -190,9 +190,9 @@ export class AgentController {
   /**
    * Get a state snapshot for a thread.
    */
-  @Get('state/:threadId')
-  async getState(@Param('threadId') threadId: string) {
-    return this.stateService.getSnapshot(threadId);
+  @Get('state/:threadID')
+  async getState(@Param('threadID') threadID: string) {
+    return this.stateService.getSnapshot(threadID);
   }
 
   @Post('upload-image')

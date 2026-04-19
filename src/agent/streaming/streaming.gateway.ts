@@ -27,25 +27,25 @@ export class StreamingGateway implements OnGatewayDisconnect {
   ) {}
 
   @SubscribeMessage('subscribe')
-  handleSubscribe(client: Socket, payload: { runId: string }): void {
-    const { runId } = payload;
-    if (!runId) {
-      client.emit('error', { message: 'runId is required' });
+  handleSubscribe(client: Socket, payload: { runID: string }): void {
+    const { runID } = payload;
+    if (!runID) {
+      client.emit('error', { message: 'runID is required' });
       return;
     }
 
-    this.logger.debug(`Client ${client.id} subscribing to run ${runId}`);
+    this.logger.debug(`Client ${client.id} subscribing to run ${runID}`);
 
-    const subscription = this.eventEmitter.getStream(runId).subscribe({
+    const subscription = this.eventEmitter.getStream(runID).subscribe({
       next: (event) => {
         client.emit('agent_event', event);
       },
       complete: () => {
-        client.emit('agent_event', { type: 'stream.end', runId });
+        client.emit('agent_event', { type: 'stream.end', runID });
       },
       error: (err) => {
-        this.logger.error(`Stream error for run ${runId}:`, err);
-        client.emit('error', { message: 'Stream error', runId });
+        this.logger.error(`Stream error for run ${runID}:`, err);
+        client.emit('error', { message: 'Stream error', runID });
       },
     });
 
@@ -55,40 +55,40 @@ export class StreamingGateway implements OnGatewayDisconnect {
   }
 
   @SubscribeMessage('cancel')
-  handleCancel(client: Socket, payload: { runId: string }): void {
-    const { runId } = payload;
-    if (!runId) {
-      client.emit('error', { message: 'runId is required' });
+  handleCancel(client: Socket, payload: { runID: string }): void {
+    const { runID } = payload;
+    if (!runID) {
+      client.emit('error', { message: 'runID is required' });
       return;
     }
 
-    this.logger.debug(`Client ${client.id} cancelling run ${runId}`);
-    const cancelled = this.orchestrator.cancelRun(runId);
-    client.emit('cancel_ack', { runId, cancelled });
+    this.logger.debug(`Client ${client.id} cancelling run ${runID}`);
+    const cancelled = this.orchestrator.cancelRun(runID);
+    client.emit('cancel_ack', { runID, cancelled });
   }
 
   @SubscribeMessage('confirm')
   async handleConfirm(
     client: Socket,
-    payload: { threadId: string; confirmationId: string },
+    payload: { threadID: string; confirmationID: string },
   ): Promise<void> {
-    const { threadId, confirmationId } = payload;
-    if (!threadId || !confirmationId) {
+    const { threadID, confirmationID } = payload;
+    if (!threadID || !confirmationID) {
       client.emit('error', {
-        message: 'threadId and confirmationId are required',
+        message: 'threadID and confirmationID are required',
       });
       return;
     }
 
     this.logger.debug(
-      `Client ${client.id} resolving confirmation ${confirmationId} for thread ${threadId}`,
+      `Client ${client.id} resolving confirmation ${confirmationID} for thread ${threadID}`,
     );
     const resolved = await this.stateService.resolveConfirmation(
-      threadId,
-      confirmationId,
+      threadID,
+      confirmationID,
       { approved: true },
     );
-    client.emit('confirm_ack', { threadId, confirmationId, resolved });
+    client.emit('confirm_ack', { threadID, confirmationID, resolved });
   }
 
   handleDisconnect(client: Socket): void {

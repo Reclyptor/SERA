@@ -21,7 +21,7 @@ export interface AddMemoryOptions {
 
 interface MemoryPayload {
   [key: string]: unknown;
-  userId: string;
+  userID: string;
   content: string;
   tags: string[];
   metadata: Record<string, unknown>;
@@ -86,7 +86,7 @@ export class MemoryService {
         });
 
         await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
-          field_name: 'userId',
+          field_name: 'userID',
           field_schema: 'keyword',
         });
         await this.qdrant.createPayloadIndex(COLLECTION_NAME, {
@@ -131,7 +131,7 @@ export class MemoryService {
   }
 
   async add(
-    userId: string,
+    userID: string,
     content: string,
     options: AddMemoryOptions = {},
   ): Promise<MemoryEntry> {
@@ -146,7 +146,7 @@ export class MemoryService {
     const now = new Date().toISOString();
 
     const payload: MemoryPayload = {
-      userId,
+      userID,
       content,
       tags: options.tags ?? [],
       metadata: options.metadata ?? {},
@@ -162,14 +162,14 @@ export class MemoryService {
     });
 
     this.logger.debug(
-      `Added memory for user ${userId}: ${content.slice(0, 50)}...`,
+      `Added memory for user ${userID}: ${content.slice(0, 50)}...`,
     );
 
     return this.toEntry(id, payload);
   }
 
   async search(
-    userId: string,
+    userID: string,
     query: string,
     limit: number = 5,
     threshold: number = 0.7,
@@ -183,7 +183,7 @@ export class MemoryService {
       limit,
       score_threshold: threshold,
       filter: {
-        must: [{ key: 'userId', match: { value: userId } }],
+        must: [{ key: 'userID', match: { value: userID } }],
       },
       with_payload: true,
     });
@@ -210,7 +210,7 @@ export class MemoryService {
     );
   }
 
-  async getAll(userId: string): Promise<MemoryEntry[]> {
+  async getAll(userID: string): Promise<MemoryEntry[]> {
     if (!(await this.ensureCollection())) return [];
 
     const entries: MemoryEntry[] = [];
@@ -221,7 +221,7 @@ export class MemoryService {
     while (true) {
       const page = await this.qdrant.scroll(COLLECTION_NAME, {
         filter: {
-          must: [{ key: 'userId', match: { value: userId } }],
+          must: [{ key: 'userID', match: { value: userID } }],
         },
         with_payload: true,
         limit: 100,
@@ -243,7 +243,7 @@ export class MemoryService {
     );
   }
 
-  async getByTags(userId: string, tags: string[]): Promise<MemoryEntry[]> {
+  async getByTags(userID: string, tags: string[]): Promise<MemoryEntry[]> {
     if (!(await this.ensureCollection())) return [];
 
     const entries: MemoryEntry[] = [];
@@ -254,7 +254,7 @@ export class MemoryService {
       const page = await this.qdrant.scroll(COLLECTION_NAME, {
         filter: {
           must: [
-            { key: 'userId', match: { value: userId } },
+            { key: 'userID', match: { value: userID } },
             ...tags.map((tag) => ({ key: 'tags', match: { value: tag } })),
           ],
         },
@@ -279,8 +279,8 @@ export class MemoryService {
   }
 
   async update(
-    userId: string,
-    memoryId: string,
+    userID: string,
+    memoryID: string,
     content: string,
   ): Promise<MemoryEntry | null> {
     this.contentScanner?.assertSafe(content, 'memory update');
@@ -289,14 +289,14 @@ export class MemoryService {
 
     // Fetch existing point to preserve payload fields
     const existing = await this.qdrant.retrieve(COLLECTION_NAME, {
-      ids: [memoryId],
+      ids: [memoryID],
       with_payload: true,
     });
 
     if (existing.length === 0) return null;
 
     const oldPayload = existing[0].payload as MemoryPayload;
-    if (oldPayload.userId !== userId) return null;
+    if (oldPayload.userID !== userID) return null;
 
     const embedding = await this.generateEmbedding(content);
     const payload: MemoryPayload = {
@@ -307,39 +307,39 @@ export class MemoryService {
 
     await this.qdrant.upsert(COLLECTION_NAME, {
       wait: true,
-      points: [{ id: memoryId, vector: embedding, payload }],
+      points: [{ id: memoryID, vector: embedding, payload }],
     });
 
-    return this.toEntry(memoryId, payload);
+    return this.toEntry(memoryID, payload);
   }
 
-  async delete(userId: string, memoryId: string): Promise<boolean> {
+  async delete(userID: string, memoryID: string): Promise<boolean> {
     if (!(await this.ensureCollection())) return false;
 
     // Verify ownership before deleting
     const existing = await this.qdrant.retrieve(COLLECTION_NAME, {
-      ids: [memoryId],
+      ids: [memoryID],
       with_payload: true,
     });
 
     if (existing.length === 0) return false;
-    if ((existing[0].payload as MemoryPayload).userId !== userId) return false;
+    if ((existing[0].payload as MemoryPayload).userID !== userID) return false;
 
     await this.qdrant.delete(COLLECTION_NAME, {
       wait: true,
-      points: [memoryId],
+      points: [memoryID],
     });
 
     return true;
   }
 
-  async deleteAll(userId: string): Promise<number> {
+  async deleteAll(userID: string): Promise<number> {
     if (!(await this.ensureCollection())) return 0;
 
     // Count before deleting
     const count = await this.qdrant.count(COLLECTION_NAME, {
       filter: {
-        must: [{ key: 'userId', match: { value: userId } }],
+        must: [{ key: 'userID', match: { value: userID } }],
       },
       exact: true,
     });
@@ -349,7 +349,7 @@ export class MemoryService {
     await this.qdrant.delete(COLLECTION_NAME, {
       wait: true,
       filter: {
-        must: [{ key: 'userId', match: { value: userId } }],
+        must: [{ key: 'userID', match: { value: userID } }],
       },
     });
 
@@ -357,7 +357,7 @@ export class MemoryService {
   }
 
   async extractAndStore(
-    userId: string,
+    userID: string,
     conversation: string,
   ): Promise<MemoryEntry[]> {
     const response = await this.anthropic.messages.create({
@@ -409,7 +409,7 @@ Return only the JSON array, nothing else:`,
       for (const fact of facts) {
         if (typeof fact === 'string' && fact.trim()) {
           try {
-            const memory = await this.add(userId, fact.trim(), {
+            const memory = await this.add(userID, fact.trim(), {
               metadata: { source: 'conversation_extraction' },
               tags: ['auto-extracted'],
             });
@@ -423,7 +423,7 @@ Return only the JSON array, nothing else:`,
       }
 
       this.logger.log(
-        `Extracted ${memories.length} memories for user ${userId}`,
+        `Extracted ${memories.length} memories for user ${userID}`,
       );
       return memories;
     } catch (err) {
@@ -435,8 +435,8 @@ Return only the JSON array, nothing else:`,
     }
   }
 
-  async getContextForQuery(userId: string, query: string): Promise<string> {
-    const memories = await this.search(userId, query, 5, 0.6);
+  async getContextForQuery(userID: string, query: string): Promise<string> {
+    const memories = await this.search(userID, query, 5, 0.6);
 
     if (memories.length === 0) return '';
 

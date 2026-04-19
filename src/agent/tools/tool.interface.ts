@@ -9,10 +9,10 @@ export interface SandboxContext {
 }
 
 export interface ToolExecutionContext {
-  threadId: string;
-  runId: string;
-  userId?: string;
-  agentId: string;
+  threadID: string;
+  runID: string;
+  userID?: string;
+  agentID: string;
   workspaceDir?: string;
   sandbox?: SandboxContext;
   delegationDepth?: number;

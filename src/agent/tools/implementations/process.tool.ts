@@ -27,7 +27,7 @@ const parameters = z.object({
     .string()
     .optional()
     .describe('Command to start (required for start)'),
-  processId: z
+  processID: z
     .string()
     .optional()
     .describe('Process ID (required for output/kill)'),
@@ -60,9 +60,9 @@ export class ProcessTool implements Tool<typeof parameters> {
       case 'list':
         return this.list();
       case 'output':
-        return this.output(args.processId);
+        return this.output(args.processID);
       case 'kill':
-        return this.kill(args.processId);
+        return this.kill(args.processID);
     }
   }
 
@@ -84,7 +84,7 @@ export class ProcessTool implements Tool<typeof parameters> {
       return { success: false, error: validation.error };
     }
 
-    const processId = randomUUID();
+    const processID = randomUUID();
     const child = spawn(command, {
       shell: true,
       cwd: this.resolveWorkspace(context),
@@ -124,12 +124,12 @@ export class ProcessTool implements Tool<typeof parameters> {
       tracked.exitCode = code;
     });
 
-    ProcessTool.processes.set(processId, tracked);
+    ProcessTool.processes.set(processID, tracked);
 
     return {
       success: true,
       result: {
-        processId,
+        processID,
         pid: child.pid,
         command,
       },
@@ -138,8 +138,8 @@ export class ProcessTool implements Tool<typeof parameters> {
 
   private async list(): Promise<ToolExecutionResult> {
     const entries = Array.from(ProcessTool.processes.entries()).map(
-      ([processId, tracked]) => ({
-        processId,
+      ([processID, tracked]) => ({
+        processID,
         pid: tracked.child.pid,
         command: tracked.command,
         running: tracked.exitCode === null,
@@ -150,14 +150,14 @@ export class ProcessTool implements Tool<typeof parameters> {
     return { success: true, result: entries };
   }
 
-  private async output(processId?: string): Promise<ToolExecutionResult> {
-    if (!processId) {
-      return { success: false, error: 'processId is required for output' };
+  private async output(processID?: string): Promise<ToolExecutionResult> {
+    if (!processID) {
+      return { success: false, error: 'processID is required for output' };
     }
 
-    const tracked = ProcessTool.processes.get(processId);
+    const tracked = ProcessTool.processes.get(processID);
     if (!tracked) {
-      return { success: false, error: `Process ${processId} not found` };
+      return { success: false, error: `Process ${processID} not found` };
     }
 
     return {
@@ -171,7 +171,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     };
   }
 
-  private async kill(processId?: string): Promise<ToolExecutionResult> {
+  private async kill(processID?: string): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return {
         success: false,
@@ -180,13 +180,13 @@ export class ProcessTool implements Tool<typeof parameters> {
       };
     }
 
-    if (!processId) {
-      return { success: false, error: 'processId is required for kill' };
+    if (!processID) {
+      return { success: false, error: 'processID is required for kill' };
     }
 
-    const tracked = ProcessTool.processes.get(processId);
+    const tracked = ProcessTool.processes.get(processID);
     if (!tracked) {
-      return { success: false, error: `Process ${processId} not found` };
+      return { success: false, error: `Process ${processID} not found` };
     }
 
     tracked.child.kill('SIGTERM');

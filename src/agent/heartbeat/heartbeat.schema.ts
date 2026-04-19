@@ -20,7 +20,7 @@ export const ActiveHoursSchema = SchemaFactory.createForClass(ActiveHours);
 @Schema({ timestamps: true })
 export class HeartbeatConfig {
   @Prop({ required: true, unique: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({ default: false })
   enabled: boolean;

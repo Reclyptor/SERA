@@ -13,7 +13,7 @@ export class TriggersService {
   ) {}
 
   async create(data: {
-    agentId: string;
+    agentID: string;
     webhookPath: string;
     command: string;
     description?: string;
@@ -21,11 +21,11 @@ export class TriggersService {
     headers?: Record<string, string>;
     enabled?: boolean;
   }): Promise<Trigger> {
-    const triggerId = crypto.randomUUID();
+    const triggerID = crypto.randomUUID();
 
     const trigger = new this.triggerModel({
-      triggerId,
-      agentId: data.agentId,
+      triggerID,
+      agentID: data.agentID,
       webhookPath: data.webhookPath,
       command: data.command,
       description: data.description ?? '',
@@ -41,17 +41,17 @@ export class TriggersService {
     return this.triggerModel.findOne({ webhookPath, enabled: true }).exec();
   }
 
-  async findById(triggerId: string): Promise<Trigger | null> {
-    return this.triggerModel.findOne({ triggerId }).exec();
+  async findByID(triggerID: string): Promise<Trigger | null> {
+    return this.triggerModel.findOne({ triggerID }).exec();
   }
 
-  async findAll(agentId?: string): Promise<Trigger[]> {
-    const filter = agentId ? { agentId } : {};
+  async findAll(agentID?: string): Promise<Trigger[]> {
+    const filter = agentID ? { agentID } : {};
     return this.triggerModel.find(filter).sort({ createdAt: -1 }).exec();
   }
 
   async update(
-    triggerId: string,
+    triggerID: string,
     data: Partial<{
       command: string;
       description: string;
@@ -61,18 +61,18 @@ export class TriggersService {
     }>,
   ): Promise<Trigger | null> {
     return this.triggerModel
-      .findOneAndUpdate({ triggerId }, { $set: data }, { new: true })
+      .findOneAndUpdate({ triggerID }, { $set: data }, { new: true })
       .exec();
   }
 
-  async remove(triggerId: string): Promise<boolean> {
-    const result = await this.triggerModel.deleteOne({ triggerId }).exec();
+  async remove(triggerID: string): Promise<boolean> {
+    const result = await this.triggerModel.deleteOne({ triggerID }).exec();
     return result.deletedCount > 0;
   }
 
-  async recordExecution(triggerId: string): Promise<void> {
+  async recordExecution(triggerID: string): Promise<void> {
     await this.triggerModel.updateOne(
-      { triggerId },
+      { triggerID },
       {
         $inc: { executionCount: 1 },
         $set: { lastTriggeredAt: new Date() },

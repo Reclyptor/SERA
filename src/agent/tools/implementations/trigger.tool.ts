@@ -7,7 +7,7 @@ import type {
 
 export interface TriggersServiceLike {
   create(data: {
-    agentId: string;
+    agentID: string;
     webhookPath: string;
     command: string;
     description?: string;
@@ -15,16 +15,16 @@ export interface TriggersServiceLike {
     headers?: Record<string, string>;
     enabled?: boolean;
   }): Promise<{
-    triggerId: string;
+    triggerID: string;
     webhookPath: string;
     command: string;
     description: string;
     enabled: boolean;
   }>;
-  findAll(agentId?: string): Promise<
+  findAll(agentID?: string): Promise<
     Array<{
-      triggerId: string;
-      agentId: string;
+      triggerID: string;
+      agentID: string;
       webhookPath: string;
       command: string;
       description: string;
@@ -34,7 +34,7 @@ export interface TriggersServiceLike {
     }>
   >;
   update(
-    triggerId: string,
+    triggerID: string,
     data: Partial<{
       command: string;
       description: string;
@@ -42,7 +42,7 @@ export interface TriggersServiceLike {
       enabled: boolean;
     }>,
   ): Promise<unknown>;
-  remove(triggerId: string): Promise<boolean>;
+  remove(triggerID: string): Promise<boolean>;
 }
 
 const parameters = z.object({
@@ -65,7 +65,7 @@ const parameters = z.object({
     .string()
     .optional()
     .describe('Shared secret — callers must send this in the X-Webhook-Secret header'),
-  triggerId: z
+  triggerID: z
     .string()
     .optional()
     .describe('Trigger ID (required for update/delete)'),
@@ -118,7 +118,7 @@ export class TriggerTool implements Tool<typeof parameters> {
     }
 
     const trigger = await this.triggers.create({
-      agentId: context.agentId,
+      agentID: context.agentID,
       webhookPath: args.webhookPath,
       command: args.command,
       description: args.description,
@@ -128,7 +128,7 @@ export class TriggerTool implements Tool<typeof parameters> {
     return {
       success: true,
       result: {
-        triggerId: trigger.triggerId,
+        triggerID: trigger.triggerID,
         webhookPath: trigger.webhookPath,
         endpoint: `POST /webhooks/${trigger.webhookPath}`,
         command: trigger.command,
@@ -139,11 +139,11 @@ export class TriggerTool implements Tool<typeof parameters> {
   private async list(
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const triggers = await this.triggers.findAll(context.agentId);
+    const triggers = await this.triggers.findAll(context.agentID);
     return {
       success: true,
       result: triggers.map((t) => ({
-        triggerId: t.triggerId,
+        triggerID: t.triggerID,
         webhookPath: t.webhookPath,
         endpoint: `POST /webhooks/${t.webhookPath}`,
         command: t.command,
@@ -158,8 +158,8 @@ export class TriggerTool implements Tool<typeof parameters> {
   private async update(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.triggerId) {
-      return { success: false, error: 'triggerId is required for update' };
+    if (!args.triggerID) {
+      return { success: false, error: 'triggerID is required for update' };
     }
 
     const update: Record<string, unknown> = {};
@@ -168,26 +168,26 @@ export class TriggerTool implements Tool<typeof parameters> {
     if (args.secret !== undefined) update.secret = args.secret;
     if (args.enabled !== undefined) update.enabled = args.enabled;
 
-    const result = await this.triggers.update(args.triggerId, update);
+    const result = await this.triggers.update(args.triggerID, update);
     if (!result) {
-      return { success: false, error: `Trigger "${args.triggerId}" not found` };
+      return { success: false, error: `Trigger "${args.triggerID}" not found` };
     }
 
-    return { success: true, result: { triggerId: args.triggerId, updated: true } };
+    return { success: true, result: { triggerID: args.triggerID, updated: true } };
   }
 
   private async deleteTrigger(
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
-    if (!args.triggerId) {
-      return { success: false, error: 'triggerId is required for delete' };
+    if (!args.triggerID) {
+      return { success: false, error: 'triggerID is required for delete' };
     }
 
-    const deleted = await this.triggers.remove(args.triggerId);
+    const deleted = await this.triggers.remove(args.triggerID);
     if (!deleted) {
-      return { success: false, error: `Trigger "${args.triggerId}" not found` };
+      return { success: false, error: `Trigger "${args.triggerID}" not found` };
     }
 
-    return { success: true, result: { deleted: args.triggerId } };
+    return { success: true, result: { deleted: args.triggerID } };
   }
 }

@@ -7,7 +7,7 @@ import type {
 
 interface MemoryServiceLike {
   search(
-    userId: string,
+    userID: string,
     query: string,
     limit?: number,
     threshold?: number,
@@ -56,13 +56,13 @@ export class MemorySearchTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { query, limit, threshold } = args;
 
-    if (!context.userId) {
+    if (!context.userID) {
       return { success: false, error: 'User ID required for memory search' };
     }
 
     try {
       const memories = await this.memoryService.search(
-        context.userId,
+        context.userID,
         query,
         limit,
         threshold,

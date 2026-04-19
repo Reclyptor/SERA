@@ -18,7 +18,7 @@ export class PendingConfirmation {
   message: string;
 
   @Prop()
-  runId?: string;
+  runID?: string;
 
   @Prop({
     required: true,
@@ -46,7 +46,7 @@ export const PendingConfirmationSchema =
 @Schema({ timestamps: true })
 export class AgentState {
   @Prop({ required: true, unique: true, index: true })
-  threadId: string;
+  threadID: string;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   custom: Record<string, unknown>;

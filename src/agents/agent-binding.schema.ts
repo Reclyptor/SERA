@@ -6,10 +6,10 @@ export type AgentBindingDocument = HydratedDocument<AgentBinding>;
 @Schema({ timestamps: true })
 export class AgentBinding {
   @Prop({ required: true, unique: true, index: true })
-  bindingId: string;
+  bindingID: string;
 
   @Prop({ required: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({
     required: true,

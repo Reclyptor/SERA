@@ -7,12 +7,12 @@ import type {
 
 interface ChatServiceLike {
   loadConversationHistory(
-    chatId: string,
+    chatID: string,
   ): Promise<Array<{ role: string; content: string }>>;
 }
 
 const parameters = z.object({
-  chatId: z.string().describe('Chat/session ID to fetch history for'),
+  chatID: z.string().describe('Chat/session ID to fetch history for'),
   limit: z
     .number()
     .optional()
@@ -38,19 +38,19 @@ export class SessionsHistoryTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { chatId } = args;
+    const { chatID } = args;
     const limit = Math.max(1, Math.min(args.limit, 200));
     const offset = Math.max(0, args.offset);
 
     try {
       const messages =
-        await this.chatService.loadConversationHistory(chatId);
+        await this.chatService.loadConversationHistory(chatID);
       const sliced = messages.slice(offset, offset + limit);
 
       return {
         success: true,
         result: {
-          chatId,
+          chatID,
           totalMessages: messages.length,
           returned: sliced.length,
           messages: sliced,

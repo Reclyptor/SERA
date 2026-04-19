@@ -82,7 +82,7 @@ export const HeartbeatConfigSchema =
 @Schema({ timestamps: true })
 export class AgentConfig {
   @Prop({ required: true, unique: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({ required: true })
   name: string;

@@ -19,7 +19,7 @@ export class AgentsService {
 
   async create(dto: CreateAgentDto): Promise<AgentConfig> {
     const agent = new this.agentModel({
-      agentId: dto.agentId,
+      agentID: dto.agentID,
       name: dto.name,
       description: dto.description ?? '',
       systemPrompt: dto.systemPrompt,
@@ -48,38 +48,38 @@ export class AgentsService {
       .exec();
   }
 
-  async findById(agentId: string): Promise<AgentConfig | null> {
-    return this.agentModel.findOne({ agentId }).exec();
+  async findByID(agentID: string): Promise<AgentConfig | null> {
+    return this.agentModel.findOne({ agentID }).exec();
   }
 
-  async findByIdOrThrow(agentId: string): Promise<AgentConfig> {
-    const agent = await this.findById(agentId);
+  async findByIDOrThrow(agentID: string): Promise<AgentConfig> {
+    const agent = await this.findByID(agentID);
     if (!agent) {
-      throw new NotFoundException(`Agent "${agentId}" not found`);
+      throw new NotFoundException(`Agent "${agentID}" not found`);
     }
     return agent;
   }
 
   async update(
-    agentId: string,
+    agentID: string,
     dto: UpdateAgentDto,
   ): Promise<AgentConfig> {
     const agent = await this.agentModel
-      .findOneAndUpdate({ agentId }, { $set: dto }, { new: true })
+      .findOneAndUpdate({ agentID }, { $set: dto }, { new: true })
       .exec();
     if (!agent) {
-      throw new NotFoundException(`Agent "${agentId}" not found`);
+      throw new NotFoundException(`Agent "${agentID}" not found`);
     }
     return agent;
   }
 
-  async remove(agentId: string): Promise<boolean> {
-    const result = await this.agentModel.deleteOne({ agentId }).exec();
+  async remove(agentID: string): Promise<boolean> {
+    const result = await this.agentModel.deleteOne({ agentID }).exec();
     return result.deletedCount > 0;
   }
 
-  async getToolPolicy(agentId: string): Promise<ToolPolicy | null> {
-    const agent = await this.findById(agentId);
+  async getToolPolicy(agentID: string): Promise<ToolPolicy | null> {
+    const agent = await this.findByID(agentID);
     return agent?.toolPolicy ?? null;
   }
 }

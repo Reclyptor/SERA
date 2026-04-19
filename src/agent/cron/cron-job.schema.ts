@@ -6,10 +6,10 @@ export type CronJobDocument = HydratedDocument<CronJob>;
 @Schema({ timestamps: true })
 export class CronJob {
   @Prop({ required: true, unique: true, index: true })
-  jobId: string;
+  jobID: string;
 
   @Prop({ required: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({ required: true })
   schedule: string;

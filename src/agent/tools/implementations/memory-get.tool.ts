@@ -7,7 +7,7 @@ import type {
 
 interface MemoryServiceLike {
   getAll(
-    userId: string,
+    userID: string,
   ): Promise<
     Array<{
       id: string;
@@ -18,7 +18,7 @@ interface MemoryServiceLike {
     }>
   >;
   getByTags(
-    userId: string,
+    userID: string,
     tags: string[],
   ): Promise<
     Array<{
@@ -62,7 +62,7 @@ export class MemoryGetTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { tags, limit } = args;
 
-    if (!context.userId) {
+    if (!context.userID) {
       return {
         success: false,
         error: 'User ID required for memory retrieval',
@@ -72,8 +72,8 @@ export class MemoryGetTool implements Tool<typeof parameters> {
     try {
       const memories =
         tags && tags.length > 0
-          ? await this.memoryService.getByTags(context.userId, tags)
-          : await this.memoryService.getAll(context.userId);
+          ? await this.memoryService.getByTags(context.userID, tags)
+          : await this.memoryService.getAll(context.userID);
 
       const results = memories.slice(0, limit).map((m) => ({
         id: m.id,

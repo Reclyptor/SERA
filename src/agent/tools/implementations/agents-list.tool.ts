@@ -8,7 +8,7 @@ import type {
 export interface AgentsServiceLike {
   findAll(): Promise<
     Array<{
-      agentId: string;
+      agentID: string;
       name: string;
       description: string;
       enabled: boolean;
@@ -51,7 +51,7 @@ export class AgentsListTool implements Tool<typeof parameters> {
       }
 
       const result = agents.map((a) => ({
-        agentId: a.agentId,
+        agentID: a.agentID,
         name: a.name,
         description: a.description,
         enabled: a.enabled,

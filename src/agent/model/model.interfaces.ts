@@ -24,5 +24,5 @@ export interface ModelRequestOptions {
 export interface ResolvedModel {
   model: LanguageModel;
   provider: string;
-  modelId: string;
+  modelID: string;
 }

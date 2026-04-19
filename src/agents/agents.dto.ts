@@ -30,7 +30,7 @@ export class HeartbeatConfigDto {
 }
 
 export class CreateAgentDto {
-  agentId: string;
+  agentID: string;
   name: string;
   description?: string;
   systemPrompt?: string;

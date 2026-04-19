@@ -95,16 +95,16 @@ export class XSearchTool implements Tool<typeof parameters> {
       }
 
       const data = (await response.json()) as XSearchResponse;
-      const usersById = new Map(
+      const usersByID = new Map(
         (data.includes?.users ?? []).map((u) => [u.id, u]),
       );
 
       const results = (data.data ?? []).map((tweet) => {
-        const user = usersById.get(tweet.author_id);
+        const user = usersByID.get(tweet.author_id);
         return {
           id: tweet.id,
           text: tweet.text,
-          authorId: tweet.author_id,
+          authorID: tweet.author_id,
           authorName: user?.name,
           authorUsername: user?.username,
           createdAt: tweet.created_at,

@@ -8,7 +8,7 @@ export interface ToolCall {
 }
 
 export interface ThreadState {
-  threadId: string;
+  threadID: string;
   toolCalls: ToolCall[];
   metadata: Record<string, unknown>;
   createdAt: Date;
@@ -16,8 +16,8 @@ export interface ThreadState {
 }
 
 export interface RunState {
-  runId: string;
-  threadId: string;
+  runID: string;
+  threadID: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   startedAt: Date;
   completedAt?: Date;
@@ -43,7 +43,7 @@ export interface AgentState {
     actionName: string;
     args: Record<string, unknown>;
     message: string;
-    runId?: string;
+    runID?: string;
     status: 'pending' | 'approved' | 'rejected';
     feedback?: string;
     resolvedBy?: string;

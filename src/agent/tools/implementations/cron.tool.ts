@@ -7,23 +7,23 @@ import type {
 
 export interface CronSchedulerLike {
   create(data: {
-    agentId: string;
+    agentID: string;
     schedule: string;
     command: string;
     description?: string;
     enabled?: boolean;
   }): Promise<{
-    jobId: string;
+    jobID: string;
     schedule: string;
     command: string;
     description: string;
     enabled: boolean;
     nextRunAt?: Date;
   }>;
-  findAll(agentId?: string): Promise<
+  findAll(agentID?: string): Promise<
     Array<{
-      jobId: string;
-      agentId: string;
+      jobID: string;
+      agentID: string;
       schedule: string;
       command: string;
       description: string;
@@ -32,8 +32,8 @@ export interface CronSchedulerLike {
       nextRunAt?: Date;
     }>
   >;
-  remove(jobId: string): Promise<boolean>;
-  setEnabled(jobId: string, enabled: boolean): Promise<unknown>;
+  remove(jobID: string): Promise<boolean>;
+  setEnabled(jobID: string, enabled: boolean): Promise<unknown>;
 }
 
 const CRON_REGEX =
@@ -54,7 +54,7 @@ const parameters = z.object({
     .optional()
     .describe('Instruction or goal for the agent to execute on schedule (required for create)'),
   description: z.string().optional().describe('Human-readable description'),
-  jobId: z
+  jobID: z
     .string()
     .optional()
     .describe('Job ID (required for delete/enable/disable)'),
@@ -78,11 +78,11 @@ export class CronTool implements Tool<typeof parameters> {
       case 'list':
         return this.list(context);
       case 'delete':
-        return this.delete(args.jobId);
+        return this.delete(args.jobID);
       case 'enable':
-        return this.setEnabled(args.jobId, true);
+        return this.setEnabled(args.jobID, true);
       case 'disable':
-        return this.setEnabled(args.jobId, false);
+        return this.setEnabled(args.jobID, false);
     }
   }
 
@@ -106,7 +106,7 @@ export class CronTool implements Tool<typeof parameters> {
 
     try {
       const job = await this.scheduler.create({
-        agentId: context.agentId,
+        agentID: context.agentID,
         schedule: args.schedule,
         command: args.command,
         description: args.description,
@@ -115,7 +115,7 @@ export class CronTool implements Tool<typeof parameters> {
       return {
         success: true,
         result: {
-          jobId: job.jobId,
+          jobID: job.jobID,
           schedule: job.schedule,
           command: job.command,
           description: job.description,
@@ -132,12 +132,12 @@ export class CronTool implements Tool<typeof parameters> {
 
   private async list(context: ToolExecutionContext): Promise<ToolExecutionResult> {
     try {
-      const jobs = await this.scheduler.findAll(context.agentId);
+      const jobs = await this.scheduler.findAll(context.agentID);
       return {
         success: true,
         result: jobs.map((j) => ({
-          jobId: j.jobId,
-          agentId: j.agentId,
+          jobID: j.jobID,
+          agentID: j.agentID,
           schedule: j.schedule,
           command: j.command,
           description: j.description,
@@ -154,35 +154,35 @@ export class CronTool implements Tool<typeof parameters> {
     }
   }
 
-  private async delete(jobId: string | undefined): Promise<ToolExecutionResult> {
-    if (!jobId) {
-      return { success: false, error: 'jobId is required for delete operation' };
+  private async delete(jobID: string | undefined): Promise<ToolExecutionResult> {
+    if (!jobID) {
+      return { success: false, error: 'jobID is required for delete operation' };
     }
 
-    const deleted = await this.scheduler.remove(jobId);
+    const deleted = await this.scheduler.remove(jobID);
     if (!deleted) {
-      return { success: false, error: `Job "${jobId}" not found` };
+      return { success: false, error: `Job "${jobID}" not found` };
     }
 
-    return { success: true, result: { deleted: jobId } };
+    return { success: true, result: { deleted: jobID } };
   }
 
   private async setEnabled(
-    jobId: string | undefined,
+    jobID: string | undefined,
     enabled: boolean,
   ): Promise<ToolExecutionResult> {
-    if (!jobId) {
+    if (!jobID) {
       return {
         success: false,
-        error: `jobId is required for ${enabled ? 'enable' : 'disable'} operation`,
+        error: `jobID is required for ${enabled ? 'enable' : 'disable'} operation`,
       };
     }
 
-    const job = await this.scheduler.setEnabled(jobId, enabled);
+    const job = await this.scheduler.setEnabled(jobID, enabled);
     if (!job) {
-      return { success: false, error: `Job "${jobId}" not found` };
+      return { success: false, error: `Job "${jobID}" not found` };
     }
 
-    return { success: true, result: { jobId, enabled } };
+    return { success: true, result: { jobID, enabled } };
   }
 }

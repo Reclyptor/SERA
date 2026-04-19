@@ -115,12 +115,12 @@ export class KnowledgeService {
 
       for (const result of results) {
         context.push({
-          id: result.chunk.chunkId,
+          id: result.chunk.chunkID,
           content: result.chunk.content,
           type: 'document',
           priority: Math.round(result.score * 100),
           metadata: {
-            documentId: result.chunk.documentId,
+            documentID: result.chunk.documentID,
             source: result.document?.source,
             score: result.score,
           },

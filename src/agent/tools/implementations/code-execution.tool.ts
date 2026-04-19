@@ -94,7 +94,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
           command: `${config.runner} ${containerPath}`,
           timeoutMs,
           workspaceDir: workspace,
-          agentId: context.agentId,
+          agentID: context.agentID,
           sandbox: { ...context.sandbox, envVars },
         });
         return {

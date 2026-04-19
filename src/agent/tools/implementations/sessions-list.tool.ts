@@ -44,15 +44,15 @@ export class SessionsListTool implements Tool<typeof parameters> {
       if (status !== 'all') {
         const matchingRuns = await runs
           .find({ status })
-          .project({ threadId: 1 })
+          .project({ threadID: 1 })
           .toArray();
 
-        const threadIds = [
-          ...new Set(matchingRuns.map((r) => r.threadId as string)),
+        const threadIDs = [
+          ...new Set(matchingRuns.map((r) => r.threadID as string)),
         ];
 
         threadDocs = await threads
-          .find({ threadId: { $in: threadIds } })
+          .find({ threadID: { $in: threadIDs } })
           .sort({ updatedAt: -1 })
           .limit(limit)
           .toArray();
@@ -67,19 +67,19 @@ export class SessionsListTool implements Tool<typeof parameters> {
       const sessions = await Promise.all(
         threadDocs.map(async (thread) => {
           const latestRun = await runs
-            .find({ threadId: thread.threadId })
+            .find({ threadID: thread.threadID })
             .sort({ startedAt: -1 })
             .limit(1)
             .toArray();
 
           return {
-            threadId: thread.threadId,
+            threadID: thread.threadID,
             metadata: thread.metadata ?? {},
             createdAt: thread.createdAt,
             updatedAt: thread.updatedAt,
             latestRun: latestRun[0]
               ? {
-                  runId: latestRun[0].runId,
+                  runID: latestRun[0].runID,
                   status: latestRun[0].status,
                   startedAt: latestRun[0].startedAt,
                 }

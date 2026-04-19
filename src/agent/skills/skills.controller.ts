@@ -25,28 +25,28 @@ export class SkillsController {
     return this.skillsService.findAll();
   }
 
-  @Get(':skillId')
-  async findOne(@Param('skillId') skillId: string) {
-    const skill = await this.skillsService.findById(skillId);
+  @Get(':skillID')
+  async findOne(@Param('skillID') skillID: string) {
+    const skill = await this.skillsService.findByID(skillID);
     if (!skill) {
-      throw new NotFoundException(`Skill "${skillId}" not found`);
+      throw new NotFoundException(`Skill "${skillID}" not found`);
     }
     return skill;
   }
 
-  @Put(':skillId')
+  @Put(':skillID')
   async update(
-    @Param('skillId') skillId: string,
+    @Param('skillID') skillID: string,
     @Body() dto: UpdateSkillDto,
   ) {
-    return this.skillsService.update(skillId, dto);
+    return this.skillsService.update(skillID, dto);
   }
 
-  @Delete(':skillId')
-  async remove(@Param('skillId') skillId: string) {
-    const deleted = await this.skillsService.remove(skillId);
+  @Delete(':skillID')
+  async remove(@Param('skillID') skillID: string) {
+    const deleted = await this.skillsService.remove(skillID);
     if (!deleted) {
-      throw new NotFoundException(`Skill "${skillId}" not found`);
+      throw new NotFoundException(`Skill "${skillID}" not found`);
     }
     return { deleted: true };
   }

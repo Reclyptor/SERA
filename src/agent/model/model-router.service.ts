@@ -19,7 +19,7 @@ import type { ModelRequestOptions, ResolvedModel } from './model.interfaces';
 interface ProviderEntry {
   id: string;
   priority: number;
-  factory: (modelId: string) => LanguageModel;
+  factory: (modelID: string) => LanguageModel;
   defaultModel: string;
 }
 
@@ -64,7 +64,7 @@ export class ModelRouterService {
       this.providers.push({
         id: 'anthropic',
         priority: 1,
-        factory: (modelId) => anthropic(modelId),
+        factory: (modelID) => anthropic(modelID),
         defaultModel: 'claude-sonnet-4-6',
       });
     }
@@ -75,7 +75,7 @@ export class ModelRouterService {
       this.providers.push({
         id: 'openai',
         priority: 2,
-        factory: (modelId) => openai(modelId),
+        factory: (modelID) => openai(modelID),
         defaultModel: 'gpt-4o',
       });
     }
@@ -86,7 +86,7 @@ export class ModelRouterService {
       this.providers.push({
         id: 'google',
         priority: 3,
-        factory: (modelId) => google(modelId),
+        factory: (modelID) => google(modelID),
         defaultModel: 'gemini-2.0-flash',
       });
     }
@@ -126,7 +126,7 @@ export class ModelRouterService {
         return {
           model: entry.factory(model),
           provider: entry.id,
-          modelId: model,
+          modelID: model,
         };
       }
     }
@@ -140,22 +140,22 @@ export class ModelRouterService {
         return {
           model: entry.factory(entry.defaultModel),
           provider: entry.id,
-          modelId: entry.defaultModel,
+          modelID: entry.defaultModel,
         };
       }
     }
 
     // Try primary model
-    const { provider: primaryProvider, model: primaryModelId } =
+    const { provider: primaryProvider, model: primaryModelID } =
       this.parseModelSpec(this.primaryModel);
     const primaryEntry = this.providers.find(
       (p) => p.id === primaryProvider && !excludeSet.has(p.id),
     );
     if (primaryEntry) {
       return {
-        model: primaryEntry.factory(primaryModelId),
+        model: primaryEntry.factory(primaryModelID),
         provider: primaryEntry.id,
-        modelId: primaryModelId,
+        modelID: primaryModelID,
       };
     }
 
@@ -169,7 +169,7 @@ export class ModelRouterService {
         return {
           model: entry.factory(model),
           provider: entry.id,
-          modelId: model,
+          modelID: model,
         };
       }
     }
@@ -180,7 +180,7 @@ export class ModelRouterService {
       return {
         model: available.factory(available.defaultModel),
         provider: available.id,
-        modelId: available.defaultModel,
+        modelID: available.defaultModel,
       };
     }
 
@@ -192,13 +192,13 @@ export class ModelRouterService {
    */
   private buildProviderOptions(
     provider: string,
-    modelId: string,
+    modelID: string,
   ): ProviderOptions | undefined {
     if (provider === 'anthropic' && this.thinkingEnabled) {
       const isAdaptiveModel =
-        modelId.includes('claude-opus-4') ||
-        modelId.includes('claude-sonnet-4-6') ||
-        modelId.includes('claude-sonnet-4-5');
+        modelID.includes('claude-opus-4') ||
+        modelID.includes('claude-sonnet-4-6') ||
+        modelID.includes('claude-sonnet-4-5');
       return {
         anthropic: {
           thinking: isAdaptiveModel
@@ -247,7 +247,7 @@ export class ModelRouterService {
       });
 
       try {
-        this.logger.debug(`Calling ${resolved.provider}/${resolved.modelId}`);
+        this.logger.debug(`Calling ${resolved.provider}/${resolved.modelID}`);
 
         const result = await generateText({
           model: resolved.model,
@@ -263,7 +263,7 @@ export class ModelRouterService {
           abortSignal: params.abortSignal,
           providerOptions: this.buildProviderOptions(
             resolved.provider,
-            resolved.modelId,
+            resolved.modelID,
           ),
         });
 
@@ -271,7 +271,7 @@ export class ModelRouterService {
       } catch (error) {
         if (this.isRateLimitError(error)) {
           this.logger.warn(
-            `Rate limited by ${resolved.provider}/${resolved.modelId}, falling back...`,
+            `Rate limited by ${resolved.provider}/${resolved.modelID}, falling back...`,
           );
           excludeProviders.push(resolved.provider);
           continue;
@@ -302,7 +302,7 @@ export class ModelRouterService {
     const resolved = this.resolveModel(params.options);
 
     this.logger.debug(
-      `Streaming from ${resolved.provider}/${resolved.modelId}`,
+      `Streaming from ${resolved.provider}/${resolved.modelID}`,
     );
 
     return streamText({
@@ -317,7 +317,7 @@ export class ModelRouterService {
       abortSignal: params.abortSignal,
       providerOptions: this.buildProviderOptions(
         resolved.provider,
-        resolved.modelId,
+        resolved.modelID,
       ),
       onChunk: params.onChunk,
       onStepFinish: params.onStepFinish,

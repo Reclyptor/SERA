@@ -33,7 +33,7 @@ export const ToolCallSchema = SchemaFactory.createForClass(ToolCall);
 @Schema({ timestamps: true })
 export class Thread {
   @Prop({ required: true, unique: true, index: true })
-  threadId: string;
+  threadID: string;
 
   @Prop({ type: [ToolCallSchema], default: [] })
   toolCalls: ToolCall[];

@@ -120,17 +120,17 @@ export class ToolsBootstrapService implements OnModuleInit {
         const { CronSchedulerService } = require('../cron/cron-scheduler.service');
         return this.moduleRef.get(CronSchedulerService, { strict: false }).create(data);
       },
-      findAll: (agentId) => {
+      findAll: (agentID) => {
         const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).findAll(agentId);
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).findAll(agentID);
       },
-      remove: (jobId) => {
+      remove: (jobID) => {
         const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).remove(jobId);
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).remove(jobID);
       },
-      setEnabled: (jobId, enabled) => {
+      setEnabled: (jobID, enabled) => {
         const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).setEnabled(jobId, enabled);
+        return this.moduleRef.get(CronSchedulerService, { strict: false }).setEnabled(jobID, enabled);
       },
     };
     this.toolsService.registerTool(new CronTool(lazyCronScheduler));
@@ -145,10 +145,10 @@ export class ToolsBootstrapService implements OnModuleInit {
       },
     };
     const runReader: import('./implementations/agent-message.tool').RunReaderLike = {
-      getRunResponse: async (runId: string) => {
+      getRunResponse: async (runID: string) => {
         const doc = await this.connection
           .collection('runs')
-          .findOne({ runId });
+          .findOne({ runID });
         if (!doc) return null;
         return {
           status: doc.status as string,
@@ -181,31 +181,31 @@ export class ToolsBootstrapService implements OnModuleInit {
     };
     const lazyTasksService: import('./implementations/task-plan.tool').TasksServiceLike = {
       createPlan: (data) => resolveTasksService().createPlan(data),
-      getPlan: (planId) => resolveTasksService().getPlan(planId),
+      getPlan: (planID) => resolveTasksService().getPlan(planID),
       listPlans: (filters) => resolveTasksService().listPlans(filters),
-      updateTask: (planId, taskId, update, expectedRevision) =>
-        resolveTasksService().updateTask(planId, taskId, update, expectedRevision),
-      cancelPlan: (planId) => resolveTasksService().cancelPlan(planId),
-      setState: (planId, key, value, expectedRevision) =>
-        resolveTasksService().setState(planId, key, value, expectedRevision),
-      getState: (planId) => resolveTasksService().getState(planId),
-      deletePlan: (planId) => resolveTasksService().deletePlan(planId),
+      updateTask: (planID, taskID, update, expectedRevision) =>
+        resolveTasksService().updateTask(planID, taskID, update, expectedRevision),
+      cancelPlan: (planID) => resolveTasksService().cancelPlan(planID),
+      setState: (planID, key, value, expectedRevision) =>
+        resolveTasksService().setState(planID, key, value, expectedRevision),
+      getState: (planID) => resolveTasksService().getState(planID),
+      deletePlan: (planID) => resolveTasksService().deletePlan(planID),
     };
     this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
 
     // Agent self-configuration (lazily resolved)
     const lazyHeartbeat: import('./implementations/agent-config.tool').SelfConfigHeartbeatLike = {
-      findByAgent: (agentId) => {
+      findByAgent: (agentID) => {
         const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-        return this.moduleRef.get(HeartbeatService, { strict: false }).findByAgent(agentId);
+        return this.moduleRef.get(HeartbeatService, { strict: false }).findByAgent(agentID);
       },
       create: (data) => {
         const { HeartbeatService } = require('../heartbeat/heartbeat.service');
         return this.moduleRef.get(HeartbeatService, { strict: false }).create(data);
       },
-      update: (agentId, data) => {
+      update: (agentID, data) => {
         const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-        return this.moduleRef.get(HeartbeatService, { strict: false }).update(agentId, data);
+        return this.moduleRef.get(HeartbeatService, { strict: false }).update(agentID, data);
       },
     };
     const lazySkills: import('./implementations/agent-config.tool').SelfConfigSkillsLike = {
@@ -217,13 +217,13 @@ export class ToolsBootstrapService implements OnModuleInit {
         const { SkillsService } = require('../skills/skills.service');
         return this.moduleRef.get(SkillsService, { strict: false }).findAll();
       },
-      update: (skillId, dto) => {
+      update: (skillID, dto) => {
         const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).update(skillId, dto);
+        return this.moduleRef.get(SkillsService, { strict: false }).update(skillID, dto);
       },
-      remove: (skillId) => {
+      remove: (skillID) => {
         const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).remove(skillId);
+        return this.moduleRef.get(SkillsService, { strict: false }).remove(skillID);
       },
     };
     this.toolsService.registerTool(
@@ -236,17 +236,17 @@ export class ToolsBootstrapService implements OnModuleInit {
         const { TriggersService } = require('../triggers/triggers.service');
         return this.moduleRef.get(TriggersService, { strict: false }).create(data);
       },
-      findAll: (agentId) => {
+      findAll: (agentID) => {
         const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).findAll(agentId);
+        return this.moduleRef.get(TriggersService, { strict: false }).findAll(agentID);
       },
-      update: (triggerId, data) => {
+      update: (triggerID, data) => {
         const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).update(triggerId, data);
+        return this.moduleRef.get(TriggersService, { strict: false }).update(triggerID, data);
       },
-      remove: (triggerId) => {
+      remove: (triggerID) => {
         const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).remove(triggerId);
+        return this.moduleRef.get(TriggersService, { strict: false }).remove(triggerID);
       },
     };
     this.toolsService.registerTool(new TriggerTool(lazyTriggers));

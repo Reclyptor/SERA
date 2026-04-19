@@ -16,60 +16,60 @@ export class StateService {
 
   // Thread management
 
-  async createThread(threadId?: string): Promise<ThreadState> {
-    const id = threadId ?? crypto.randomUUID();
+  async createThread(threadID?: string): Promise<ThreadState> {
+    const id = threadID ?? crypto.randomUUID();
     return this.store.createThread(id);
   }
 
-  async getThread(threadId: string): Promise<ThreadState | undefined> {
-    return this.store.getThread(threadId);
+  async getThread(threadID: string): Promise<ThreadState | undefined> {
+    return this.store.getThread(threadID);
   }
 
-  async getOrCreateThread(threadId: string): Promise<ThreadState> {
-    return this.store.getOrCreateThread(threadId);
+  async getOrCreateThread(threadID: string): Promise<ThreadState> {
+    return this.store.getOrCreateThread(threadID);
   }
 
-  async deleteThread(threadId: string): Promise<boolean> {
-    this.logger.log(`Deleting thread: ${threadId}`);
-    return this.store.deleteThread(threadId);
+  async deleteThread(threadID: string): Promise<boolean> {
+    this.logger.log(`Deleting thread: ${threadID}`);
+    return this.store.deleteThread(threadID);
   }
 
   // Tool call management
 
   async recordToolCall(
-    threadId: string,
+    threadID: string,
     name: string,
     args: Record<string, unknown>,
   ): Promise<ToolCall> {
-    return this.store.addToolCall(threadId, { name, args });
+    return this.store.addToolCall(threadID, { name, args });
   }
 
   async markToolCallExecuting(
-    threadId: string,
-    toolCallId: string,
+    threadID: string,
+    toolCallID: string,
   ): Promise<ToolCall | undefined> {
-    return this.store.updateToolCall(threadId, toolCallId, {
+    return this.store.updateToolCall(threadID, toolCallID, {
       status: 'executing',
     });
   }
 
   async markToolCallCompleted(
-    threadId: string,
-    toolCallId: string,
+    threadID: string,
+    toolCallID: string,
     result: unknown,
   ): Promise<ToolCall | undefined> {
-    return this.store.updateToolCall(threadId, toolCallId, {
+    return this.store.updateToolCall(threadID, toolCallID, {
       status: 'completed',
       result,
     });
   }
 
   async markToolCallFailed(
-    threadId: string,
-    toolCallId: string,
+    threadID: string,
+    toolCallID: string,
     error: string,
   ): Promise<ToolCall | undefined> {
-    return this.store.updateToolCall(threadId, toolCallId, {
+    return this.store.updateToolCall(threadID, toolCallID, {
       status: 'failed',
       result: { error },
     });
@@ -77,31 +77,31 @@ export class StateService {
 
   // Run management
 
-  async startRun(threadId: string, runId?: string): Promise<RunState> {
-    const id = runId ?? crypto.randomUUID();
-    const run = await this.store.createRun(id, threadId);
+  async startRun(threadID: string, runID?: string): Promise<RunState> {
+    const id = runID ?? crypto.randomUUID();
+    const run = await this.store.createRun(id, threadID);
     await this.store.updateRun(id, { status: 'running' });
     return run;
   }
 
-  async completeRun(runId: string, response?: string): Promise<RunState | undefined> {
-    return this.store.updateRun(runId, {
+  async completeRun(runID: string, response?: string): Promise<RunState | undefined> {
+    return this.store.updateRun(runID, {
       status: 'completed',
       completedAt: new Date(),
       ...(response && { response }),
     });
   }
 
-  async failRun(runId: string, error: string): Promise<RunState | undefined> {
-    return this.store.updateRun(runId, {
+  async failRun(runID: string, error: string): Promise<RunState | undefined> {
+    return this.store.updateRun(runID, {
       status: 'failed',
       completedAt: new Date(),
       error,
     });
   }
 
-  async cancelRun(runId: string): Promise<RunState | undefined> {
-    return this.store.updateRun(runId, {
+  async cancelRun(runID: string): Promise<RunState | undefined> {
+    return this.store.updateRun(runID, {
       status: 'cancelled',
       completedAt: new Date(),
     });
@@ -109,46 +109,46 @@ export class StateService {
 
   // Agent state management
 
-  async getAgentState(threadId: string): Promise<AgentState> {
-    return this.store.getAgentState(threadId);
+  async getAgentState(threadID: string): Promise<AgentState> {
+    return this.store.getAgentState(threadID);
   }
 
-  async setWorkflowStep(threadId: string, step: string): Promise<void> {
-    await this.store.updateAgentState(threadId, { currentStep: step });
-    this.logger.debug(`Thread ${threadId} workflow step: ${step}`);
+  async setWorkflowStep(threadID: string, step: string): Promise<void> {
+    await this.store.updateAgentState(threadID, { currentStep: step });
+    this.logger.debug(`Thread ${threadID} workflow step: ${step}`);
   }
 
   async setCustomState<T>(
-    threadId: string,
+    threadID: string,
     key: string,
     value: T,
   ): Promise<void> {
-    await this.store.setCustomState(threadId, key, value);
+    await this.store.setCustomState(threadID, key, value);
   }
 
   async getCustomState<T>(
-    threadId: string,
+    threadID: string,
     key: string,
   ): Promise<T | undefined> {
-    return this.store.getCustomState<T>(threadId, key);
+    return this.store.getCustomState<T>(threadID, key);
   }
 
   // Confirmations (human-in-the-loop)
 
   async addPendingConfirmation(
-    threadId: string,
+    threadID: string,
     actionName: string,
     args: Record<string, unknown>,
     message: string,
-    runId?: string,
+    runID?: string,
   ): Promise<string> {
     const id = crypto.randomUUID();
-    await this.store.addPendingConfirmation(threadId, {
+    await this.store.addPendingConfirmation(threadID, {
       id,
       actionName,
       args,
       message,
-      runId,
+      runID,
       status: 'pending',
       createdAt: new Date(),
     });
@@ -159,40 +159,40 @@ export class StateService {
   }
 
   async resolveConfirmation(
-    threadId: string,
-    confirmationId: string,
+    threadID: string,
+    confirmationID: string,
     decision: { approved: boolean; feedback?: string; resolvedBy?: string },
   ): Promise<boolean> {
-    return this.store.resolveConfirmation(threadId, confirmationId, decision);
+    return this.store.resolveConfirmation(threadID, confirmationID, decision);
   }
 
   async getConfirmation(
-    threadId: string,
-    confirmationId: string,
+    threadID: string,
+    confirmationID: string,
   ): Promise<AgentState['pendingConfirmations'][0] | undefined> {
-    return this.store.getConfirmation(threadId, confirmationId);
+    return this.store.getConfirmation(threadID, confirmationID);
   }
 
   async removePendingConfirmation(
-    threadId: string,
-    confirmationId: string,
+    threadID: string,
+    confirmationID: string,
   ): Promise<boolean> {
-    return this.store.removePendingConfirmation(threadId, confirmationId);
+    return this.store.removePendingConfirmation(threadID, confirmationID);
   }
 
   async getPendingConfirmations(
-    threadId: string,
+    threadID: string,
   ): Promise<AgentState['pendingConfirmations']> {
-    const state = await this.store.getAgentState(threadId);
+    const state = await this.store.getAgentState(threadID);
     return state.pendingConfirmations;
   }
 
   // Snapshot
 
   async getSnapshot(
-    threadId: string,
-    runId?: string,
+    threadID: string,
+    runID?: string,
   ): Promise<StateSnapshot | undefined> {
-    return this.store.getSnapshot(threadId, runId);
+    return this.store.getSnapshot(threadID, runID);
   }
 }

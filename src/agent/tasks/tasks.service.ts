@@ -18,23 +18,23 @@ export class TasksService {
   ) {}
 
   async createPlan(data: {
-    parentRunId: string;
-    agentId: string;
+    parentRunID: string;
+    agentID: string;
     goal: string;
     tasks: Array<{ description: string }>;
   }): Promise<TaskPlan> {
-    const planId = crypto.randomUUID();
+    const planID = crypto.randomUUID();
     const tasks: Task[] = data.tasks.map((t, i) => ({
-      taskId: crypto.randomUUID(),
+      taskID: crypto.randomUUID(),
       description: t.description,
       status: 'pending',
       order: i,
     }));
 
     const plan = new this.taskPlanModel({
-      planId,
-      parentRunId: data.parentRunId,
-      agentId: data.agentId,
+      planID,
+      parentRunID: data.parentRunID,
+      agentID: data.agentID,
       goal: data.goal,
       tasks,
       status: 'executing',
@@ -43,38 +43,38 @@ export class TasksService {
     return plan.save();
   }
 
-  async getPlan(planId: string): Promise<TaskPlan> {
-    const plan = await this.taskPlanModel.findOne({ planId }).exec();
+  async getPlan(planID: string): Promise<TaskPlan> {
+    const plan = await this.taskPlanModel.findOne({ planID }).exec();
     if (!plan) {
-      throw new NotFoundException(`Plan "${planId}" not found`);
+      throw new NotFoundException(`Plan "${planID}" not found`);
     }
     return plan;
   }
 
   async listPlans(filters: {
-    parentRunId?: string;
-    agentId?: string;
+    parentRunID?: string;
+    agentID?: string;
   }): Promise<TaskPlan[]> {
     const query: Record<string, unknown> = {};
-    if (filters.parentRunId) query.parentRunId = filters.parentRunId;
-    if (filters.agentId) query.agentId = filters.agentId;
+    if (filters.parentRunID) query.parentRunID = filters.parentRunID;
+    if (filters.agentID) query.agentID = filters.agentID;
     return this.taskPlanModel.find(query).sort({ createdAt: -1 }).exec();
   }
 
   async updateTask(
-    planId: string,
-    taskId: string,
+    planID: string,
+    taskID: string,
     update: {
       status: 'pending' | 'in_progress' | 'waiting' | 'completed' | 'failed' | 'skipped';
       result?: string;
-      runId?: string;
+      runID?: string;
       waitMeta?: Record<string, unknown>;
     },
     expectedRevision?: number,
   ): Promise<TaskPlan> {
     const filter: Record<string, unknown> = {
-      planId,
-      'tasks.taskId': taskId,
+      planID,
+      'tasks.taskID': taskID,
     };
     if (expectedRevision !== undefined) {
       filter.revision = expectedRevision;
@@ -86,8 +86,8 @@ export class TasksService {
     if (update.result !== undefined) {
       setFields['tasks.$.result'] = update.result;
     }
-    if (update.runId !== undefined) {
-      setFields['tasks.$.runId'] = update.runId;
+    if (update.runID !== undefined) {
+      setFields['tasks.$.runID'] = update.runID;
     }
     if (update.status === 'waiting' && update.waitMeta) {
       setFields['tasks.$.waitMeta'] = update.waitMeta;
@@ -108,7 +108,7 @@ export class TasksService {
     if (!plan) {
       if (expectedRevision !== undefined) {
         const exists = await this.taskPlanModel
-          .findOne({ planId, 'tasks.taskId': taskId })
+          .findOne({ planID, 'tasks.taskID': taskID })
           .exec();
         if (exists) {
           throw new ConflictException(
@@ -117,7 +117,7 @@ export class TasksService {
         }
       }
       throw new NotFoundException(
-        `Plan "${planId}" or task "${taskId}" not found`,
+        `Plan "${planID}" or task "${taskID}" not found`,
       );
     }
 
@@ -125,10 +125,10 @@ export class TasksService {
     return plan;
   }
 
-  async cancelPlan(planId: string): Promise<TaskPlan> {
-    const plan = await this.taskPlanModel.findOne({ planId }).exec();
+  async cancelPlan(planID: string): Promise<TaskPlan> {
+    const plan = await this.taskPlanModel.findOne({ planID }).exec();
     if (!plan) {
-      throw new NotFoundException(`Plan "${planId}" not found`);
+      throw new NotFoundException(`Plan "${planID}" not found`);
     }
 
     if (['completed', 'failed', 'cancelled'].includes(plan.status)) {
@@ -153,19 +153,19 @@ export class TasksService {
 
     const updated = await this.taskPlanModel
       .findOneAndUpdate(
-        { planId },
+        { planID },
         { $set: bulkUpdates, $inc: { revision: 1 } },
         { returnDocument: 'after' },
       )
       .exec();
 
-    const activeRunIds = plan.tasks
-      .filter((t) => t.status === 'in_progress' && t.runId)
-      .map((t) => t.runId!);
+    const activeRunIDs = plan.tasks
+      .filter((t) => t.status === 'in_progress' && t.runID)
+      .map((t) => t.runID!);
 
-    if (activeRunIds.length > 0) {
+    if (activeRunIDs.length > 0) {
       this.logger.warn(
-        `Plan "${planId}" cancelled with ${activeRunIds.length} active run(s): ${activeRunIds.join(', ')}`,
+        `Plan "${planID}" cancelled with ${activeRunIDs.length} active run(s): ${activeRunIDs.join(', ')}`,
       );
     }
 
@@ -173,12 +173,12 @@ export class TasksService {
   }
 
   async setState(
-    planId: string,
+    planID: string,
     key: string,
     value: unknown,
     expectedRevision?: number,
   ): Promise<TaskPlan> {
-    const filter: Record<string, unknown> = { planId };
+    const filter: Record<string, unknown> = { planID };
     if (expectedRevision !== undefined) {
       filter.revision = expectedRevision;
     }
@@ -196,26 +196,26 @@ export class TasksService {
 
     if (!plan) {
       if (expectedRevision !== undefined) {
-        const exists = await this.taskPlanModel.findOne({ planId }).exec();
+        const exists = await this.taskPlanModel.findOne({ planID }).exec();
         if (exists) {
           throw new ConflictException(
             `Revision mismatch: expected ${expectedRevision}, current is ${exists.revision}`,
           );
         }
       }
-      throw new NotFoundException(`Plan "${planId}" not found`);
+      throw new NotFoundException(`Plan "${planID}" not found`);
     }
 
     return plan;
   }
 
-  async getState(planId: string): Promise<Record<string, unknown>> {
+  async getState(planID: string): Promise<Record<string, unknown>> {
     const plan = await this.taskPlanModel
-      .findOne({ planId })
+      .findOne({ planID })
       .select('stateJson')
       .exec();
     if (!plan) {
-      throw new NotFoundException(`Plan "${planId}" not found`);
+      throw new NotFoundException(`Plan "${planID}" not found`);
     }
     return plan.stateJson ?? {};
   }
@@ -232,14 +232,14 @@ export class TasksService {
 
     if (plan.status !== newStatus) {
       await this.taskPlanModel.updateOne(
-        { planId: plan.planId },
+        { planID: plan.planID },
         { $set: { status: newStatus } },
       );
     }
   }
 
-  async deletePlan(planId: string): Promise<boolean> {
-    const result = await this.taskPlanModel.deleteOne({ planId }).exec();
+  async deletePlan(planID: string): Promise<boolean> {
+    const result = await this.taskPlanModel.deleteOne({ planID }).exec();
     return result.deletedCount > 0;
   }
 }

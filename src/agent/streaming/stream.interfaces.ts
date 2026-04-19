@@ -16,16 +16,16 @@ export type AgentEventType =
 
 export interface AgentEvent {
   type: AgentEventType;
-  runId: string;
-  threadId: string;
+  runID: string;
+  threadID: string;
   timestamp: number;
   data: unknown;
 }
 
 export interface RunStartedData {
   provider: string;
-  modelId: string;
-  chatId?: string;
+  modelID: string;
+  chatID?: string;
 }
 
 export interface RunCompletedData {
@@ -53,33 +53,33 @@ export interface TextDoneData {
 }
 
 export interface ToolCallStartedData {
-  toolCallId: string;
+  toolCallID: string;
   toolName: string;
   args: Record<string, unknown>;
 }
 
 export interface ToolCallResultData {
-  toolCallId: string;
+  toolCallID: string;
   toolName: string;
   result: unknown;
   success: boolean;
 }
 
 export interface ToolCallErrorData {
-  toolCallId: string;
+  toolCallID: string;
   toolName: string;
   error: string;
 }
 
 export interface ConfirmationRequiredData {
-  confirmationId: string;
+  confirmationID: string;
   actionName: string;
   args: Record<string, unknown>;
   message: string;
 }
 
 export interface ConfirmationResolvedData {
-  confirmationId: string;
+  confirmationID: string;
   approved: boolean;
 }
 

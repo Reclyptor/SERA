@@ -18,7 +18,7 @@ export const SkillRequirementsSchema =
 @Schema({ timestamps: true })
 export class Skill {
   @Prop({ required: true, unique: true, index: true })
-  skillId: string;
+  skillID: string;
 
   @Prop({ required: true })
   name: string;
@@ -36,7 +36,7 @@ export class Skill {
   triggerKeywords: string[];
 
   @Prop({ type: [String], default: [] })
-  agentIds: string[];
+  agentIDs: string[];
 
   @Prop({ default: 0 })
   priority: number;

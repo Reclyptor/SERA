@@ -14,7 +14,7 @@ import { AgentRouterService } from './agent-router.service';
 import { CreateAgentDto, UpdateAgentDto } from './agents.dto';
 
 class CreateBindingDto {
-  agentId: string;
+  agentID: string;
   bindingType: 'channel' | 'user' | 'default';
   bindingValue?: string;
   priority?: number;
@@ -37,28 +37,28 @@ export class AgentsController {
     return this.agentsService.findAll();
   }
 
-  @Get(':agentId')
-  async findOne(@Param('agentId') agentId: string) {
-    const agent = await this.agentsService.findById(agentId);
+  @Get(':agentID')
+  async findOne(@Param('agentID') agentID: string) {
+    const agent = await this.agentsService.findByID(agentID);
     if (!agent) {
-      throw new NotFoundException(`Agent "${agentId}" not found`);
+      throw new NotFoundException(`Agent "${agentID}" not found`);
     }
     return agent;
   }
 
-  @Put(':agentId')
+  @Put(':agentID')
   async update(
-    @Param('agentId') agentId: string,
+    @Param('agentID') agentID: string,
     @Body() dto: UpdateAgentDto,
   ) {
-    return this.agentsService.update(agentId, dto);
+    return this.agentsService.update(agentID, dto);
   }
 
-  @Delete(':agentId')
-  async remove(@Param('agentId') agentId: string) {
-    const deleted = await this.agentsService.remove(agentId);
+  @Delete(':agentID')
+  async remove(@Param('agentID') agentID: string) {
+    const deleted = await this.agentsService.remove(agentID);
     if (!deleted) {
-      throw new NotFoundException(`Agent "${agentId}" not found`);
+      throw new NotFoundException(`Agent "${agentID}" not found`);
     }
     return { deleted: true };
   }
@@ -71,15 +71,15 @@ export class AgentsController {
   }
 
   @Get('bindings/list')
-  async listBindings(@Query('agentId') agentId?: string) {
-    return this.routerService.listBindings(agentId);
+  async listBindings(@Query('agentID') agentID?: string) {
+    return this.routerService.listBindings(agentID);
   }
 
-  @Delete('bindings/:bindingId')
-  async removeBinding(@Param('bindingId') bindingId: string) {
-    const deleted = await this.routerService.removeBinding(bindingId);
+  @Delete('bindings/:bindingID')
+  async removeBinding(@Param('bindingID') bindingID: string) {
+    const deleted = await this.routerService.removeBinding(bindingID);
     if (!deleted) {
-      throw new NotFoundException(`Binding "${bindingId}" not found`);
+      throw new NotFoundException(`Binding "${bindingID}" not found`);
     }
     return { deleted: true };
   }

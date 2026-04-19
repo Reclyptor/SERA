@@ -24,13 +24,13 @@ export class SkillsService {
     }
 
     const skill = new this.skillModel({
-      skillId: dto.skillId,
+      skillID: dto.skillID,
       name: dto.name,
       description: dto.description,
       content: dto.content,
       triggerTools: dto.triggerTools ?? [],
       triggerKeywords: dto.triggerKeywords ?? [],
-      agentIds: dto.agentIds ?? [],
+      agentIDs: dto.agentIDs ?? [],
       priority: dto.priority ?? 0,
       enabled: dto.enabled ?? true,
       requirements: dto.requirements,
@@ -42,11 +42,11 @@ export class SkillsService {
     return this.skillModel.find().sort({ priority: -1 }).exec();
   }
 
-  async findById(skillId: string): Promise<Skill | null> {
-    return this.skillModel.findOne({ skillId }).exec();
+  async findByID(skillID: string): Promise<Skill | null> {
+    return this.skillModel.findOne({ skillID }).exec();
   }
 
-  async update(skillId: string, dto: UpdateSkillDto): Promise<Skill> {
+  async update(skillID: string, dto: UpdateSkillDto): Promise<Skill> {
     if (dto.content) {
       this.contentScanner?.assertSafe(dto.content, 'skill update');
     }
@@ -55,16 +55,16 @@ export class SkillsService {
     }
 
     const skill = await this.skillModel
-      .findOneAndUpdate({ skillId }, { $set: dto }, { new: true })
+      .findOneAndUpdate({ skillID }, { $set: dto }, { new: true })
       .exec();
     if (!skill) {
-      throw new NotFoundException(`Skill "${skillId}" not found`);
+      throw new NotFoundException(`Skill "${skillID}" not found`);
     }
     return skill;
   }
 
-  async remove(skillId: string): Promise<boolean> {
-    const result = await this.skillModel.deleteOne({ skillId }).exec();
+  async remove(skillID: string): Promise<boolean> {
+    const result = await this.skillModel.deleteOne({ skillID }).exec();
     return result.deletedCount > 0;
   }
 
@@ -74,7 +74,7 @@ export class SkillsService {
    */
   async findRelevant(
     query: string,
-    agentId?: string,
+    agentID?: string,
     availableTools?: string[],
   ): Promise<Skill[]> {
     const filter: Record<string, unknown> = { enabled: true };
@@ -91,9 +91,9 @@ export class SkillsService {
 
     const scored = skills
       .filter((skill) => {
-        // Agent scope: skill must either have no agentIds (global) or include this agent
-        if (skill.agentIds.length > 0 && agentId) {
-          if (!skill.agentIds.includes(agentId)) return false;
+        // Agent scope: skill must either have no agentIDs (global) or include this agent
+        if (skill.agentIDs.length > 0 && agentID) {
+          if (!skill.agentIDs.includes(agentID)) return false;
         }
 
         // Requirements check: all required tools must be available

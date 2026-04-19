@@ -6,7 +6,7 @@ export type TaskPlanDocument = HydratedDocument<TaskPlan>;
 @Schema()
 export class Task {
   @Prop({ required: true })
-  taskId: string;
+  taskID: string;
 
   @Prop({ required: true })
   description: string;
@@ -22,7 +22,7 @@ export class Task {
   result?: string;
 
   @Prop()
-  runId?: string;
+  runID?: string;
 
   @Prop({ required: true })
   order: number;
@@ -36,13 +36,13 @@ export const TaskSchema = SchemaFactory.createForClass(Task);
 @Schema({ timestamps: true })
 export class TaskPlan {
   @Prop({ required: true, unique: true, index: true })
-  planId: string;
+  planID: string;
 
   @Prop({ required: true, index: true })
-  parentRunId: string;
+  parentRunID: string;
 
   @Prop({ required: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({ required: true })
   goal: string;

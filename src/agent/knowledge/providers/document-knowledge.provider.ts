@@ -97,8 +97,8 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       const payload = hit.payload as Record<string, unknown>;
       return {
         chunk: {
-          documentId: payload.documentId as string,
-          chunkId: String(hit.id),
+          documentID: payload.documentID as string,
+          chunkID: String(hit.id),
           content: payload.content as string,
           startOffset: payload.startOffset as number,
           endOffset: payload.endOffset as number,
@@ -129,7 +129,7 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       id: crypto.randomUUID(),
       vector: embeddings[i],
       payload: {
-        documentId: id,
+        documentID: id,
         content: chunk.text,
         startOffset: chunk.start,
         endOffset: chunk.end,
@@ -147,7 +147,7 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
     return document;
   }
 
-  async removeDocument(documentId: string): Promise<boolean> {
+  async removeDocument(documentID: string): Promise<boolean> {
     if (!(await this.ensureCollection())) return false;
 
     await this.qdrant.delete(COLLECTION_NAME, {
@@ -155,8 +155,8 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       filter: {
         must: [
           {
-            key: 'documentId',
-            match: { value: documentId },
+            key: 'documentID',
+            match: { value: documentID },
           },
         ],
       },

@@ -18,20 +18,20 @@ export class AgentsBootstrapService implements OnModuleInit {
   }
 
   private async seedDefaultAgent(): Promise<void> {
-    const existing = await this.agentsService.findById(DEFAULT_AGENT_ID);
+    const existing = await this.agentsService.findByID(DEFAULT_AGENT_ID);
     if (existing) return;
 
     this.logger.log('Seeding default agent configuration...');
 
     await this.agentsService.create({
-      agentId: DEFAULT_AGENT_ID,
+      agentID: DEFAULT_AGENT_ID,
       name: 'SERA',
       description: 'Default agent — handles all unrouted requests',
       enabled: true,
     });
 
     await this.agentRouter.createBinding({
-      agentId: DEFAULT_AGENT_ID,
+      agentID: DEFAULT_AGENT_ID,
       bindingType: 'default',
     });
 

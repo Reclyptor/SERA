@@ -6,10 +6,10 @@ export type RunDocument = HydratedDocument<Run>;
 @Schema({ timestamps: true })
 export class Run {
   @Prop({ required: true, unique: true, index: true })
-  runId: string;
+  runID: string;
 
   @Prop({ required: true, index: true })
-  threadId: string;
+  threadID: string;
 
   @Prop({
     required: true,

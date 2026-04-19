@@ -7,18 +7,18 @@ import type {
 
 interface StateServiceLike {
   getSnapshot(
-    threadId: string,
-    runId?: string,
+    threadID: string,
+    runID?: string,
   ): Promise<
     | {
         thread: {
-          threadId: string;
+          threadID: string;
           metadata: Record<string, unknown>;
           createdAt: Date;
           updatedAt: Date;
         };
         run?: {
-          runId: string;
+          runID: string;
           status: string;
           startedAt: Date;
           completedAt?: Date;
@@ -34,8 +34,8 @@ interface StateServiceLike {
 }
 
 const parameters = z.object({
-  threadId: z.string().describe('Thread/session ID to check'),
-  runId: z
+  threadID: z.string().describe('Thread/session ID to check'),
+  runID: z
     .string()
     .optional()
     .describe('Specific run ID (if omitted, shows thread state only)'),
@@ -54,10 +54,10 @@ export class SessionStatusTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { threadId, runId } = args;
+    const { threadID, runID } = args;
 
     try {
-      const snapshot = await this.stateService.getSnapshot(threadId, runId);
+      const snapshot = await this.stateService.getSnapshot(threadID, runID);
 
       if (!snapshot) {
         return { success: false, error: 'Session not found' };

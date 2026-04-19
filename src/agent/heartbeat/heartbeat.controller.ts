@@ -11,7 +11,7 @@ import {
 import { HeartbeatService } from './heartbeat.service';
 
 class CreateHeartbeatDto {
-  agentId: string;
+  agentID: string;
   intervalMinutes?: number;
   activeHours?: { start: number; end: number; timezone?: string };
   checklist?: string[];
@@ -41,37 +41,37 @@ export class HeartbeatController {
     return this.heartbeatService.findAll();
   }
 
-  @Get(':agentId')
-  async findOne(@Param('agentId') agentId: string) {
-    const config = await this.heartbeatService.findByAgent(agentId);
+  @Get(':agentID')
+  async findOne(@Param('agentID') agentID: string) {
+    const config = await this.heartbeatService.findByAgent(agentID);
     if (!config) {
       throw new NotFoundException(
-        `Heartbeat config for agent "${agentId}" not found`,
+        `Heartbeat config for agent "${agentID}" not found`,
       );
     }
     return config;
   }
 
-  @Put(':agentId')
+  @Put(':agentID')
   async update(
-    @Param('agentId') agentId: string,
+    @Param('agentID') agentID: string,
     @Body() dto: UpdateHeartbeatDto,
   ) {
-    const config = await this.heartbeatService.update(agentId, dto);
+    const config = await this.heartbeatService.update(agentID, dto);
     if (!config) {
       throw new NotFoundException(
-        `Heartbeat config for agent "${agentId}" not found`,
+        `Heartbeat config for agent "${agentID}" not found`,
       );
     }
     return config;
   }
 
-  @Delete(':agentId')
-  async remove(@Param('agentId') agentId: string) {
-    const deleted = await this.heartbeatService.remove(agentId);
+  @Delete(':agentID')
+  async remove(@Param('agentID') agentID: string) {
+    const deleted = await this.heartbeatService.remove(agentID);
     if (!deleted) {
       throw new NotFoundException(
-        `Heartbeat config for agent "${agentId}" not found`,
+        `Heartbeat config for agent "${agentID}" not found`,
       );
     }
     return { deleted: true };

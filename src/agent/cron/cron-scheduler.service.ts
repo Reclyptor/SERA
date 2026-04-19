@@ -55,7 +55,7 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
           await this.executeJob(job);
         } catch (err) {
           this.logger.error(
-            `Cron job "${job.jobId}" failed:`,
+            `Cron job "${job.jobID}" failed:`,
             err,
           );
         }
@@ -66,20 +66,20 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async executeJob(job: CronJob): Promise<void> {
-    const threadId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
+    const threadID = crypto.randomUUID();
+    const runID = crypto.randomUUID();
 
     this.logger.log(
-      `Executing cron job "${job.jobId}" for agent "${job.agentId}" (run: ${runId})`,
+      `Executing cron job "${job.jobID}" for agent "${job.agentID}" (run: ${runID})`,
     );
 
     this.orchestrator
       .executeGoal(
         {
-          threadId,
-          runId,
-          userId: `cron:${job.agentId}`,
-          agentId: job.agentId,
+          threadID,
+          runID,
+          userID: `cron:${job.agentID}`,
+          agentID: job.agentID,
           userMessage: job.command,
           conversationHistory: [],
           isHeartbeat: true,
@@ -87,12 +87,12 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
         { maxSteps: 10, maxIterations: 2 },
       )
       .catch((err) => {
-        this.logger.error(`Cron run ${runId} failed:`, err);
+        this.logger.error(`Cron run ${runID} failed:`, err);
       });
 
     const nextRunAt = this.computeNextRun(job.schedule);
     await this.cronJobModel.updateOne(
-      { jobId: job.jobId },
+      { jobID: job.jobID },
       { lastRunAt: new Date(), nextRunAt },
     );
   }
@@ -109,18 +109,18 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
   // CRUD
 
   async create(data: {
-    agentId: string;
+    agentID: string;
     schedule: string;
     command: string;
     description?: string;
     enabled?: boolean;
   }): Promise<CronJob> {
-    const jobId = crypto.randomUUID();
+    const jobID = crypto.randomUUID();
     const nextRunAt = this.computeNextRun(data.schedule);
 
     const job = new this.cronJobModel({
-      jobId,
-      agentId: data.agentId,
+      jobID,
+      agentID: data.agentID,
       schedule: data.schedule,
       command: data.command,
       description: data.description ?? '',
@@ -131,17 +131,17 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
     return job.save();
   }
 
-  async findAll(agentId?: string): Promise<CronJob[]> {
-    const filter = agentId ? { agentId } : {};
+  async findAll(agentID?: string): Promise<CronJob[]> {
+    const filter = agentID ? { agentID } : {};
     return this.cronJobModel.find(filter).sort({ createdAt: -1 }).exec();
   }
 
-  async findById(jobId: string): Promise<CronJob | null> {
-    return this.cronJobModel.findOne({ jobId }).exec();
+  async findByID(jobID: string): Promise<CronJob | null> {
+    return this.cronJobModel.findOne({ jobID }).exec();
   }
 
   async update(
-    jobId: string,
+    jobID: string,
     data: Partial<{
       schedule: string;
       command: string;
@@ -156,26 +156,26 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
 
     return this.cronJobModel
-      .findOneAndUpdate({ jobId }, { $set: update }, { new: true })
+      .findOneAndUpdate({ jobID }, { $set: update }, { new: true })
       .exec();
   }
 
-  async remove(jobId: string): Promise<boolean> {
-    const result = await this.cronJobModel.deleteOne({ jobId }).exec();
+  async remove(jobID: string): Promise<boolean> {
+    const result = await this.cronJobModel.deleteOne({ jobID }).exec();
     return result.deletedCount > 0;
   }
 
-  async setEnabled(jobId: string, enabled: boolean): Promise<CronJob | null> {
+  async setEnabled(jobID: string, enabled: boolean): Promise<CronJob | null> {
     const update: Record<string, unknown> = { enabled };
     if (enabled) {
-      const job = await this.findById(jobId);
+      const job = await this.findByID(jobID);
       if (job) {
         update.nextRunAt = this.computeNextRun(job.schedule);
       }
     }
 
     return this.cronJobModel
-      .findOneAndUpdate({ jobId }, { $set: update }, { new: true })
+      .findOneAndUpdate({ jobID }, { $set: update }, { new: true })
       .exec();
   }
 }

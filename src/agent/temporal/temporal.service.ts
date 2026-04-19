@@ -73,10 +73,10 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
 
   async startOrganizeLibrary(
     input: OrganizeLibraryInput,
-    workflowId?: string,
-  ): Promise<{ workflowId: string; runId: string }> {
+    workflowID?: string,
+  ): Promise<{ workflowID: string; runID: string }> {
     this.ensureConnected();
-    const id = workflowId ?? `organize-${Date.now()}`;
+    const id = workflowID ?? `organize-${Date.now()}`;
 
     try {
       const handle = await this.client.workflow.start('organizeLibrary', {
@@ -86,73 +86,73 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.logger.log(`Started organizeLibrary workflow: ${id}`);
-      return { workflowId: id, runId: handle.firstExecutionRunId };
+      return { workflowID: id, runID: handle.firstExecutionRunId };
     } catch (error) {
       if (error instanceof WorkflowExecutionAlreadyStartedError) {
         this.logger.warn(`Workflow ${id} already running`);
         const handle = this.client.workflow.getHandle(id);
         const desc = await handle.describe();
-        return { workflowId: id, runId: desc.runId };
+        return { workflowID: id, runID: desc.runId };
       }
       throw error;
     }
   }
 
   async getOrganizeProgress(
-    workflowId: string,
+    workflowID: string,
   ): Promise<OrganizeLibraryProgress> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     return handle.query<OrganizeLibraryProgress>('getProgress');
   }
 
-  async getOrganizeResult(workflowId: string): Promise<OrganizeLibraryResult> {
+  async getOrganizeResult(workflowID: string): Promise<OrganizeLibraryResult> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     return handle.result();
   }
 
-  async getStagingTree(workflowId: string): Promise<FileTreeNode[]> {
+  async getStagingTree(workflowID: string): Promise<FileTreeNode[]> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     return handle.query<FileTreeNode[]>('getStagingTree');
   }
 
   async finalize(
-    workflowId: string,
+    workflowID: string,
     decision: FinalizeDecision,
   ): Promise<void> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     await handle.signal('finalize', decision);
     this.logger.log(
-      `Sent finalize signal to ${workflowId}: ${decision.approved ? 'approved' : 'rejected'}`,
+      `Sent finalize signal to ${workflowID}: ${decision.approved ? 'approved' : 'rejected'}`,
     );
   }
 
   // ── Workflow: processFolder (child workflow signals) ──
 
   async sendReviewDecision(
-    workflowId: string,
+    workflowID: string,
     decision: ReviewDecision,
   ): Promise<void> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     await handle.signal('reviewDecision', decision);
     this.logger.debug(
-      `Sent review decision to ${workflowId}: ${decision.reviewItemId}`,
+      `Sent review decision to ${workflowID}: ${decision.reviewItemID}`,
     );
   }
 
   async sendDetectionConfirmation(
-    workflowId: string,
+    workflowID: string,
     confirmation: DetectionConfirmation,
   ): Promise<void> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     await handle.signal('detectionConfirmation', confirmation);
     this.logger.debug(
-      `Sent detection confirmation to ${workflowId}: ${confirmation.confirmed}`,
+      `Sent detection confirmation to ${workflowID}: ${confirmation.confirmed}`,
     );
   }
 
@@ -188,27 +188,27 @@ export class TemporalService implements OnModuleInit, OnModuleDestroy {
 
   // ── Generic utilities ──
 
-  async cancelWorkflow(workflowId: string): Promise<void> {
+  async cancelWorkflow(workflowID: string): Promise<void> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     await handle.cancel();
-    this.logger.log(`Cancelled workflow: ${workflowId}`);
+    this.logger.log(`Cancelled workflow: ${workflowID}`);
   }
 
   async getWorkflowStatus(
-    workflowId: string,
-  ): Promise<{ status: string; runId: string }> {
+    workflowID: string,
+  ): Promise<{ status: string; runID: string }> {
     this.ensureConnected();
-    const handle = this.client.workflow.getHandle(workflowId);
+    const handle = this.client.workflow.getHandle(workflowID);
     const desc = await handle.describe();
     return {
       status: desc.status.name,
-      runId: desc.runId,
+      runID: desc.runId,
     };
   }
 
-  getHandle(workflowId: string): WorkflowHandle {
+  getHandle(workflowID: string): WorkflowHandle {
     this.ensureConnected();
-    return this.client.workflow.getHandle(workflowId);
+    return this.client.workflow.getHandle(workflowID);
   }
 }

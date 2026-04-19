@@ -29,9 +29,9 @@ export class TriggersController {
   async handleWebhook(
     @WebhookTrigger() trigger: Trigger,
     @Body() payload: unknown,
-  ): Promise<{ runId: string; triggerId: string }> {
-    const threadId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
+  ): Promise<{ runID: string; triggerID: string }> {
+    const threadID = crypto.randomUUID();
+    const runID = crypto.randomUUID();
 
     const payloadStr =
       typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
@@ -48,16 +48,16 @@ export class TriggersController {
     ].join('\n');
 
     this.logger.log(
-      `Webhook "${trigger.webhookPath}" triggered for agent "${trigger.agentId}" (run: ${runId})`,
+      `Webhook "${trigger.webhookPath}" triggered for agent "${trigger.agentID}" (run: ${runID})`,
     );
 
     this.orchestrator
       .executeGoal(
         {
-          threadId,
-          runId,
-          userId: `webhook:${trigger.triggerId}`,
-          agentId: trigger.agentId,
+          threadID,
+          runID,
+          userID: `webhook:${trigger.triggerID}`,
+          agentID: trigger.agentID,
           userMessage: message,
           conversationHistory: [],
           isHeartbeat: true,
@@ -65,11 +65,11 @@ export class TriggersController {
         { maxSteps: 10, maxIterations: 2 },
       )
       .catch((err) => {
-        this.logger.error(`Webhook run ${runId} failed:`, err);
+        this.logger.error(`Webhook run ${runID} failed:`, err);
       });
 
-    this.triggersService.recordExecution(trigger.triggerId).catch(() => {});
+    this.triggersService.recordExecution(trigger.triggerID).catch(() => {});
 
-    return { runId, triggerId: trigger.triggerId };
+    return { runID, triggerID: trigger.triggerID };
   }
 }

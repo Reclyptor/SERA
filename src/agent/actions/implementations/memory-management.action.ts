@@ -32,18 +32,18 @@ export class SaveMemoryAction implements BackendAction<
     args: z.infer<typeof saveMemoryParams>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
-    if (!context.userId) {
+    if (!context.userID) {
       return { success: false, error: 'User ID required to save memory' };
     }
 
-    const entry = await this.memoryService.add(context.userId, args.content, {
+    const entry = await this.memoryService.add(context.userID, args.content, {
       tags: args.tags,
-      metadata: { threadId: context.threadId, runId: context.runId },
+      metadata: { threadID: context.threadID, runID: context.runID },
     });
 
     return {
       success: true,
-      result: { memoryId: entry.id, content: entry.content },
+      result: { memoryID: entry.id, content: entry.content },
     };
   }
 }
@@ -69,12 +69,12 @@ export class SearchMemoryAction implements BackendAction<
     args: z.infer<typeof searchMemoryParams>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
-    if (!context.userId) {
+    if (!context.userID) {
       return { success: false, error: 'User ID required to search memories' };
     }
 
     const results = await this.memoryService.search(
-      context.userId,
+      context.userID,
       args.query,
       args.limit,
     );
@@ -97,7 +97,7 @@ export class SearchMemoryAction implements BackendAction<
 // --- Delete Memory ---
 
 const deleteMemoryParams = z.object({
-  memoryId: z.string().describe('ID of the memory to delete'),
+  memoryID: z.string().describe('ID of the memory to delete'),
 });
 
 export class DeleteMemoryAction implements BackendAction<
@@ -115,18 +115,18 @@ export class DeleteMemoryAction implements BackendAction<
     args: z.infer<typeof deleteMemoryParams>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
-    if (!context.userId) {
+    if (!context.userID) {
       return { success: false, error: 'User ID required to delete memory' };
     }
 
     const deleted = await this.memoryService.delete(
-      context.userId,
-      args.memoryId,
+      context.userID,
+      args.memoryID,
     );
 
     return {
       success: deleted,
-      result: deleted ? { deleted: args.memoryId } : undefined,
+      result: deleted ? { deleted: args.memoryID } : undefined,
       error: deleted ? undefined : 'Memory not found',
     };
   }

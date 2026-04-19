@@ -6,10 +6,10 @@ export type TriggerDocument = HydratedDocument<Trigger>;
 @Schema({ timestamps: true })
 export class Trigger {
   @Prop({ required: true, unique: true, index: true })
-  triggerId: string;
+  triggerID: string;
 
   @Prop({ required: true, index: true })
-  agentId: string;
+  agentID: string;
 
   @Prop({ required: true, unique: true, index: true })
   webhookPath: string;

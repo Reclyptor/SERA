@@ -10,11 +10,11 @@ const parameters = z.object({
   operation: z
     .enum(['list', 'status', 'cancel'])
     .describe('Operation to perform'),
-  runIds: z
+  runIDs: z
     .array(z.string())
     .optional()
     .describe('Run IDs to check status for or cancel'),
-  threadId: z
+  threadID: z
     .string()
     .optional()
     .describe('Parent thread ID to list sub-agents for'),
@@ -32,7 +32,7 @@ export class SubagentsTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { operation, runIds, threadId } = args;
+    const { operation, runIDs, threadID } = args;
 
     try {
       const runs = this.connection.collection('runs');
@@ -40,7 +40,7 @@ export class SubagentsTool implements Tool<typeof parameters> {
       switch (operation) {
         case 'list': {
           const filter: Record<string, unknown> = {};
-          if (threadId) filter.threadId = threadId;
+          if (threadID) filter.threadID = threadID;
 
           const docs = await runs
             .find(filter)
@@ -52,8 +52,8 @@ export class SubagentsTool implements Tool<typeof parameters> {
             success: true,
             result: {
               agents: docs.map((d) => ({
-                runId: d.runId,
-                threadId: d.threadId,
+                runID: d.runID,
+                threadID: d.threadID,
                 status: d.status,
                 startedAt: d.startedAt,
                 completedAt: d.completedAt,
@@ -63,23 +63,23 @@ export class SubagentsTool implements Tool<typeof parameters> {
         }
 
         case 'status': {
-          if (!runIds || runIds.length === 0) {
+          if (!runIDs || runIDs.length === 0) {
             return {
               success: false,
-              error: 'runIds is required for status operation',
+              error: 'runIDs is required for status operation',
             };
           }
 
           const docs = await runs
-            .find({ runId: { $in: runIds } })
+            .find({ runID: { $in: runIDs } })
             .toArray();
 
           return {
             success: true,
             result: {
               agents: docs.map((d) => ({
-                runId: d.runId,
-                threadId: d.threadId,
+                runID: d.runID,
+                threadID: d.threadID,
                 status: d.status,
                 response: d.response ?? null,
               })),
@@ -88,15 +88,15 @@ export class SubagentsTool implements Tool<typeof parameters> {
         }
 
         case 'cancel': {
-          if (!runIds || runIds.length === 0) {
+          if (!runIDs || runIDs.length === 0) {
             return {
               success: false,
-              error: 'runIds is required for cancel operation',
+              error: 'runIDs is required for cancel operation',
             };
           }
 
           const result = await runs.updateMany(
-            { runId: { $in: runIds }, status: 'running' },
+            { runID: { $in: runIDs }, status: 'running' },
             { $set: { status: 'cancelled', completedAt: new Date() } },
           );
 

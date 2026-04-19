@@ -6,8 +6,8 @@ import type {
 } from '../tool.interface';
 
 export interface AgentMessagingServiceLike {
-  findById(agentId: string): Promise<{
-    agentId: string;
+  findByID(agentID: string): Promise<{
+    agentID: string;
     name: string;
     enabled: boolean;
     messagingPolicy: {
@@ -20,10 +20,10 @@ export interface AgentMessagingServiceLike {
 export interface OrchestratorLike {
   executeGoal(
     goal: {
-      threadId: string;
-      runId: string;
-      userId: string;
-      agentId: string;
+      threadID: string;
+      runID: string;
+      userID: string;
+      agentID: string;
       userMessage: string;
       conversationHistory: unknown[];
       delegationDepth?: number;
@@ -33,14 +33,14 @@ export interface OrchestratorLike {
 }
 
 export interface RunReaderLike {
-  getRunResponse(runId: string): Promise<{
+  getRunResponse(runID: string): Promise<{
     status: string;
     response?: string;
   } | null>;
 }
 
 const parameters = z.object({
-  targetAgentId: z
+  targetAgentID: z
     .string()
     .describe('ID of the agent to send a message to'),
   message: z
@@ -55,7 +55,7 @@ const parameters = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('If true, block until the target agent completes and return its response. If false, return immediately with the runId.'),
+    .describe('If true, block until the target agent completes and return its response. If false, return immediately with the runID.'),
   timeoutMs: z
     .number()
     .optional()
@@ -81,8 +81,8 @@ export class AgentMessageTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { targetAgentId, message, maxSteps, waitForResult, timeoutMs } = args;
-    const senderAgentId = context.agentId;
+    const { targetAgentID, message, maxSteps, waitForResult, timeoutMs } = args;
+    const senderAgentID = context.agentID;
     const currentDepth = context.delegationDepth ?? 0;
 
     if (currentDepth >= MAX_DELEGATION_DEPTH) {
@@ -92,64 +92,64 @@ export class AgentMessageTool implements Tool<typeof parameters> {
       };
     }
 
-    if (targetAgentId === senderAgentId) {
+    if (targetAgentID === senderAgentID) {
       return {
         success: false,
         error: 'An agent cannot send a message to itself.',
       };
     }
 
-    const sender = await this.agentsService.findById(senderAgentId);
+    const sender = await this.agentsService.findByID(senderAgentID);
     if (!sender) {
       return {
         success: false,
-        error: `Sender agent "${senderAgentId}" not found.`,
+        error: `Sender agent "${senderAgentID}" not found.`,
       };
     }
 
     if (!sender.messagingPolicy.enabled) {
       return {
         success: false,
-        error: `Messaging is disabled for agent "${senderAgentId}". Enable it in the agent config.`,
+        error: `Messaging is disabled for agent "${senderAgentID}". Enable it in the agent config.`,
       };
     }
 
     if (
       sender.messagingPolicy.allowedAgents.length > 0 &&
-      !sender.messagingPolicy.allowedAgents.includes(targetAgentId)
+      !sender.messagingPolicy.allowedAgents.includes(targetAgentID)
     ) {
       return {
         success: false,
-        error: `Agent "${senderAgentId}" is not allowed to message "${targetAgentId}". Add it to the allowedAgents list.`,
+        error: `Agent "${senderAgentID}" is not allowed to message "${targetAgentID}". Add it to the allowedAgents list.`,
       };
     }
 
-    const target = await this.agentsService.findById(targetAgentId);
+    const target = await this.agentsService.findByID(targetAgentID);
     if (!target) {
       return {
         success: false,
-        error: `Target agent "${targetAgentId}" not found.`,
+        error: `Target agent "${targetAgentID}" not found.`,
       };
     }
 
     if (!target.enabled) {
       return {
         success: false,
-        error: `Target agent "${targetAgentId}" is disabled.`,
+        error: `Target agent "${targetAgentID}" is disabled.`,
       };
     }
 
-    const threadId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
+    const threadID = crypto.randomUUID();
+    const runID = crypto.randomUUID();
 
-    const prefixedMessage = `[Message from agent "${sender.name}" (${senderAgentId})]\n\n${message}`;
+    const prefixedMessage = `[Message from agent "${sender.name}" (${senderAgentID})]\n\n${message}`;
 
     const goalPromise = this.orchestrator.executeGoal(
       {
-        threadId,
-        runId,
-        userId: context.userId ?? `agent:${senderAgentId}`,
-        agentId: targetAgentId,
+        threadID,
+        runID,
+        userID: context.userID ?? `agent:${senderAgentID}`,
+        agentID: targetAgentID,
         userMessage: prefixedMessage,
         conversationHistory: [],
         delegationDepth: currentDepth + 1,
@@ -158,9 +158,9 @@ export class AgentMessageTool implements Tool<typeof parameters> {
     );
 
     const baseResult = {
-      threadId,
-      runId,
-      targetAgentId,
+      threadID,
+      runID,
+      targetAgentID,
       targetAgentName: target.name,
     };
 
@@ -173,7 +173,7 @@ export class AgentMessageTool implements Tool<typeof parameters> {
           ),
         ]);
 
-        const run = await this.runReader.getRunResponse(runId);
+        const run = await this.runReader.getRunResponse(runID);
         return {
           success: true,
           result: {

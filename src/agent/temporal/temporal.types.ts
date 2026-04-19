@@ -62,7 +62,7 @@ export interface FolderResult {
 // ── Signal Payloads (HITL) ──
 
 export interface ReviewDecision {
-  reviewItemId: string;
+  reviewItemID: string;
   approved: boolean;
   correctedSeasonNumber?: number;
   correctedEpisodeNumber?: number;

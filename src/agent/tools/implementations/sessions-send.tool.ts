@@ -8,13 +8,13 @@ import type {
 
 interface ChatServiceLike {
   appendMessage(
-    chatId: string,
+    chatID: string,
     message: { id: string; role: string; content: string; createdAt: Date },
   ): Promise<void>;
 }
 
 const parameters = z.object({
-  targetChatId: z
+  targetChatID: z
     .string()
     .describe('ID of the chat/session to send to'),
   content: z.string().describe('Message content'),
@@ -37,11 +37,11 @@ export class SessionsSendTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { targetChatId, content, role } = args;
+    const { targetChatID, content, role } = args;
     const id = randomUUID();
 
     try {
-      await this.chatService.appendMessage(targetChatId, {
+      await this.chatService.appendMessage(targetChatID, {
         id,
         role,
         content,
@@ -50,7 +50,7 @@ export class SessionsSendTool implements Tool<typeof parameters> {
 
       return {
         success: true,
-        result: { targetChatId, messageId: id, sent: true },
+        result: { targetChatID, messageID: id, sent: true },
       };
     } catch (error) {
       return {

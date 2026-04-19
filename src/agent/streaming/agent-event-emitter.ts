@@ -9,19 +9,19 @@ export class AgentEventEmitter {
   /**
    * Get or create an event stream for a run.
    */
-  getStream(runId: string): Observable<AgentEvent> {
-    return this.getOrCreateSubject(runId).asObservable();
+  getStream(runID: string): Observable<AgentEvent> {
+    return this.getOrCreateSubject(runID).asObservable();
   }
 
   /**
    * Get a filtered stream for specific event types.
    */
   getFilteredStream(
-    runId: string,
+    runID: string,
     ...types: AgentEventType[]
   ): Observable<AgentEvent> {
     const typeSet = new Set(types);
-    return this.getStream(runId).pipe(
+    return this.getStream(runID).pipe(
       filter((event) => typeSet.has(event.type)),
     );
   }
@@ -29,23 +29,23 @@ export class AgentEventEmitter {
   /**
    * Emit an event to all subscribers of a run.
    */
-  emit(runId: string, event: AgentEvent): void {
-    this.getOrCreateSubject(runId).next(event);
+  emit(runID: string, event: AgentEvent): void {
+    this.getOrCreateSubject(runID).next(event);
   }
 
   /**
    * Helper to create and emit an event in one call.
    */
   emitEvent(
-    runId: string,
-    threadId: string,
+    runID: string,
+    threadID: string,
     type: AgentEventType,
     data: unknown,
   ): void {
-    this.emit(runId, {
+    this.emit(runID, {
       type,
-      runId,
-      threadId,
+      runID,
+      threadID,
       timestamp: Date.now(),
       data,
     });
@@ -54,26 +54,26 @@ export class AgentEventEmitter {
   /**
    * Complete the stream for a run (signals no more events).
    */
-  complete(runId: string): void {
-    const subject = this.subjects.get(runId);
+  complete(runID: string): void {
+    const subject = this.subjects.get(runID);
     if (subject) {
       subject.complete();
-      this.subjects.delete(runId);
+      this.subjects.delete(runID);
     }
   }
 
   /**
    * Check if a run has an active stream.
    */
-  hasStream(runId: string): boolean {
-    return this.subjects.has(runId);
+  hasStream(runID: string): boolean {
+    return this.subjects.has(runID);
   }
 
-  private getOrCreateSubject(runId: string): Subject<AgentEvent> {
-    let subject = this.subjects.get(runId);
+  private getOrCreateSubject(runID: string): Subject<AgentEvent> {
+    let subject = this.subjects.get(runID);
     if (!subject) {
       subject = new Subject<AgentEvent>();
-      this.subjects.set(runId, subject);
+      this.subjects.set(runID, subject);
     }
     return subject;
   }

@@ -59,26 +59,26 @@ export class OrchestratorService {
     config: Partial<OrchestratorConfig> = {},
   ): Promise<void> {
     const cfg = { ...DEFAULT_ORCHESTRATOR_CONFIG, ...config };
-    const { threadId, runId, userId } = goal;
+    const { threadID, runID, userID } = goal;
 
     const abortController = new AbortController();
-    this.abortControllers.set(runId, abortController);
+    this.abortControllers.set(runID, abortController);
 
     try {
-      await this.stateService.getOrCreateThread(threadId);
-      await this.stateService.startRun(threadId, runId);
+      await this.stateService.getOrCreateThread(threadID);
+      await this.stateService.startRun(threadID, runID);
 
-      const agentConfig = await this.agentsService.findByIdOrThrow(goal.agentId);
+      const agentConfig = await this.agentsService.findByIDOrThrow(goal.agentID);
 
       const effectiveModelOptions = {
         ...agentConfig.modelOptions,
         ...goal.modelOptions,
       };
       const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
-      this.emitEvent(runId, threadId, 'run.started', {
+      this.emitEvent(runID, threadID, 'run.started', {
         provider: resolved.provider,
-        modelId: resolved.modelId,
-        chatId: goal.chatId,
+        modelID: resolved.modelID,
+        chatID: goal.chatID,
       } satisfies RunStartedData);
 
       // Capture memory context once per session — mid-session memory writes
@@ -86,7 +86,7 @@ export class OrchestratorService {
       let frozenMemoryContext = '';
       try {
         frozenMemoryContext = await this.memoryService.getContextForQuery(
-          userId,
+          userID,
           goal.userMessage,
         );
       } catch {
@@ -94,7 +94,7 @@ export class OrchestratorService {
       }
 
       const systemPrompt = await this.buildSystemPrompt(
-        userId,
+        userID,
         goal.userMessage,
         agentConfig,
         frozenMemoryContext,
@@ -111,10 +111,10 @@ export class OrchestratorService {
         : undefined;
 
       const toolContext = {
-        threadId,
-        runId,
-        userId,
-        agentId: goal.agentId,
+        threadID,
+        runID,
+        userID,
+        agentID: goal.agentID,
         workspaceDir: agentConfig.workspaceDir,
         sandbox,
         delegationDepth: goal.delegationDepth ?? 0,
@@ -132,9 +132,9 @@ export class OrchestratorService {
       };
 
       let history = goal.conversationHistory;
-      if (goal.chatId && history.length === 0) {
+      if (goal.chatID && history.length === 0) {
         const loaded = await this.chatsService.loadConversationHistory(
-          goal.chatId,
+          goal.chatID,
         );
         history = loaded as CoreMessage[];
       }
@@ -188,7 +188,7 @@ export class OrchestratorService {
               break;
             case 'reasoning-delta':
               accumulatedReasoning += part.text;
-              this.emitEvent(runId, threadId, 'thinking.delta', {
+              this.emitEvent(runID, threadID, 'thinking.delta', {
                 content: part.text,
               } satisfies ThinkingDeltaData);
               break;
@@ -199,19 +199,19 @@ export class OrchestratorService {
                 );
                 thinkingStartTime = null;
               }
-              this.emitEvent(runId, threadId, 'thinking.done', {
+              this.emitEvent(runID, threadID, 'thinking.done', {
                 content: accumulatedReasoning,
               } satisfies ThinkingDoneData);
               break;
             case 'text-delta':
               accumulatedText += part.text;
-              this.emitEvent(runId, threadId, 'text.delta', {
+              this.emitEvent(runID, threadID, 'text.delta', {
                 content: part.text,
               } satisfies TextDeltaData);
               break;
             case 'tool-call':
-              this.emitEvent(runId, threadId, 'tool_call.started', {
-                toolCallId: String(part.toolCallId),
+              this.emitEvent(runID, threadID, 'tool_call.started', {
+                toolCallID: String(part.toolCallId),
                 toolName: String(part.toolName),
                 args: (part.input ?? {}) as Record<string, unknown>,
               } satisfies ToolCallStartedData);
@@ -224,7 +224,7 @@ export class OrchestratorService {
         }
 
         if (accumulatedText) {
-          this.emitEvent(runId, threadId, 'text.done', {
+          this.emitEvent(runID, threadID, 'text.done', {
             content: accumulatedText,
           } satisfies TextDoneData);
           finalText = accumulatedText;
@@ -239,7 +239,7 @@ export class OrchestratorService {
           totalToolCalls += step.toolCalls.length;
           for (const tc of step.toolCalls) {
             await this.stateService.recordToolCall(
-              threadId,
+              threadID,
               tc.toolName,
               (tc.input ?? {}) as Record<string, unknown>,
             );
@@ -284,23 +284,23 @@ export class OrchestratorService {
         error instanceof Error ? error.message : 'Unknown error';
 
       if (errorMessage === 'Aborted') {
-        this.logger.debug(`Run ${runId} was cancelled`);
-        await this.stateService.cancelRun(runId);
+        this.logger.debug(`Run ${runID} was cancelled`);
+        await this.stateService.cancelRun(runID);
       } else {
-        this.logger.error(`Run ${runId} failed:`, error);
-        await this.stateService.failRun(runId, errorMessage);
-        this.emitEvent(runId, threadId, 'run.failed', {
+        this.logger.error(`Run ${runID} failed:`, error);
+        await this.stateService.failRun(runID, errorMessage);
+        this.emitEvent(runID, threadID, 'run.failed', {
           error: errorMessage,
         } satisfies RunFailedData);
       }
     } finally {
-      this.abortControllers.delete(runId);
-      this.eventEmitter.complete(runId);
+      this.abortControllers.delete(runID);
+      this.eventEmitter.complete(runID);
     }
   }
 
-  cancelRun(runId: string): boolean {
-    const controller = this.abortControllers.get(runId);
+  cancelRun(runID: string): boolean {
+    const controller = this.abortControllers.get(runID);
     if (controller) {
       controller.abort();
       return true;
@@ -309,7 +309,7 @@ export class OrchestratorService {
   }
 
   private async buildSystemPrompt(
-    userId: string,
+    userID: string,
     query: string,
     agentConfig: AgentConfig,
     frozenMemoryContext?: string,
@@ -344,7 +344,7 @@ export class OrchestratorService {
     try {
       const memoryProvider = new MemoryKnowledgeProvider(
         this.memoryService,
-        userId,
+        userID,
       );
       this.knowledgeService.registerProvider(memoryProvider);
 
@@ -362,7 +362,7 @@ export class OrchestratorService {
       const availableTools = this.toolsService.getAllToolNames();
       const skills = await this.skillsService.findRelevant(
         query,
-        agentConfig.agentId,
+        agentConfig.agentID,
         availableTools,
       );
       const skillsPrompt = this.skillsService.formatForPrompt(skills);
@@ -381,13 +381,13 @@ export class OrchestratorService {
     thinkingDuration?: number,
     totalToolCalls?: number,
   ): Promise<void> {
-    const { runId, threadId, userId } = goal;
+    const { runID, threadID, userID } = goal;
 
-    await this.stateService.completeRun(runId, response);
+    await this.stateService.completeRun(runID, response);
 
-    if (goal.chatId && response) {
+    if (goal.chatID && response) {
       try {
-        await this.chatsService.appendMessage(goal.chatId, {
+        await this.chatsService.appendMessage(goal.chatID, {
           id: randomUUID(),
           role: 'assistant',
           content: response,
@@ -400,7 +400,7 @@ export class OrchestratorService {
       }
     }
 
-    this.emitEvent(runId, threadId, 'run.completed', {
+    this.emitEvent(runID, threadID, 'run.completed', {
       response,
     } satisfies RunCompletedData);
 
@@ -409,7 +409,7 @@ export class OrchestratorService {
       if (lastUserMsg && response) {
         this.memoryService
           .extractAndStore(
-            userId,
+            userID,
             `User: ${lastUserMsg}\n\nAssistant: ${response}`,
           )
           .catch((err) => {
@@ -439,14 +439,14 @@ export class OrchestratorService {
           'A skill is a prompt template that guides the agent through a specific type of task. ' +
           'Only propose a skill if the interaction shows a repeatable pattern (not a one-off task). ' +
           'Respond with ONLY valid JSON: either {"create": false} or ' +
-          '{"create": true, "skillId": "kebab-case-id", "name": "Human Name", ' +
+          '{"create": true, "skillID": "kebab-case-id", "name": "Human Name", ' +
           '"description": "One line description", "content": "The skill prompt template with {{placeholders}}", ' +
           '"triggerKeywords": ["keyword1", "keyword2"]}',
         messages: [
           {
             role: 'user',
             content:
-              `Agent "${goal.agentId}" completed a run with ${toolCallCount} tool calls.\n\n` +
+              `Agent "${goal.agentID}" completed a run with ${toolCallCount} tool calls.\n\n` +
               `User request: ${goal.userMessage}\n\n` +
               `Agent response (truncated): ${response.slice(0, 2000)}\n\n` +
               'Should this be turned into a reusable skill? Consider: Is this a repeatable pattern? ' +
@@ -463,38 +463,38 @@ export class OrchestratorService {
 
       const evaluation = JSON.parse(raw) as {
         create: boolean;
-        skillId?: string;
+        skillID?: string;
         name?: string;
         description?: string;
         content?: string;
         triggerKeywords?: string[];
       };
 
-      if (!evaluation.create || !evaluation.skillId || !evaluation.content) {
+      if (!evaluation.create || !evaluation.skillID || !evaluation.content) {
         return;
       }
 
-      const existing = await this.skillsService.findById(evaluation.skillId);
+      const existing = await this.skillsService.findByID(evaluation.skillID);
       if (existing) {
         this.logger.debug(
-          `Skill "${evaluation.skillId}" already exists, skipping auto-creation`,
+          `Skill "${evaluation.skillID}" already exists, skipping auto-creation`,
         );
         return;
       }
 
       await this.skillsService.create({
-        skillId: evaluation.skillId,
-        name: evaluation.name ?? evaluation.skillId,
+        skillID: evaluation.skillID,
+        name: evaluation.name ?? evaluation.skillID,
         description: evaluation.description ?? '',
         content: evaluation.content,
         triggerKeywords: evaluation.triggerKeywords ?? [],
-        agentIds: [goal.agentId],
+        agentIDs: [goal.agentID],
         priority: 0,
         enabled: true,
       });
 
       this.logger.log(
-        `Auto-created skill "${evaluation.skillId}" from run ${goal.runId}`,
+        `Auto-created skill "${evaluation.skillID}" from run ${goal.runID}`,
       );
     } catch (err) {
       this.logger.debug(
@@ -510,14 +510,14 @@ export class OrchestratorService {
   }
 
   private emitEvent(
-    runId: string,
-    threadId: string,
+    runID: string,
+    threadID: string,
     type: string,
     data: unknown,
   ): void {
     this.eventEmitter.emitEvent(
-      runId,
-      threadId,
+      runID,
+      threadID,
       type as import('../streaming/stream.interfaces').AgentEventType,
       data,
     );

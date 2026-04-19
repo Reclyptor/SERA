@@ -66,7 +66,7 @@ export class ExecTool implements Tool<typeof parameters> {
         cwd,
         timeoutMs,
         workspaceDir: workspace,
-        agentId: context.agentId,
+        agentID: context.agentID,
         sandbox: context.sandbox,
       });
       return {

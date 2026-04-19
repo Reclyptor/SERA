@@ -14,7 +14,7 @@ export class MemoryKnowledgeProvider implements KnowledgeProvider {
 
   constructor(
     private readonly memoryService: MemoryService,
-    private readonly userId: string,
+    private readonly userID: string,
   ) {}
 
   async search(query: KnowledgeQuery): Promise<KnowledgeResult[]> {
@@ -22,7 +22,7 @@ export class MemoryKnowledgeProvider implements KnowledgeProvider {
     const minScore = query.minScore ?? 0.6;
 
     const memories = await this.memoryService.search(
-      this.userId,
+      this.userID,
       query.query,
       limit,
       minScore,
@@ -30,8 +30,8 @@ export class MemoryKnowledgeProvider implements KnowledgeProvider {
 
     return memories.map((memory) => ({
       chunk: {
-        documentId: memory.id,
-        chunkId: memory.id,
+        documentID: memory.id,
+        chunkID: memory.id,
         content: memory.content,
         startOffset: 0,
         endOffset: memory.content.length,

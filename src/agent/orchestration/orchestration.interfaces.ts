@@ -2,11 +2,11 @@ import type { CoreMessage } from 'ai';
 import type { ModelRequestOptions } from '../model/model.interfaces';
 
 export interface AgentGoal {
-  threadId: string;
-  runId: string;
-  userId: string;
-  chatId?: string;
-  agentId: string;
+  threadID: string;
+  runID: string;
+  userID: string;
+  chatID?: string;
+  agentID: string;
   userMessage: string;
   conversationHistory: CoreMessage[];
   modelOptions?: ModelRequestOptions;
