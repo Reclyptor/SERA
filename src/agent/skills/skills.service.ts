@@ -87,7 +87,7 @@ export class SkillsService {
     const queryWords = query
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length > 2);
+      .filter((w) => w.length >= 4);
 
     const scored = skills
       .filter((skill) => {
@@ -120,7 +120,7 @@ export class SkillsService {
         // Keyword match scoring
         const keywords = skill.triggerKeywords.map((k) => k.toLowerCase());
         for (const word of queryWords) {
-          if (keywords.some((k) => k.includes(word) || word.includes(k))) {
+          if (keywords.some((k) => k === word || (word.length >= 4 && k.includes(word)) || (k.length >= 4 && word.includes(k)))) {
             score += 10;
           }
         }

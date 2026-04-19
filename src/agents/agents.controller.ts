@@ -11,14 +11,7 @@ import {
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { AgentRouterService } from './agent-router.service';
-import { CreateAgentDto, UpdateAgentDto } from './agents.dto';
-
-class CreateBindingDto {
-  agentID: string;
-  bindingType: 'channel' | 'user' | 'default';
-  bindingValue?: string;
-  priority?: number;
-}
+import { CreateAgentDto, UpdateAgentDto, CreateBindingDto } from './agents.dto';
 
 @Controller('agents')
 export class AgentsController {

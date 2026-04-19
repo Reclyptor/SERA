@@ -42,3 +42,4 @@ export class Chat {
 }
 
 export const ChatSchema = SchemaFactory.createForClass(Chat);
+ChatSchema.index({ userID: 1, updatedAt: -1 });

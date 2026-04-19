@@ -20,6 +20,7 @@ const DEFAULT_HEARTBEAT_MESSAGE =
 @Injectable()
 export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(HeartbeatService.name);
+  private readonly formatters = new Map<string, Intl.DateTimeFormat>();
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private processing = false;
 
@@ -85,11 +86,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     if (!config.activeHours) return true;
 
     const { start, end, timezone } = config.activeHours;
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      hour: 'numeric',
-      hour12: false,
-      timeZone: timezone ?? 'UTC',
-    });
+    const formatter = this.getFormatter(timezone ?? 'UTC');
     const currentHour = parseInt(formatter.format(now), 10);
 
     if (start <= end) {
@@ -97,6 +94,15 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     }
     // Wraps midnight (e.g., 22 to 6)
     return currentHour >= start || currentHour < end;
+  }
+
+  private getFormatter(timezone: string): Intl.DateTimeFormat {
+    let fmt = this.formatters.get(timezone);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: timezone });
+      this.formatters.set(timezone, fmt);
+    }
+    return fmt;
   }
 
   private async fire(config: HeartbeatConfig): Promise<void> {

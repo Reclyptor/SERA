@@ -26,7 +26,8 @@ export class SessionAuthGuard extends AuthGuard('session') {
     return super.canActivate(context);
   }
 
-  handleRequest(err: any, user: any, info: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handleRequest(err: any, user: any, _info: any) {
     if (err || !user) {
       throw err || new UnauthorizedException('Session authentication failed');
     }

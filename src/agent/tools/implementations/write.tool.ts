@@ -7,6 +7,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+import { resolveWorkspace } from './tool-utils';
 
 const parameters = z.object({
   path: z.string().describe('File or directory path relative to workspace'),
@@ -34,10 +35,6 @@ export class WriteTool implements Tool<typeof parameters> {
 
   constructor(private readonly workspaceDir: string) {}
 
-  private resolveWorkspace(context: ToolExecutionContext): string {
-    return context.workspaceDir ?? this.workspaceDir;
-  }
-
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
@@ -49,7 +46,7 @@ export class WriteTool implements Tool<typeof parameters> {
       encoding,
     } = args;
 
-    const validation = validatePath(filePath, this.resolveWorkspace(context));
+    const validation = validatePath(filePath, resolveWorkspace(context, this.workspaceDir));
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

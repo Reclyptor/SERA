@@ -68,3 +68,5 @@ export class TaskPlan {
 }
 
 export const TaskPlanSchema = SchemaFactory.createForClass(TaskPlan);
+TaskPlanSchema.index({ parentRunID: 1, status: 1 });
+TaskPlanSchema.index({ agentID: 1, createdAt: -1 });

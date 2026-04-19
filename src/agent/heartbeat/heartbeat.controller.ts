@@ -9,23 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { HeartbeatService } from './heartbeat.service';
-
-class CreateHeartbeatDto {
-  agentID: string;
-  intervalMinutes?: number;
-  activeHours?: { start: number; end: number; timezone?: string };
-  checklist?: string[];
-  maxTokens?: number;
-  enabled?: boolean;
-}
-
-class UpdateHeartbeatDto {
-  intervalMinutes?: number;
-  activeHours?: { start: number; end: number; timezone?: string };
-  checklist?: string[];
-  maxTokens?: number;
-  enabled?: boolean;
-}
+import { CreateHeartbeatDto, UpdateHeartbeatDto } from './heartbeat.dto';
 
 @Controller('heartbeats')
 export class HeartbeatController {

@@ -7,6 +7,7 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 import type { SandboxRunnerLike } from './sandbox.types';
+import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -37,20 +38,12 @@ export class BashTool implements Tool<typeof parameters> {
     private readonly sandboxRunner?: SandboxRunnerLike,
   ) {}
 
-  private resolveWorkspace(context: ToolExecutionContext): string {
-    return context.workspaceDir ?? this.workspaceDir;
-  }
-
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     if (!this.enabled) {
-      return {
-        success: false,
-        error:
-          'Shell execution is disabled. Set ENABLE_SHELL_TOOL=true to enable.',
-      };
+      return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
 
     const { script, cwd, timeoutMs } = args;
@@ -60,7 +53,7 @@ export class BashTool implements Tool<typeof parameters> {
       return { success: false, error: validation.error };
     }
 
-    const workspace = this.resolveWorkspace(context);
+    const workspace = resolveWorkspace(context, this.workspaceDir);
 
     if (context.sandbox && this.sandboxRunner) {
       const result = await this.sandboxRunner.exec({
@@ -99,17 +92,12 @@ export class BashTool implements Tool<typeof parameters> {
             return;
           }
 
-          const truncate = (s: string) =>
-            s.length > MAX_OUTPUT_SIZE
-              ? s.slice(0, MAX_OUTPUT_SIZE) + '\n[...truncated]'
-              : s;
-
           resolve({
             success: !error,
             result: {
               exitCode: error ? (error.code ?? 1) : 0,
-              stdout: truncate(stdout),
-              stderr: truncate(stderr),
+              stdout: truncateOutput(stdout, MAX_OUTPUT_SIZE),
+              stderr: truncateOutput(stderr, MAX_OUTPUT_SIZE),
             },
             error: error ? error.message : undefined,
           });

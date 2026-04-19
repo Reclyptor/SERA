@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { CoreMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 import { ToolsService } from '../tools/tools.service';
 import { ActionsService } from '../actions/actions.service';
 import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
-import { KnowledgeService } from '../knowledge/knowledge.service';
-import { PromptsService } from '../../prompts/prompts.service';
 import { AgentsService } from '../../agents/agents.service';
 import { SkillsService } from '../skills/skills.service';
 import { randomUUID } from 'crypto';
@@ -28,10 +25,9 @@ import type {
   TextDoneData,
   ToolCallStartedData,
 } from '../streaming/stream.interfaces';
-import { MemoryKnowledgeProvider } from '../knowledge/providers';
-import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
 import { ContextCompressorService } from '../context/context-compressor.service';
-import type { AgentConfig } from '../../agents/agent-config.schema';
+import { PromptBuilderService } from './prompt-builder.service';
+import { AbortedError } from './aborted.error';
 
 @Injectable()
 export class OrchestratorService {
@@ -39,19 +35,17 @@ export class OrchestratorService {
   private readonly abortControllers = new Map<string, AbortController>();
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly modelRouter: ModelRouterService,
     private readonly toolsService: ToolsService,
     private readonly actionsService: ActionsService,
     private readonly stateService: StateService,
     private readonly memoryService: MemoryService,
-    private readonly knowledgeService: KnowledgeService,
-    private readonly promptsService: PromptsService,
     private readonly eventEmitter: AgentEventEmitter,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
     private readonly skillsService: SkillsService,
     private readonly contextCompressor: ContextCompressorService,
+    private readonly promptBuilder: PromptBuilderService,
   ) {}
 
   async executeGoal(
@@ -93,7 +87,7 @@ export class OrchestratorService {
         // Memory unavailable — proceed without it
       }
 
-      const systemPrompt = await this.buildSystemPrompt(
+      const systemPrompt = await this.promptBuilder.build(
         userID,
         goal.userMessage,
         agentConfig,
@@ -280,13 +274,12 @@ export class OrchestratorService {
         );
       }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-
-      if (errorMessage === 'Aborted') {
+      if (error instanceof AbortedError) {
         this.logger.debug(`Run ${runID} was cancelled`);
         await this.stateService.cancelRun(runID);
       } else {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`Run ${runID} failed:`, error);
         await this.stateService.failRun(runID, errorMessage);
         this.emitEvent(runID, threadID, 'run.failed', {
@@ -306,72 +299,6 @@ export class OrchestratorService {
       return true;
     }
     return false;
-  }
-
-  private async buildSystemPrompt(
-    userID: string,
-    query: string,
-    agentConfig: AgentConfig,
-    frozenMemoryContext?: string,
-  ): Promise<string> {
-    let basePrompt: string;
-
-    if (agentConfig.systemPrompt) {
-      basePrompt = agentConfig.systemPrompt;
-    } else {
-      try {
-        basePrompt =
-          (await this.promptsService.get('system')) ?? DEFAULT_SYSTEM_PROMPT;
-      } catch (error) {
-        this.logger.warn(
-          'Failed to load system prompt from DB, using default:',
-          error,
-        );
-        basePrompt = DEFAULT_SYSTEM_PROMPT;
-      }
-    }
-
-    const parts: string[] = [basePrompt];
-
-    if (agentConfig.personality) {
-      parts.push(`## Identity\n${agentConfig.personality}`);
-    }
-
-    if (frozenMemoryContext) {
-      parts.push(frozenMemoryContext);
-    }
-
-    try {
-      const memoryProvider = new MemoryKnowledgeProvider(
-        this.memoryService,
-        userID,
-      );
-      this.knowledgeService.registerProvider(memoryProvider);
-
-      const knowledgeContext = await this.knowledgeService.buildContext(query);
-      if (knowledgeContext.length > 0) {
-        parts.push(
-          this.knowledgeService.formatContextForPrompt(knowledgeContext),
-        );
-      }
-    } catch {
-      // Supplementary context — safe to skip
-    }
-
-    try {
-      const availableTools = this.toolsService.getAllToolNames();
-      const skills = await this.skillsService.findRelevant(
-        query,
-        agentConfig.agentID,
-        availableTools,
-      );
-      const skillsPrompt = this.skillsService.formatForPrompt(skills);
-      if (skillsPrompt) parts.push(skillsPrompt);
-    } catch {
-      // Supplementary context — safe to skip
-    }
-
-    return parts.join('\n\n');
   }
 
   private async completeRun(
@@ -505,7 +432,7 @@ export class OrchestratorService {
 
   private checkAborted(controller: AbortController): void {
     if (controller.signal.aborted) {
-      throw new Error('Aborted');
+      throw new AbortedError();
     }
   }
 

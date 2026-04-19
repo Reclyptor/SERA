@@ -6,6 +6,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+import { resolveWorkspace } from './tool-utils';
 
 const MAX_FILE_SIZE = 512 * 1024; // 512KB
 
@@ -27,17 +28,13 @@ export class ReadTool implements Tool<typeof parameters> {
 
   constructor(private readonly workspaceDir: string) {}
 
-  private resolveWorkspace(context: ToolExecutionContext): string {
-    return context.workspaceDir ?? this.workspaceDir;
-  }
-
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { path: filePath, encoding } = args;
 
-    const validation = validatePath(filePath, this.resolveWorkspace(context));
+    const validation = validatePath(filePath, resolveWorkspace(context, this.workspaceDir));
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

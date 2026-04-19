@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import type { CoreMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 
-const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN: Record<string, number> = {
+  anthropic: 3.5,
+  openai: 4,
+  google: 4,
+};
 
 const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   anthropic: 200_000,
@@ -34,14 +38,17 @@ export class ContextCompressorService {
   ) {
     this.contextWindows = { ...DEFAULT_CONTEXT_WINDOWS };
 
-    const anthropicWindow = this.configService.get<string>('ANTHROPIC_CONTEXT_WINDOW');
-    if (anthropicWindow) this.contextWindows.anthropic = parseInt(anthropicWindow, 10);
-
-    const openaiWindow = this.configService.get<string>('OPENAI_CONTEXT_WINDOW');
-    if (openaiWindow) this.contextWindows.openai = parseInt(openaiWindow, 10);
-
-    const googleWindow = this.configService.get<string>('GOOGLE_CONTEXT_WINDOW');
-    if (googleWindow) this.contextWindows.google = parseInt(googleWindow, 10);
+    for (const [key, envVar] of Object.entries({
+      anthropic: 'ANTHROPIC_CONTEXT_WINDOW',
+      openai: 'OPENAI_CONTEXT_WINDOW',
+      google: 'GOOGLE_CONTEXT_WINDOW',
+    })) {
+      const val = this.configService.get<string>(envVar);
+      if (val) {
+        const parsed = parseInt(val, 10);
+        if (!isNaN(parsed)) this.contextWindows[key] = parsed;
+      }
+    }
   }
 
   async compress(
@@ -53,9 +60,9 @@ export class ContextCompressorService {
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
 
     const systemTokens = systemPrompt
-      ? this.estimateTokens(systemPrompt)
+      ? this.estimateTokens(systemPrompt, provider)
       : 0;
-    const messageTokens = this.estimateMessagesTokens(messages);
+    const messageTokens = this.estimateMessagesTokens(messages, provider);
     const totalTokens = systemTokens + messageTokens;
 
     if (totalTokens <= threshold) {
@@ -68,7 +75,7 @@ export class ContextCompressorService {
 
     // Tier 1: Prune large tool outputs
     const pruned = this.pruneToolOutputs(messages);
-    const prunedTokens = systemTokens + this.estimateMessagesTokens(pruned);
+    const prunedTokens = systemTokens + this.estimateMessagesTokens(pruned, provider);
 
     if (prunedTokens <= threshold) {
       this.logger.debug(
@@ -78,9 +85,9 @@ export class ContextCompressorService {
     }
 
     // Tier 2: LLM summarization of middle turns
-    const compressed = await this.summarizeMiddle(pruned, threshold - systemTokens);
+    const compressed = await this.summarizeMiddle(pruned, threshold - systemTokens, provider);
     this.logger.debug(
-      `LLM compression: ${prunedTokens} → ${systemTokens + this.estimateMessagesTokens(compressed)} tokens`,
+      `LLM compression: ${prunedTokens} → ${systemTokens + this.estimateMessagesTokens(compressed, provider)} tokens`,
     );
     return compressed;
   }
@@ -97,7 +104,7 @@ export class ContextCompressorService {
       const prunedContent = (msg.content as unknown as Array<{ type: string; output?: unknown; [k: string]: unknown }>).map((part) => {
         if (part.type !== 'tool-result') return part;
 
-        const outputStr = JSON.stringify(part.output ?? '');
+        const outputStr = typeof part.output === 'string' ? part.output : JSON.stringify(part.output ?? '');
         if (outputStr.length <= TOOL_OUTPUT_PRUNE_THRESHOLD) return part;
 
         const lines = outputStr.split('\n').length;
@@ -111,6 +118,7 @@ export class ContextCompressorService {
   private async summarizeMiddle(
     messages: CoreMessage[],
     tokenBudget: number,
+    provider: string,
   ): Promise<CoreMessage[]> {
     if (messages.length <= PROTECTED_HEAD_COUNT + 1) {
       return messages;
@@ -124,7 +132,7 @@ export class ContextCompressorService {
     const tailBudget = Math.min(PROTECTED_TAIL_TOKENS, Math.floor(tokenBudget * 0.4));
 
     for (let i = messages.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
-      const msgTokens = this.estimateMessageTokens(messages[i]);
+      const msgTokens = this.estimateMessageTokens(messages[i], provider);
       if (tailTokens + msgTokens > tailBudget) break;
       tailTokens += msgTokens;
       tailStart = i;
@@ -176,21 +184,22 @@ export class ContextCompressorService {
       .join('\n\n');
   }
 
-  private estimateTokens(text: string): number {
-    return Math.ceil(text.length / CHARS_PER_TOKEN);
+  private estimateTokens(text: string, provider?: string): number {
+    const ratio = (provider ? CHARS_PER_TOKEN[provider] : undefined) ?? 4;
+    return Math.ceil(text.length / ratio);
   }
 
-  private estimateMessageTokens(msg: CoreMessage): number {
+  private estimateMessageTokens(msg: CoreMessage, provider?: string): number {
     const content =
       typeof msg.content === 'string'
         ? msg.content
         : JSON.stringify(msg.content);
-    return this.estimateTokens(content) + 4; // role overhead
+    return this.estimateTokens(content, provider) + 4; // role overhead
   }
 
-  private estimateMessagesTokens(messages: CoreMessage[]): number {
+  private estimateMessagesTokens(messages: CoreMessage[], provider?: string): number {
     return messages.reduce(
-      (sum, msg) => sum + this.estimateMessageTokens(msg),
+      (sum, msg) => sum + this.estimateMessageTokens(msg, provider),
       0,
     );
   }

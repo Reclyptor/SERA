@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AgentBinding, AgentBindingDocument } from './agent-binding.schema';
+import { AgentConfig, AgentConfigDocument } from './agent-config.schema';
 
 export interface RoutingContext {
   userID?: string;
@@ -16,6 +17,8 @@ export class AgentRouterService {
   constructor(
     @InjectModel(AgentBinding.name)
     private readonly bindingModel: Model<AgentBindingDocument>,
+    @InjectModel(AgentConfig.name)
+    private readonly agentModel: Model<AgentConfigDocument>,
   ) {}
 
   /**
@@ -90,6 +93,11 @@ export class AgentRouterService {
     bindingValue?: string;
     priority?: number;
   }): Promise<AgentBinding> {
+    const agent = await this.agentModel.findOne({ agentID: data.agentID }).exec();
+    if (!agent) {
+      throw new NotFoundException(`Agent "${data.agentID}" not found`);
+    }
+
     const binding = new this.bindingModel({
       bindingID: crypto.randomUUID(),
       agentID: data.agentID,

@@ -102,6 +102,7 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
       const interval = CronExpressionParser.parse(schedule);
       return interval.next().toDate();
     } catch {
+      this.logger.warn(`Invalid cron expression "${schedule}", defaulting to 30min`);
       return new Date(Date.now() + 30 * 60_000);
     }
   }

@@ -29,6 +29,7 @@ export class TtsTool implements Tool<typeof parameters> {
   readonly description =
     'Convert text to speech using AI. Returns audio as a base64-encoded string. Requires OPENAI_API_KEY.';
   readonly parameters = parameters;
+  readonly parallelSafe = true;
 
   constructor(private readonly apiKey?: string) {}
 

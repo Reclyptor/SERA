@@ -7,6 +7,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
+import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -39,16 +40,13 @@ export class ProcessTool implements Tool<typeof parameters> {
     'Manage background processes. Start long-running commands, list active processes, get output, or kill them.';
   readonly parameters = parameters;
 
+  // Shared across all tool instances — mutations serialized via registry mutex
   private static readonly processes = new Map<string, TrackedProcess>();
 
   constructor(
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
   ) {}
-
-  private resolveWorkspace(context: ToolExecutionContext): string {
-    return context.workspaceDir ?? this.workspaceDir;
-  }
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -68,11 +66,7 @@ export class ProcessTool implements Tool<typeof parameters> {
 
   private async start(command: string | undefined, context: ToolExecutionContext): Promise<ToolExecutionResult> {
     if (!this.enabled) {
-      return {
-        success: false,
-        error:
-          'Shell execution is disabled. Set ENABLE_SHELL_TOOL=true to enable.',
-      };
+      return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
 
     if (!command) {
@@ -87,7 +81,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     const processID = randomUUID();
     const child = spawn(command, {
       shell: true,
-      cwd: this.resolveWorkspace(context),
+      cwd: resolveWorkspace(context, this.workspaceDir),
       env: { ...process.env, PATH: process.env.PATH },
     });
 
@@ -103,25 +97,21 @@ export class ProcessTool implements Tool<typeof parameters> {
     child.stdout?.on('data', (data: Buffer) => {
       if (tracked.stdout.length < MAX_OUTPUT_SIZE) {
         tracked.stdout += data.toString();
-        if (tracked.stdout.length > MAX_OUTPUT_SIZE) {
-          tracked.stdout =
-            tracked.stdout.slice(0, MAX_OUTPUT_SIZE) + '\n[...truncated]';
-        }
+        tracked.stdout = truncateOutput(tracked.stdout, MAX_OUTPUT_SIZE);
       }
     });
 
     child.stderr?.on('data', (data: Buffer) => {
       if (tracked.stderr.length < MAX_OUTPUT_SIZE) {
         tracked.stderr += data.toString();
-        if (tracked.stderr.length > MAX_OUTPUT_SIZE) {
-          tracked.stderr =
-            tracked.stderr.slice(0, MAX_OUTPUT_SIZE) + '\n[...truncated]';
-        }
+        tracked.stderr = truncateOutput(tracked.stderr, MAX_OUTPUT_SIZE);
       }
     });
 
     child.on('exit', (code) => {
       tracked.exitCode = code;
+      // Auto-remove dead processes after 5 minutes to prevent unbounded Map growth
+      setTimeout(() => ProcessTool.processes.delete(processID), 5 * 60_000).unref();
     });
 
     ProcessTool.processes.set(processID, tracked);
@@ -173,11 +163,7 @@ export class ProcessTool implements Tool<typeof parameters> {
 
   private async kill(processID?: string): Promise<ToolExecutionResult> {
     if (!this.enabled) {
-      return {
-        success: false,
-        error:
-          'Shell execution is disabled. Set ENABLE_SHELL_TOOL=true to enable.',
-      };
+      return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
 
     if (!processID) {

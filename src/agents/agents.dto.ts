@@ -57,3 +57,10 @@ export class UpdateAgentDto {
   heartbeatConfig?: HeartbeatConfigDto;
   enabled?: boolean;
 }
+
+export class CreateBindingDto {
+  agentID: string;
+  bindingType: 'channel' | 'user' | 'default';
+  bindingValue?: string;
+  priority?: number;
+}

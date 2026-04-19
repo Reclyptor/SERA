@@ -41,5 +41,6 @@ export class PromptsController {
     if (!deleted) {
       throw new NotFoundException(`Prompt "${slug}" not found`);
     }
+    return { deleted: true };
   }
 }

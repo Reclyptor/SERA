@@ -24,6 +24,7 @@ export class ImageGenerateTool implements Tool<typeof parameters> {
   readonly description =
     'Generate images using AI. Creates images from text descriptions. Requires OPENAI_API_KEY.';
   readonly parameters = parameters;
+  readonly parallelSafe = true;
 
   constructor(private readonly apiKey?: string) {}
 

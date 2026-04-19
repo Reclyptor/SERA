@@ -79,10 +79,7 @@ export class ToolsBootstrapService implements OnModuleInit {
 
     // Sandbox runner (lazy — resolved only when sandbox is configured on an agent)
     const lazySandboxRunner: import('./implementations/sandbox.types').SandboxRunnerLike = {
-      exec: (opts) => {
-        const { SandboxRunnerService } = require('../sandbox/sandbox-runner.service');
-        return this.moduleRef.get(SandboxRunnerService, { strict: false }).exec(opts);
-      },
+      exec: (opts) => this.resolveSandboxRunner().exec(opts),
     };
 
     // Runtime
@@ -116,33 +113,17 @@ export class ToolsBootstrapService implements OnModuleInit {
 
     // Automation & messaging
     const lazyCronScheduler: import('./implementations/cron.tool').CronSchedulerLike = {
-      create: (data) => {
-        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).create(data);
-      },
-      findAll: (agentID) => {
-        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).findAll(agentID);
-      },
-      remove: (jobID) => {
-        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).remove(jobID);
-      },
-      setEnabled: (jobID, enabled) => {
-        const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-        return this.moduleRef.get(CronSchedulerService, { strict: false }).setEnabled(jobID, enabled);
-      },
+      create: (data) => this.resolveCronScheduler().create(data),
+      findAll: (agentID) => this.resolveCronScheduler().findAll(agentID),
+      remove: (jobID) => this.resolveCronScheduler().remove(jobID),
+      setEnabled: (jobID, enabled) => this.resolveCronScheduler().setEnabled(jobID, enabled),
     };
     this.toolsService.registerTool(new CronTool(lazyCronScheduler));
     this.toolsService.registerTool(new MessageTool(this.chatsService));
 
     // Shared lazy deps for agent delegation tools
     const lazyOrchestrator: import('./implementations/agent-message.tool').OrchestratorLike = {
-      executeGoal: (goal, config) => {
-        const { OrchestratorService } = require('../orchestration/orchestrator.service');
-        const orchestrator = this.moduleRef.get(OrchestratorService, { strict: false });
-        return orchestrator.executeGoal(goal, config);
-      },
+      executeGoal: (goal, config) => this.resolveOrchestrator().executeGoal(goal, config),
     };
     const runReader: import('./implementations/agent-message.tool').RunReaderLike = {
       getRunResponse: async (runID: string) => {
@@ -175,56 +156,31 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
     // Task decomposition (lazily resolved to avoid circular deps)
-    const resolveTasksService = () => {
-      const { TasksService } = require('../tasks/tasks.service');
-      return this.moduleRef.get(TasksService, { strict: false });
-    };
     const lazyTasksService: import('./implementations/task-plan.tool').TasksServiceLike = {
-      createPlan: (data) => resolveTasksService().createPlan(data),
-      getPlan: (planID) => resolveTasksService().getPlan(planID),
-      listPlans: (filters) => resolveTasksService().listPlans(filters),
+      createPlan: (data) => this.resolveTasksService().createPlan(data),
+      getPlan: (planID) => this.resolveTasksService().getPlan(planID),
+      listPlans: (filters) => this.resolveTasksService().listPlans(filters),
       updateTask: (planID, taskID, update, expectedRevision) =>
-        resolveTasksService().updateTask(planID, taskID, update, expectedRevision),
-      cancelPlan: (planID) => resolveTasksService().cancelPlan(planID),
+        this.resolveTasksService().updateTask(planID, taskID, update, expectedRevision),
+      cancelPlan: (planID) => this.resolveTasksService().cancelPlan(planID),
       setState: (planID, key, value, expectedRevision) =>
-        resolveTasksService().setState(planID, key, value, expectedRevision),
-      getState: (planID) => resolveTasksService().getState(planID),
-      deletePlan: (planID) => resolveTasksService().deletePlan(planID),
+        this.resolveTasksService().setState(planID, key, value, expectedRevision),
+      getState: (planID) => this.resolveTasksService().getState(planID),
+      deletePlan: (planID) => this.resolveTasksService().deletePlan(planID),
     };
     this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
 
     // Agent self-configuration (lazily resolved)
     const lazyHeartbeat: import('./implementations/agent-config.tool').SelfConfigHeartbeatLike = {
-      findByAgent: (agentID) => {
-        const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-        return this.moduleRef.get(HeartbeatService, { strict: false }).findByAgent(agentID);
-      },
-      create: (data) => {
-        const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-        return this.moduleRef.get(HeartbeatService, { strict: false }).create(data);
-      },
-      update: (agentID, data) => {
-        const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-        return this.moduleRef.get(HeartbeatService, { strict: false }).update(agentID, data);
-      },
+      findByAgent: (agentID) => this.resolveHeartbeatService().findByAgent(agentID),
+      create: (data) => this.resolveHeartbeatService().create(data),
+      update: (agentID, data) => this.resolveHeartbeatService().update(agentID, data),
     };
     const lazySkills: import('./implementations/agent-config.tool').SelfConfigSkillsLike = {
-      create: (dto) => {
-        const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).create(dto);
-      },
-      findAll: () => {
-        const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).findAll();
-      },
-      update: (skillID, dto) => {
-        const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).update(skillID, dto);
-      },
-      remove: (skillID) => {
-        const { SkillsService } = require('../skills/skills.service');
-        return this.moduleRef.get(SkillsService, { strict: false }).remove(skillID);
-      },
+      create: (dto) => this.resolveSkillsService().create(dto),
+      findAll: () => this.resolveSkillsService().findAll(),
+      update: (skillID, dto) => this.resolveSkillsService().update(skillID, dto),
+      remove: (skillID) => this.resolveSkillsService().remove(skillID),
     };
     this.toolsService.registerTool(
       new AgentConfigTool(this.agentsService, lazyHeartbeat, lazySkills),
@@ -232,27 +188,71 @@ export class ToolsBootstrapService implements OnModuleInit {
 
     // Webhook triggers (lazily resolved)
     const lazyTriggers: import('./implementations/trigger.tool').TriggersServiceLike = {
-      create: (data) => {
-        const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).create(data);
-      },
-      findAll: (agentID) => {
-        const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).findAll(agentID);
-      },
-      update: (triggerID, data) => {
-        const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).update(triggerID, data);
-      },
-      remove: (triggerID) => {
-        const { TriggersService } = require('../triggers/triggers.service');
-        return this.moduleRef.get(TriggersService, { strict: false }).remove(triggerID);
-      },
+      create: (data) => this.resolveTriggersService().create(data),
+      findAll: (agentID) => this.resolveTriggersService().findAll(agentID),
+      update: (triggerID, data) => this.resolveTriggersService().update(triggerID, data),
+      remove: (triggerID) => this.resolveTriggersService().remove(triggerID),
     };
     this.toolsService.registerTool(new TriggerTool(lazyTriggers));
 
     this.logger.log(
       `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveSandboxRunner() {
+    const { SandboxRunnerService } = require('../sandbox/sandbox-runner.service');
+    const svc = this.moduleRef.get(SandboxRunnerService, { strict: false });
+    if (!svc) throw new Error('SandboxRunnerService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveCronScheduler() {
+    const { CronSchedulerService } = require('../cron/cron-scheduler.service');
+    const svc = this.moduleRef.get(CronSchedulerService, { strict: false });
+    if (!svc) throw new Error('CronSchedulerService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveOrchestrator() {
+    const { OrchestratorService } = require('../orchestration/orchestrator.service');
+    const svc = this.moduleRef.get(OrchestratorService, { strict: false });
+    if (!svc) throw new Error('OrchestratorService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveTasksService() {
+    const { TasksService } = require('../tasks/tasks.service');
+    const svc = this.moduleRef.get(TasksService, { strict: false });
+    if (!svc) throw new Error('TasksService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveHeartbeatService() {
+    const { HeartbeatService } = require('../heartbeat/heartbeat.service');
+    const svc = this.moduleRef.get(HeartbeatService, { strict: false });
+    if (!svc) throw new Error('HeartbeatService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveSkillsService() {
+    const { SkillsService } = require('../skills/skills.service');
+    const svc = this.moduleRef.get(SkillsService, { strict: false });
+    if (!svc) throw new Error('SkillsService not available');
+    return svc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  private resolveTriggersService() {
+    const { TriggersService } = require('../triggers/triggers.service');
+    const svc = this.moduleRef.get(TriggersService, { strict: false });
+    if (!svc) throw new Error('TriggersService not available');
+    return svc;
   }
 }

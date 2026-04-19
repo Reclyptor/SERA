@@ -43,10 +43,11 @@ export class ModelRouterService {
     this.thinkingEnabled =
       this.configService.get<string>('ANTHROPIC_THINKING_ENABLED', 'true') ===
       'true';
-    this.thinkingBudget = parseInt(
+    const parsedBudget = parseInt(
       this.configService.get<string>('ANTHROPIC_THINKING_BUDGET', '10000'),
       10,
     );
+    this.thinkingBudget = Number.isNaN(parsedBudget) ? 10000 : parsedBudget;
 
     this.initializeProviders();
     this.logger.log(

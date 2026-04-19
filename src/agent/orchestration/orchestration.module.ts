@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { OrchestratorService } from './orchestrator.service';
+import { PromptBuilderService } from './prompt-builder.service';
 import { StreamingModule } from '../streaming/streaming.module';
 import { ModelModule } from '../model/model.module';
 import { ToolsModule } from '../tools/tools.module';
@@ -32,7 +33,7 @@ import { ContextModule } from '../context/context.module';
     SandboxModule,
     ContextModule,
   ],
-  providers: [OrchestratorService],
+  providers: [OrchestratorService, PromptBuilderService],
   exports: [OrchestratorService, StreamingModule],
 })
 export class OrchestrationModule {}

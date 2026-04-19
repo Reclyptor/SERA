@@ -94,19 +94,24 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
     });
 
     return results.map((hit) => {
-      const payload = hit.payload as Record<string, unknown>;
+      const p = hit.payload as Record<string, unknown>;
+      const docID = typeof p.documentID === 'string' ? p.documentID : '';
+      const content = typeof p.content === 'string' ? p.content : '';
+      const startOffset = typeof p.startOffset === 'number' ? p.startOffset : 0;
+      const endOffset = typeof p.endOffset === 'number' ? p.endOffset : 0;
+      const metadata = (p.metadata && typeof p.metadata === 'object' ? p.metadata : {}) as Record<string, unknown>;
       return {
         chunk: {
-          documentID: payload.documentID as string,
+          documentID: docID,
           chunkID: String(hit.id),
-          content: payload.content as string,
-          startOffset: payload.startOffset as number,
-          endOffset: payload.endOffset as number,
-          metadata: payload.metadata as Record<string, unknown>,
+          content,
+          startOffset,
+          endOffset,
+          metadata,
         },
         score: hit.score,
-        document: payload.document
-          ? (payload.document as KnowledgeDocument)
+        document: p.document
+          ? (p.document as KnowledgeDocument)
           : undefined,
       };
     });
@@ -187,7 +192,10 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
         }
       }
 
-      chunks.push({ text: text.slice(start, end).trim(), start, end });
+      const raw = text.slice(start, end);
+      const trimmed = raw.trim();
+      const leadingWS = raw.length - raw.trimStart().length;
+      chunks.push({ text: trimmed, start: start + leadingWS, end: start + leadingWS + trimmed.length });
       start = end - this.chunkOverlap;
       if (start >= text.length) break;
     }

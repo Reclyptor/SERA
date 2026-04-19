@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-custom';
 import { ConfigService } from '@nestjs/config';
@@ -21,6 +21,7 @@ export interface SessionUser {
  */
 @Injectable()
 export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
+  private readonly logger = new Logger(SessionStrategy.name);
   private readonly authSecret: string;
   private readonly issuer: string;
   private readonly audience: string;
@@ -61,7 +62,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
       if (!jwksUri) {
         throw new Error('No jwks_uri found in OIDC discovery document');
       }
-      console.log(`[SessionStrategy] Discovered JWKS URI: ${jwksUri}`);
+      this.logger.debug(`Discovered JWKS URI: ${jwksUri}`);
       this.jwks = jose.createRemoteJWKSet(new URL(jwksUri));
     }
     return this.jwks;
@@ -90,7 +91,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
       const { payload } = await jose.jwtDecrypt(encryptedToken, derivedKey);
       return payload;
     } catch (error) {
-      console.error('[SessionStrategy] Cookie decryption failed:', error);
+      this.logger.error('Cookie decryption failed', error);
       throw new UnauthorizedException('Invalid session cookie');
     }
   }
@@ -145,7 +146,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
       });
       return payload;
     } catch (error) {
-      console.error('[SessionStrategy] Token validation failed:', error);
+      this.logger.error('Token validation failed', error);
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

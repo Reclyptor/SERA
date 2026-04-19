@@ -50,7 +50,7 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'prompt_injection',
     severity: 'medium',
-    regex: /\bDAN\b.*\bmode\b|\bjailbreak\b/i,
+    regex: /\bDAN\b.{0,50}\bmode\b|\bjailbreak\b/i,
     label: 'Jailbreak keyword',
   },
 
@@ -78,13 +78,19 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'credential_exfil',
     severity: 'high',
-    regex: /(?:env|process\.env|os\.environ)\s*[\[.(]\s*['"]?\s*(?:API_KEY|SECRET|TOKEN|PASSWORD|PRIVATE_KEY|DATABASE_URL)/i,
+    regex: /(?:env|process\.env|os\.environ)\s*[\[.(]\s*['"]?\s*(?:API[_\s]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_\s]?KEY|DATABASE[_\s]?URL)/i,
     label: 'Environment variable access',
   },
   {
     category: 'credential_exfil',
     severity: 'medium',
-    regex: /(?:curl|wget|fetch|axios|http)\s+.*(?:webhook\.site|requestbin|ngrok|burp|pipedream)/i,
+    regex: /(?:show|print|reveal|output|return|send)\s+(?:the\s+)?(?:apiKey|apiSecret|dbPassword|privateKey|databaseUrl)\b/i,
+    label: 'CamelCase credential extraction',
+  },
+  {
+    category: 'credential_exfil',
+    severity: 'medium',
+    regex: /(?:curl|wget|fetch|axios|http)\s+.{0,200}(?:webhook\.site|requestbin|ngrok|burp|pipedream)/i,
     label: 'Data exfiltration endpoint',
   },
 

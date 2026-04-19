@@ -190,20 +190,14 @@ export class MemoryService {
 
     if (results.length === 0) return [];
 
-    // Update access tracking in the background
     const now = new Date().toISOString();
-    for (const hit of results) {
-      const p = hit.payload as MemoryPayload;
-      this.qdrant
-        .setPayload(COLLECTION_NAME, {
-          payload: {
-            accessCount: (p.accessCount ?? 0) + 1,
-            lastAccessedAt: now,
-          },
-          points: [hit.id],
-        })
-        .catch(() => {});
-    }
+    const pointUpdates = results.map((hit) =>
+      this.qdrant.setPayload(COLLECTION_NAME, {
+        payload: { accessCount: ((hit.payload as MemoryPayload).accessCount ?? 0) + 1, lastAccessedAt: now },
+        points: [hit.id],
+      }).catch(() => {})
+    );
+    await Promise.all(pointUpdates);
 
     return results.map((hit) =>
       this.toEntry(String(hit.id), hit.payload as MemoryPayload, hit.score),
@@ -211,71 +205,40 @@ export class MemoryService {
   }
 
   async getAll(userID: string): Promise<MemoryEntry[]> {
-    if (!(await this.ensureCollection())) return [];
-
-    const entries: MemoryEntry[] = [];
-    let offset: string | number | Record<string, unknown> | undefined =
-      undefined;
-
-    // Paginate through all user memories via scroll
-    while (true) {
-      const page = await this.qdrant.scroll(COLLECTION_NAME, {
-        filter: {
-          must: [{ key: 'userID', match: { value: userID } }],
-        },
-        with_payload: true,
-        limit: 100,
-        offset,
-      });
-
-      for (const point of page.points) {
-        entries.push(
-          this.toEntry(String(point.id), point.payload as MemoryPayload),
-        );
-      }
-
-      if (!page.next_page_offset) break;
-      offset = page.next_page_offset;
-    }
-
-    return entries.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return this.scrollAll({
+      must: [{ key: 'userID', match: { value: userID } }],
+    });
   }
 
   async getByTags(userID: string, tags: string[]): Promise<MemoryEntry[]> {
+    return this.scrollAll({
+      must: [
+        { key: 'userID', match: { value: userID } },
+        ...tags.map((tag) => ({ key: 'tags', match: { value: tag } })),
+      ],
+    });
+  }
+
+  private async scrollAll(filter: Record<string, unknown>): Promise<MemoryEntry[]> {
     if (!(await this.ensureCollection())) return [];
 
     const entries: MemoryEntry[] = [];
-    let offset: string | number | Record<string, unknown> | undefined =
-      undefined;
+    let offset: string | number | Record<string, unknown> | undefined = undefined;
 
     while (true) {
       const page = await this.qdrant.scroll(COLLECTION_NAME, {
-        filter: {
-          must: [
-            { key: 'userID', match: { value: userID } },
-            ...tags.map((tag) => ({ key: 'tags', match: { value: tag } })),
-          ],
-        },
-        with_payload: true,
-        limit: 100,
-        offset,
+        filter, with_payload: true, limit: 100, offset,
       });
 
       for (const point of page.points) {
-        entries.push(
-          this.toEntry(String(point.id), point.payload as MemoryPayload),
-        );
+        entries.push(this.toEntry(String(point.id), point.payload as MemoryPayload));
       }
 
       if (!page.next_page_offset) break;
       offset = page.next_page_offset;
     }
 
-    return entries.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return entries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   async update(

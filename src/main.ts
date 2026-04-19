@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
@@ -46,6 +47,6 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  console.log(`Sera backend running on http://localhost:${port}/api/v1`);
+  new Logger('Bootstrap').log(`Sera backend running on http://localhost:${port}/api/v1`);
 }
 bootstrap();

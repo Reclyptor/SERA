@@ -5,6 +5,23 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 
+// Minimal interfaces covering only the puppeteer API surface used here.
+// Puppeteer is dynamically imported at runtime; these avoid a compile-time dependency.
+interface PuppeteerBrowser {
+  newPage(): Promise<PuppeteerPage>;
+  close(): Promise<void>;
+}
+
+interface PuppeteerPage {
+  goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
+  title(): Promise<string>;
+  content(): Promise<string>;
+  screenshot(options?: Record<string, unknown>): Promise<string>;
+  click(selector: string): Promise<void>;
+  type(selector: string, text: string): Promise<void>;
+  evaluate(script: string): Promise<unknown>;
+}
+
 const MAX_CONTENT_SIZE = 100 * 1024; // 100KB
 
 const parameters = z.object({
@@ -34,11 +51,12 @@ export class BrowserTool implements Tool<typeof parameters> {
   readonly description =
     'Control a headless browser. Navigate to pages, extract content, take screenshots, and interact with elements. Requires puppeteer to be installed.';
   readonly parameters = parameters;
+  readonly parallelSafe = false;
 
-  private browser: any = null;
-  private page: any = null;
+  private browser: PuppeteerBrowser | null = null;
+  private page: PuppeteerPage | null = null;
 
-  private async getBrowser() {
+  private async getBrowser(): Promise<PuppeteerBrowser> {
     if (this.browser) return this.browser;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -47,7 +65,7 @@ export class BrowserTool implements Tool<typeof parameters> {
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
       });
-      return this.browser;
+      return this.browser!;
     } catch {
       throw new Error(
         'Browser tool requires puppeteer. Install with: npm install puppeteer',
@@ -55,7 +73,7 @@ export class BrowserTool implements Tool<typeof parameters> {
     }
   }
 
-  private async getPage() {
+  private async getPage(): Promise<PuppeteerPage> {
     if (this.page) return this.page;
     const browser = await this.getBrowser();
     this.page = await browser.newPage();
