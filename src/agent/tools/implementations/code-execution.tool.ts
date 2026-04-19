@@ -9,6 +9,8 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 import type { SandboxRunnerLike } from './sandbox.types';
+import type { ToolsRegistry } from '../tools.registry';
+import { startToolBridge, writeHelperLibraries } from './tool-bridge';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -33,13 +35,17 @@ const parameters = z.object({
 export class CodeExecutionTool implements Tool<typeof parameters> {
   readonly name = 'code_execution';
   readonly description =
-    'Execute code in a sandboxed environment. Supports JavaScript/TypeScript and Python.';
+    'Execute code in a sandboxed environment. Supports JavaScript/TypeScript and Python. ' +
+    'Scripts can call back into SERA tools via the sera_tools helper library ' +
+    '(require("./sera_tools") for JS/TS, import sera_tools for Python). ' +
+    'Available bridge tools: read, web_fetch, web_search, memory_search, memory_get.';
   readonly parameters = parameters;
 
   constructor(
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
     private readonly sandboxRunner?: SandboxRunnerLike,
+    private readonly toolsRegistry?: ToolsRegistry,
   ) {}
 
   private resolveWorkspace(context: ToolExecutionContext): string {
@@ -66,17 +72,30 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
     const filePath = path.join(tmpDir, filename);
 
     await fs.mkdir(tmpDir, { recursive: true });
-    await fs.writeFile(filePath, code, 'utf-8');
+
+    // Start the tool bridge so scripts can call back into SERA tools
+    const bridge = this.toolsRegistry
+      ? await startToolBridge(this.toolsRegistry, context)
+      : null;
 
     try {
+      if (bridge) {
+        await writeHelperLibraries(tmpDir, bridge.url);
+      }
+
+      await fs.writeFile(filePath, code, 'utf-8');
+
       if (context.sandbox && this.sandboxRunner) {
         const containerPath = `.tmp/${filename}`;
+        const envVars = bridge
+          ? { ...context.sandbox.envVars, SERA_BRIDGE_URL: bridge.url }
+          : context.sandbox.envVars;
         const result = await this.sandboxRunner.exec({
           command: `${config.runner} ${containerPath}`,
           timeoutMs,
           workspaceDir: workspace,
           agentId: context.agentId,
-          sandbox: context.sandbox,
+          sandbox: { ...context.sandbox, envVars },
         });
         return {
           success: result.exitCode === 0,
@@ -85,6 +104,8 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
         };
       }
 
+      const bridgeEnv = bridge ? { SERA_BRIDGE_URL: bridge.url } : {};
+
       return await new Promise((resolve) => {
         const child = exec(
           `${config.runner} ${filePath}`,
@@ -92,7 +113,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
             cwd: workspace,
             timeout: timeoutMs,
             maxBuffer: MAX_OUTPUT_SIZE,
-            env: { ...process.env, PATH: process.env.PATH },
+            env: { ...process.env, ...bridgeEnv, PATH: process.env.PATH },
           },
           (error, stdout, stderr) => {
             if (error && error.killed) {
@@ -126,7 +147,14 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
         }, timeoutMs + 1000);
       });
     } finally {
+      await bridge?.close();
       await fs.unlink(filePath).catch(() => {});
+      if (bridge) {
+        await Promise.all([
+          fs.unlink(path.join(tmpDir, 'sera_tools.js')).catch(() => {}),
+          fs.unlink(path.join(tmpDir, 'sera_tools.py')).catch(() => {}),
+        ]);
+      }
     }
   }
 }

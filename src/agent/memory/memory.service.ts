@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { ContentScannerService } from '../security/content-scanner.service';
 
 export interface MemoryEntry {
   id: string;
@@ -43,7 +44,10 @@ export class MemoryService {
   private initialized = false;
   private qdrantAvailable = true;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly contentScanner?: ContentScannerService,
+  ) {
     this.anthropic = new Anthropic();
     this.openai = new OpenAI();
     const qdrantApiKey = this.configService.get<string>('QDRANT_API_KEY');
@@ -131,6 +135,8 @@ export class MemoryService {
     content: string,
     options: AddMemoryOptions = {},
   ): Promise<MemoryEntry> {
+    this.contentScanner?.assertSafe(content, 'memory add');
+
     if (!(await this.ensureCollection())) {
       throw new Error('Qdrant unavailable — cannot store memories');
     }
@@ -277,6 +283,8 @@ export class MemoryService {
     memoryId: string,
     content: string,
   ): Promise<MemoryEntry | null> {
+    this.contentScanner?.assertSafe(content, 'memory update');
+
     if (!(await this.ensureCollection())) return null;
 
     // Fetch existing point to preserve payload fields
@@ -400,11 +408,17 @@ Return only the JSON array, nothing else:`,
 
       for (const fact of facts) {
         if (typeof fact === 'string' && fact.trim()) {
-          const memory = await this.add(userId, fact.trim(), {
-            metadata: { source: 'conversation_extraction' },
-            tags: ['auto-extracted'],
-          });
-          memories.push(memory);
+          try {
+            const memory = await this.add(userId, fact.trim(), {
+              metadata: { source: 'conversation_extraction' },
+              tags: ['auto-extracted'],
+            });
+            memories.push(memory);
+          } catch (scanErr) {
+            this.logger.warn(
+              `Skipping extracted fact (security scan): ${scanErr instanceof Error ? scanErr.message : scanErr}`,
+            );
+          }
         }
       }
 

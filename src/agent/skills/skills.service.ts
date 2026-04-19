@@ -1,9 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import { Skill, SkillDocument } from './skill.schema';
 import type { CreateSkillDto, UpdateSkillDto } from './skills.dto';
+import { ContentScannerService } from '../security/content-scanner.service';
 
 @Injectable()
 export class SkillsService {
@@ -13,9 +14,15 @@ export class SkillsService {
     @InjectModel(Skill.name)
     private readonly skillModel: Model<SkillDocument>,
     private readonly configService: ConfigService,
+    @Optional() private readonly contentScanner?: ContentScannerService,
   ) {}
 
   async create(dto: CreateSkillDto): Promise<Skill> {
+    this.contentScanner?.assertSafe(dto.content, 'skill create');
+    if (dto.description) {
+      this.contentScanner?.assertSafe(dto.description, 'skill create description');
+    }
+
     const skill = new this.skillModel({
       skillId: dto.skillId,
       name: dto.name,
@@ -40,6 +47,13 @@ export class SkillsService {
   }
 
   async update(skillId: string, dto: UpdateSkillDto): Promise<Skill> {
+    if (dto.content) {
+      this.contentScanner?.assertSafe(dto.content, 'skill update');
+    }
+    if (dto.description) {
+      this.contentScanner?.assertSafe(dto.description, 'skill update description');
+    }
+
     const skill = await this.skillModel
       .findOneAndUpdate({ skillId }, { $set: dto }, { new: true })
       .exec();

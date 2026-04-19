@@ -81,10 +81,23 @@ export class OrchestratorService {
         chatId: goal.chatId,
       } satisfies RunStartedData);
 
+      // Capture memory context once per session — mid-session memory writes
+      // update the store but don't mutate the prompt, preserving prefix cache.
+      let frozenMemoryContext = '';
+      try {
+        frozenMemoryContext = await this.memoryService.getContextForQuery(
+          userId,
+          goal.userMessage,
+        );
+      } catch {
+        // Memory unavailable — proceed without it
+      }
+
       const systemPrompt = await this.buildSystemPrompt(
         userId,
         goal.userMessage,
         agentConfig,
+        frozenMemoryContext,
       );
 
       const sandbox = agentConfig.sandboxConfig?.enabled
@@ -131,6 +144,7 @@ export class OrchestratorService {
           : [{ role: 'user', content: goal.userMessage }];
 
       let iterationCount = 0;
+      let totalToolCalls = 0;
       let lastReasoningText: string | undefined;
       let lastThinkingDuration: number | undefined;
       let finalText = '';
@@ -222,6 +236,7 @@ export class OrchestratorService {
         ]);
 
         for (const step of steps) {
+          totalToolCalls += step.toolCalls.length;
           for (const tc of step.toolCalls) {
             await this.stateService.recordToolCall(
               threadId,
@@ -248,6 +263,7 @@ export class OrchestratorService {
             finalText,
             lastReasoningText,
             lastThinkingDuration,
+            totalToolCalls,
           );
           break;
         }
@@ -260,6 +276,7 @@ export class OrchestratorService {
           finalText,
           lastReasoningText,
           lastThinkingDuration,
+          totalToolCalls,
         );
       }
     } catch (error) {
@@ -295,6 +312,7 @@ export class OrchestratorService {
     userId: string,
     query: string,
     agentConfig: AgentConfig,
+    frozenMemoryContext?: string,
   ): Promise<string> {
     let basePrompt: string;
 
@@ -319,14 +337,8 @@ export class OrchestratorService {
       parts.push(`## Identity\n${agentConfig.personality}`);
     }
 
-    try {
-      const memoryContext = await this.memoryService.getContextForQuery(
-        userId,
-        query,
-      );
-      if (memoryContext) parts.push(memoryContext);
-    } catch {
-      // Supplementary context — safe to skip
+    if (frozenMemoryContext) {
+      parts.push(frozenMemoryContext);
     }
 
     try {
@@ -367,6 +379,7 @@ export class OrchestratorService {
     response: string,
     thinking?: string,
     thinkingDuration?: number,
+    totalToolCalls?: number,
   ): Promise<void> {
     const { runId, threadId, userId } = goal;
 
@@ -403,6 +416,90 @@ export class OrchestratorService {
             this.logger.warn('Memory extraction failed:', err);
           });
       }
+
+      if (totalToolCalls && totalToolCalls >= 5) {
+        this.evaluateSkillCreation(goal, response, totalToolCalls).catch(
+          (err) => {
+            this.logger.warn('Skill evaluation failed:', err);
+          },
+        );
+      }
+    }
+  }
+
+  private async evaluateSkillCreation(
+    goal: AgentGoal,
+    response: string,
+    toolCallCount: number,
+  ): Promise<void> {
+    try {
+      const result = await this.modelRouter.generate({
+        system:
+          'You evaluate whether an AI agent interaction should be distilled into a reusable skill. ' +
+          'A skill is a prompt template that guides the agent through a specific type of task. ' +
+          'Only propose a skill if the interaction shows a repeatable pattern (not a one-off task). ' +
+          'Respond with ONLY valid JSON: either {"create": false} or ' +
+          '{"create": true, "skillId": "kebab-case-id", "name": "Human Name", ' +
+          '"description": "One line description", "content": "The skill prompt template with {{placeholders}}", ' +
+          '"triggerKeywords": ["keyword1", "keyword2"]}',
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Agent "${goal.agentId}" completed a run with ${toolCallCount} tool calls.\n\n` +
+              `User request: ${goal.userMessage}\n\n` +
+              `Agent response (truncated): ${response.slice(0, 2000)}\n\n` +
+              'Should this be turned into a reusable skill? Consider: Is this a repeatable pattern? ' +
+              'Would a skill template help the agent handle similar requests faster?',
+          },
+        ],
+        maxOutputTokens: 1024,
+        temperature: 0.1,
+      });
+
+      let raw = result.text.trim();
+      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) raw = fenceMatch[1].trim();
+
+      const evaluation = JSON.parse(raw) as {
+        create: boolean;
+        skillId?: string;
+        name?: string;
+        description?: string;
+        content?: string;
+        triggerKeywords?: string[];
+      };
+
+      if (!evaluation.create || !evaluation.skillId || !evaluation.content) {
+        return;
+      }
+
+      const existing = await this.skillsService.findById(evaluation.skillId);
+      if (existing) {
+        this.logger.debug(
+          `Skill "${evaluation.skillId}" already exists, skipping auto-creation`,
+        );
+        return;
+      }
+
+      await this.skillsService.create({
+        skillId: evaluation.skillId,
+        name: evaluation.name ?? evaluation.skillId,
+        description: evaluation.description ?? '',
+        content: evaluation.content,
+        triggerKeywords: evaluation.triggerKeywords ?? [],
+        agentIds: [goal.agentId],
+        priority: 0,
+        enabled: true,
+      });
+
+      this.logger.log(
+        `Auto-created skill "${evaluation.skillId}" from run ${goal.runId}`,
+      );
+    } catch (err) {
+      this.logger.debug(
+        `Skill evaluation skipped: ${err instanceof Error ? err.message : err}`,
+      );
     }
   }
 

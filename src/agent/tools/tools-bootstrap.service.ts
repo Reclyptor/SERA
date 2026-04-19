@@ -4,6 +4,7 @@ import { ModuleRef } from '@nestjs/core';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import { ToolsService } from './tools.service';
+import { ToolsRegistry } from './tools.registry';
 import { MemoryService } from '../memory/memory.service';
 import { StateService } from '../state/state.service';
 import { ChatsService } from '../../chats/chats.service';
@@ -48,6 +49,7 @@ export class ToolsBootstrapService implements OnModuleInit {
 
   constructor(
     private readonly toolsService: ToolsService,
+    private readonly toolsRegistry: ToolsRegistry,
     private readonly configService: ConfigService,
     private readonly memoryService: MemoryService,
     private readonly stateService: StateService,
@@ -88,7 +90,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new BashTool(workspace, shellEnabled, lazySandboxRunner));
     this.toolsService.registerTool(new ProcessTool(workspace, shellEnabled));
     this.toolsService.registerTool(
-      new CodeExecutionTool(workspace, shellEnabled, lazySandboxRunner),
+      new CodeExecutionTool(workspace, shellEnabled, lazySandboxRunner, this.toolsRegistry),
     );
 
     // Web & search
