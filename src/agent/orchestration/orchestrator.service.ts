@@ -30,6 +30,7 @@ import type {
 } from '../streaming/stream.interfaces';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
 import { DEFAULT_SYSTEM_PROMPT } from '../../prompts/defaults';
+import { ContextCompressorService } from '../context/context-compressor.service';
 import type { AgentConfig } from '../../agents/agent-config.schema';
 
 @Injectable()
@@ -50,6 +51,7 @@ export class OrchestratorService {
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
     private readonly skillsService: SkillsService,
+    private readonly contextCompressor: ContextCompressorService,
   ) {}
 
   async executeGoal(
@@ -102,6 +104,7 @@ export class OrchestratorService {
         agentId: goal.agentId,
         workspaceDir: agentConfig.workspaceDir,
         sandbox,
+        delegationDepth: goal.delegationDepth ?? 0,
       };
       const agentTools =
         agentConfig.toolPolicy.tools.length > 0
@@ -139,6 +142,16 @@ export class OrchestratorService {
         const lastMessage = messages[messages.length - 1];
         if (lastMessage && lastMessage.role !== 'user') {
           messages.push({ role: 'user', content: 'Continue.' });
+        }
+
+        const compressed = await this.contextCompressor.compress(
+          messages,
+          resolved.provider,
+          systemPrompt,
+        );
+        if (compressed !== messages) {
+          messages.length = 0;
+          messages.push(...compressed);
         }
 
         let accumulatedReasoning = '';

@@ -15,6 +15,7 @@ export interface ToolExecutionContext {
   agentId: string;
   workspaceDir?: string;
   sandbox?: SandboxContext;
+  delegationDepth?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -28,6 +29,7 @@ export interface Tool<TParams extends z.ZodType = z.ZodType> {
   name: string;
   description: string;
   parameters: TParams;
+  parallelSafe?: boolean;
   execute(
     args: z.infer<TParams>,
     context: ToolExecutionContext,

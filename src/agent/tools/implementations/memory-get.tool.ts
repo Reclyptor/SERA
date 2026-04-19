@@ -49,6 +49,7 @@ const parameters = z.object({
 
 export class MemoryGetTool implements Tool<typeof parameters> {
   readonly name = 'memory_get';
+  readonly parallelSafe = true;
   readonly description =
     'Retrieve stored memories. Get all memories or filter by tags.';
   readonly parameters = parameters;

@@ -43,6 +43,7 @@ const parameters = z.object({
 
 export class MemorySearchTool implements Tool<typeof parameters> {
   readonly name = 'memory_search';
+  readonly parallelSafe = true;
   readonly description =
     'Search through stored memories using semantic similarity. Returns the most relevant memories matching the query.';
   readonly parameters = parameters;

@@ -11,6 +11,7 @@ export interface AgentGoal {
   conversationHistory: CoreMessage[];
   modelOptions?: ModelRequestOptions;
   isHeartbeat?: boolean;
+  delegationDepth?: number;
 }
 
 export interface OrchestratorConfig {

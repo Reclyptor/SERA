@@ -1,13 +1,9 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import {
-  HeartbeatConfig,
-  HeartbeatConfigSchema,
-} from './heartbeat.schema';
+import { HeartbeatConfig, HeartbeatConfigSchema } from './heartbeat.schema';
 import { HeartbeatService } from './heartbeat.service';
 import { HeartbeatController } from './heartbeat.controller';
 import { OrchestrationModule } from '../orchestration/orchestration.module';
-import { StateModule } from '../state/state.module';
 
 @Module({
   imports: [
@@ -15,7 +11,6 @@ import { StateModule } from '../state/state.module';
       { name: HeartbeatConfig.name, schema: HeartbeatConfigSchema },
     ]),
     forwardRef(() => OrchestrationModule),
-    StateModule,
   ],
   controllers: [HeartbeatController],
   providers: [HeartbeatService],

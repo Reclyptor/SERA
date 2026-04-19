@@ -32,6 +32,7 @@ const parameters = z.object({
 
 export class AgentsListTool implements Tool<typeof parameters> {
   readonly name = 'agents_list';
+  readonly parallelSafe = true;
   readonly description =
     'List available agent configurations and their capabilities.';
   readonly parameters = parameters;

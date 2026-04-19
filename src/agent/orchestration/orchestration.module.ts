@@ -13,6 +13,7 @@ import { ChatsModule } from '../../chats/chats.module';
 import { AgentsModule } from '../../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
+import { ContextModule } from '../context/context.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SandboxModule } from '../sandbox/sandbox.module';
     AgentsModule,
     SkillsModule,
     SandboxModule,
+    ContextModule,
   ],
   providers: [OrchestratorService],
   exports: [OrchestratorService, StreamingModule],

@@ -21,6 +21,7 @@ const parameters = z.object({
 
 export class SessionsListTool implements Tool<typeof parameters> {
   readonly name = 'sessions_list';
+  readonly parallelSafe = true;
   readonly description =
     'List active sessions (threads) and their runs. Shows session metadata and status.';
   readonly parameters = parameters;

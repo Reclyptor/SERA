@@ -43,6 +43,7 @@ const parameters = z.object({
 
 export class SessionStatusTool implements Tool<typeof parameters> {
   readonly name = 'session_status';
+  readonly parallelSafe = true;
   readonly description =
     'Get the current status of a session, including thread state, run status, and agent state.';
   readonly parameters = parameters;

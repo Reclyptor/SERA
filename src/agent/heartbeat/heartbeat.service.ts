@@ -11,7 +11,11 @@ import {
   HeartbeatConfigDocument,
 } from './heartbeat.schema';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
-import { StateService } from '../state/state.service';
+
+const DEFAULT_HEARTBEAT_MESSAGE =
+  '[Heartbeat] You have been activated for a periodic check. ' +
+  'Review any pending tasks, scheduled items, or proactive work you should do. ' +
+  'If nothing needs attention, respond briefly.';
 
 @Injectable()
 export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
@@ -23,12 +27,11 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(HeartbeatConfig.name)
     private readonly heartbeatModel: Model<HeartbeatConfigDocument>,
     private readonly orchestrator: OrchestratorService,
-    private readonly stateService: StateService,
   ) {}
 
   onModuleInit() {
     this.tickInterval = setInterval(() => this.tick(), 60_000);
-    this.logger.log('Heartbeat scheduler started (1-minute tick)');
+    this.logger.log('Heartbeat service started (1-minute tick)');
   }
 
   onModuleDestroy() {
@@ -38,13 +41,15 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // Scheduling
+
   private async tick(): Promise<void> {
     if (this.processing) return;
     this.processing = true;
 
     try {
       const now = new Date();
-      const dueHeartbeats = await this.heartbeatModel
+      const dueConfigs = await this.heartbeatModel
         .find({
           enabled: true,
           $or: [
@@ -54,18 +59,20 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
         })
         .exec();
 
-      for (const config of dueHeartbeats) {
+      for (const config of dueConfigs) {
         if (!this.isWithinActiveHours(config, now)) continue;
 
         try {
-          await this.executeHeartbeat(config);
+          await this.fire(config);
         } catch (err) {
           this.logger.error(
-            `Heartbeat failed for agent "${config.agentId}":`,
+            `Heartbeat for agent "${config.agentId}" failed:`,
             err,
           );
         }
       }
+    } catch (err) {
+      this.logger.error('Heartbeat tick failed:', err);
     } finally {
       this.processing = false;
     }
@@ -78,75 +85,59 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     if (!config.activeHours) return true;
 
     const { start, end, timezone } = config.activeHours;
-
-    let currentHour: number;
-    try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        hour: 'numeric',
-        hour12: false,
-        timeZone: timezone,
-      });
-      currentHour = parseInt(formatter.format(now), 10);
-    } catch {
-      currentHour = now.getUTCHours();
-    }
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: timezone ?? 'UTC',
+    });
+    const currentHour = parseInt(formatter.format(now), 10);
 
     if (start <= end) {
       return currentHour >= start && currentHour < end;
     }
-    // Wraps midnight (e.g. 22-06)
+    // Wraps midnight (e.g., 22 to 6)
     return currentHour >= start || currentHour < end;
   }
 
-  private async executeHeartbeat(config: HeartbeatConfig): Promise<void> {
+  private async fire(config: HeartbeatConfig): Promise<void> {
     const threadId = crypto.randomUUID();
     const runId = crypto.randomUUID();
 
-    const checklistText = config.checklist.length > 0
-      ? config.checklist.map((item, i) => `${i + 1}. ${item}`).join('\n')
-      : 'Check for any pending tasks or notifications.';
-
-    const heartbeatMessage = [
-      'HEARTBEAT — autonomous check-in.',
-      '',
-      'Work through the following checklist:',
-      checklistText,
-      '',
-      'After completing each item, move to the next.',
-      'If an item requires no action, skip it.',
-    ].join('\n');
-
     this.logger.log(
-      `Executing heartbeat for agent "${config.agentId}" (run: ${runId})`,
+      `Firing heartbeat for agent "${config.agentId}" (run: ${runId})`,
     );
 
-    await this.orchestrator.executeGoal(
-      {
-        threadId,
-        runId,
-        userId: `heartbeat:${config.agentId}`,
-        agentId: config.agentId,
-        userMessage: heartbeatMessage,
-        conversationHistory: [],
-        isHeartbeat: true,
-      },
-      {
-        maxSteps: 5,
-        maxIterations: 1,
-      },
-    );
+    let message = DEFAULT_HEARTBEAT_MESSAGE;
+    if (config.checklist.length > 0) {
+      const items = config.checklist.map((item) => `- ${item}`).join('\n');
+      message += `\n\nChecklist:\n${items}`;
+    }
 
     const nextRunAt = new Date(
       Date.now() + config.intervalMinutes * 60_000,
     );
+
     await this.heartbeatModel.updateOne(
       { agentId: config.agentId },
       { lastRunAt: new Date(), nextRunAt },
     );
 
-    this.logger.log(
-      `Heartbeat complete for "${config.agentId}". Next run: ${nextRunAt.toISOString()}`,
-    );
+    this.orchestrator
+      .executeGoal(
+        {
+          threadId,
+          runId,
+          userId: `heartbeat:${config.agentId}`,
+          agentId: config.agentId,
+          userMessage: message,
+          conversationHistory: [],
+          isHeartbeat: true,
+        },
+        { maxSteps: 10, maxIterations: 2 },
+      )
+      .catch((err) => {
+        this.logger.error(`Heartbeat run ${runId} failed:`, err);
+      });
   }
 
   // CRUD
@@ -154,31 +145,22 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
   async create(data: {
     agentId: string;
     intervalMinutes?: number;
-    activeHours?: {
-      start: number;
-      end: number;
-      timezone?: string;
-    };
+    activeHours?: { start: number; end: number; timezone?: string };
     checklist?: string[];
     maxTokens?: number;
     enabled?: boolean;
   }): Promise<HeartbeatConfig> {
-    const config = new this.heartbeatModel({
-      agentId: data.agentId,
-      intervalMinutes: data.intervalMinutes ?? 30,
-      activeHours: data.activeHours,
-      checklist: data.checklist ?? [],
-      maxTokens: data.maxTokens ?? 2048,
-      enabled: data.enabled ?? false,
-      nextRunAt: new Date(
-        Date.now() + (data.intervalMinutes ?? 30) * 60_000,
-      ),
+    const nextRunAt = new Date(
+      Date.now() + (data.intervalMinutes ?? 30) * 60_000,
+    );
+    return this.heartbeatModel.create({
+      ...data,
+      nextRunAt,
     });
-    return config.save();
   }
 
   async findAll(): Promise<HeartbeatConfig[]> {
-    return this.heartbeatModel.find().exec();
+    return this.heartbeatModel.find().sort({ createdAt: -1 }).exec();
   }
 
   async findByAgent(agentId: string): Promise<HeartbeatConfig | null> {
@@ -195,8 +177,16 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
       enabled: boolean;
     }>,
   ): Promise<HeartbeatConfig | null> {
+    const update: Record<string, unknown> = { ...data };
+
+    if (data.intervalMinutes) {
+      update.nextRunAt = new Date(
+        Date.now() + data.intervalMinutes * 60_000,
+      );
+    }
+
     return this.heartbeatModel
-      .findOneAndUpdate({ agentId }, { $set: data }, { new: true })
+      .findOneAndUpdate({ agentId }, { $set: update }, { new: true })
       .exec();
   }
 

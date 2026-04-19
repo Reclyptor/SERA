@@ -24,6 +24,11 @@ export class SandboxConfigDto {
   envVars?: Record<string, string>;
 }
 
+export class HeartbeatConfigDto {
+  enabled?: boolean;
+  intervalMinutes?: number;
+}
+
 export class CreateAgentDto {
   agentId: string;
   name: string;
@@ -35,6 +40,7 @@ export class CreateAgentDto {
   workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
   sandboxConfig?: SandboxConfigDto;
+  heartbeatConfig?: HeartbeatConfigDto;
   enabled?: boolean;
 }
 
@@ -48,5 +54,6 @@ export class UpdateAgentDto {
   workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
   sandboxConfig?: SandboxConfigDto;
+  heartbeatConfig?: HeartbeatConfigDto;
   enabled?: boolean;
 }

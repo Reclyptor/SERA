@@ -26,6 +26,7 @@ export interface OrchestratorLike {
       agentId: string;
       userMessage: string;
       conversationHistory: unknown[];
+      delegationDepth?: number;
     },
     config?: { maxSteps?: number; maxIterations?: number },
   ): Promise<void>;
@@ -62,6 +63,8 @@ const parameters = z.object({
     .describe('Timeout in ms when waitForResult is true (default: 120000)'),
 });
 
+const MAX_DELEGATION_DEPTH = 3;
+
 export class AgentMessageTool implements Tool<typeof parameters> {
   readonly name = 'agent_message';
   readonly description =
@@ -80,6 +83,21 @@ export class AgentMessageTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { targetAgentId, message, maxSteps, waitForResult, timeoutMs } = args;
     const senderAgentId = context.agentId;
+    const currentDepth = context.delegationDepth ?? 0;
+
+    if (currentDepth >= MAX_DELEGATION_DEPTH) {
+      return {
+        success: false,
+        error: `Delegation depth limit reached (max ${MAX_DELEGATION_DEPTH}). Cannot delegate further.`,
+      };
+    }
+
+    if (targetAgentId === senderAgentId) {
+      return {
+        success: false,
+        error: 'An agent cannot send a message to itself.',
+      };
+    }
 
     const sender = await this.agentsService.findById(senderAgentId);
     if (!sender) {
@@ -134,6 +152,7 @@ export class AgentMessageTool implements Tool<typeof parameters> {
         agentId: targetAgentId,
         userMessage: prefixedMessage,
         conversationHistory: [],
+        delegationDepth: currentDepth + 1,
       },
       { maxSteps, maxIterations: 2 },
     );

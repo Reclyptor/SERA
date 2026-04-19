@@ -27,6 +27,7 @@ const MIME_TYPES: Record<string, string> = {
 
 export class ImageTool implements Tool<typeof parameters> {
   readonly name = 'image';
+  readonly parallelSafe = true;
   readonly description =
     'Analyze images using AI vision. Provide a URL or workspace file path to get a description or answer questions about the image.';
   readonly parameters = parameters;

@@ -29,6 +29,7 @@ const parameters = z.object({
 
 export class WebFetchTool implements Tool<typeof parameters> {
   readonly name = 'web_fetch';
+  readonly parallelSafe = true;
   readonly description =
     'Fetch content from web URLs. Supports all HTTP methods with headers and body. Use for API calls and retrieving web page content.';
   readonly parameters = parameters;

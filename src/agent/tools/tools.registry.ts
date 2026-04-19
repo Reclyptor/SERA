@@ -10,6 +10,7 @@ export interface ToolPolicyFilter {
 @Injectable()
 export class ToolsRegistry {
   private readonly tools = new Map<string, Tool>();
+  private readonly mutationMutex = new Mutex();
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
@@ -35,10 +36,6 @@ export class ToolsRegistry {
     return Array.from(this.tools.keys());
   }
 
-  /**
-   * Convert all registered tools to a Vercel AI SDK ToolSet.
-   * The provided context is injected into each tool's execute function.
-   */
   toAISDKToolSet(context: ToolExecutionContext): ToolSet {
     const toolSet: ToolSet = {};
 
@@ -46,18 +43,13 @@ export class ToolsRegistry {
       toolSet[name] = aiTool({
         description: t.description,
         inputSchema: t.parameters,
-        execute: async (args) => t.execute(args, context),
+        execute: async (args) => this.wrapExecute(t, args, context),
       });
     }
 
     return toolSet;
   }
 
-  /**
-   * Convert registered tools to a filtered AI SDK ToolSet.
-   * Allow mode: only include tools in the list.
-   * Deny mode: include all tools except those in the list.
-   */
   toFilteredToolSet(
     context: ToolExecutionContext,
     policy: ToolPolicyFilter,
@@ -73,11 +65,53 @@ export class ToolsRegistry {
         toolSet[name] = aiTool({
           description: t.description,
           inputSchema: t.parameters,
-          execute: async (args) => t.execute(args, context),
+          execute: async (args) => this.wrapExecute(t, args, context),
         });
       }
     }
 
     return toolSet;
+  }
+
+  private wrapExecute(
+    tool: Tool,
+    args: unknown,
+    context: ToolExecutionContext,
+  ): Promise<unknown> {
+    if (tool.parallelSafe) {
+      return tool.execute(args, context);
+    }
+    return this.mutationMutex.run(() => tool.execute(args, context));
+  }
+}
+
+class Mutex {
+  private queue: Array<() => void> = [];
+  private locked = false;
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+
+  private acquire(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => this.queue.push(resolve));
+  }
+
+  private release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+    } else {
+      this.locked = false;
+    }
   }
 }

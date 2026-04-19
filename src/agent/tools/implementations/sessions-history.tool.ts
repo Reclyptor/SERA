@@ -27,6 +27,7 @@ const parameters = z.object({
 
 export class SessionsHistoryTool implements Tool<typeof parameters> {
   readonly name = 'sessions_history';
+  readonly parallelSafe = true;
   readonly description =
     'Fetch the message history (transcript) for a chat session.';
   readonly parameters = parameters;

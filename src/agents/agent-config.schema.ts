@@ -67,6 +67,18 @@ export class SandboxConfig {
 export const SandboxConfigSchema =
   SchemaFactory.createForClass(SandboxConfig);
 
+@Schema()
+export class HeartbeatConfig {
+  @Prop({ default: false })
+  enabled: boolean;
+
+  @Prop({ default: 30 })
+  intervalMinutes: number;
+}
+
+export const HeartbeatConfigSchema =
+  SchemaFactory.createForClass(HeartbeatConfig);
+
 @Schema({ timestamps: true })
 export class AgentConfig {
   @Prop({ required: true, unique: true, index: true })
@@ -101,6 +113,9 @@ export class AgentConfig {
 
   @Prop({ type: SandboxConfigSchema })
   sandboxConfig?: SandboxConfig;
+
+  @Prop({ type: HeartbeatConfigSchema })
+  heartbeatConfig?: HeartbeatConfig;
 
   @Prop({ default: true })
   enabled: boolean;

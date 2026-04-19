@@ -20,6 +20,7 @@ const parameters = z.object({
 
 export class ReadTool implements Tool<typeof parameters> {
   readonly name = 'read';
+  readonly parallelSafe = true;
   readonly description =
     'Read file contents or list directory entries within the workspace.';
   readonly parameters = parameters;

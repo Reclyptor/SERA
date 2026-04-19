@@ -47,6 +47,7 @@ interface XSearchResponse {
 
 export class XSearchTool implements Tool<typeof parameters> {
   readonly name = 'x_search';
+  readonly parallelSafe = true;
   readonly description =
     'Search X (Twitter) for posts and discussions. Requires X_API_BEARER_TOKEN to be configured.';
   readonly parameters = parameters;

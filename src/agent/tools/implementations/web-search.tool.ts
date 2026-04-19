@@ -61,6 +61,7 @@ interface BraveSearchResponse {
 
 export class WebSearchTool implements Tool<typeof parameters> {
   readonly name = 'web_search';
+  readonly parallelSafe = true;
   readonly description =
     'Search the web for current information using Brave Search. Returns results with titles, URLs, and descriptions. Supports freshness filtering, news search, and search operators like "exact match", -exclude, site:domain.com.';
   readonly parameters = parameters;
