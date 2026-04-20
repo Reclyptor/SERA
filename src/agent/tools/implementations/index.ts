@@ -6,7 +6,7 @@ export { ApplyPatchTool } from './apply-patch.tool';
 
 // Runtime
 export { ExecTool } from './exec.tool';
-export { BashTool } from './bash.tool';
+export { ShellTool } from './shell.tool';
 export { ProcessTool } from './process.tool';
 export { CodeExecutionTool } from './code-execution.tool';
 

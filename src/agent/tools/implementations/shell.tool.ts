@@ -14,7 +14,7 @@ const MAX_OUTPUT_SIZE = 64 * 1024;
 const parameters = z.object({
   script: z
     .string()
-    .describe('Bash script to execute (multi-line supported)'),
+    .describe('Shell script to execute (multi-line supported)'),
   cwd: z
     .string()
     .optional()
@@ -26,10 +26,10 @@ const parameters = z.object({
     .describe('Timeout in milliseconds'),
 });
 
-export class BashTool implements Tool<typeof parameters> {
-  readonly name = 'bash';
+export class ShellTool implements Tool<typeof parameters> {
+  readonly name = 'shell';
   readonly description =
-    'Execute a multi-line bash script in the workspace. Useful for running complex sequences of commands.';
+    'Execute a multi-line shell script in the workspace. Useful for running complex sequences of commands.';
   readonly parameters = parameters;
 
   constructor(
@@ -78,7 +78,7 @@ export class BashTool implements Tool<typeof parameters> {
         script,
         {
           cwd: workingDir,
-          shell: '/bin/bash',
+          shell: '/bin/sh',
           timeout: timeoutMs,
           maxBuffer: MAX_OUTPUT_SIZE,
           env: { ...process.env, PATH: process.env.PATH },

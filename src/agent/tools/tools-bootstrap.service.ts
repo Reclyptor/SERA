@@ -14,7 +14,7 @@ import {
   EditTool,
   ApplyPatchTool,
   ExecTool,
-  BashTool,
+  ShellTool,
   ProcessTool,
   CodeExecutionTool,
   WebFetchTool,
@@ -81,7 +81,7 @@ export class ToolsBootstrapService implements OnModuleInit {
 
     // Runtime
     this.toolsService.registerTool(new ExecTool(workspace, shellEnabled, lazySandboxRunner));
-    this.toolsService.registerTool(new BashTool(workspace, shellEnabled, lazySandboxRunner));
+    this.toolsService.registerTool(new ShellTool(workspace, shellEnabled, lazySandboxRunner));
     this.toolsService.registerTool(new ProcessTool(workspace, shellEnabled));
     this.toolsService.registerTool(
       new CodeExecutionTool(workspace, shellEnabled, lazySandboxRunner, this.toolsRegistry),
