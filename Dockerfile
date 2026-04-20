@@ -44,6 +44,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 
+# Install runtime tools needed by agent skills
+RUN apk add --no-cache mkvtoolnix
+
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
