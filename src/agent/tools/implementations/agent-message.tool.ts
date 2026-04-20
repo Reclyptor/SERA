@@ -63,7 +63,7 @@ const parameters = z.object({
     .describe('Timeout in ms when waitForResult is true (default: 120000)'),
 });
 
-const MAX_DELEGATION_DEPTH = 3;
+const MAX_DELEGATION_DEPTH = 2;
 
 export class AgentMessageTool implements Tool<typeof parameters> {
   readonly name = 'agent_message';
