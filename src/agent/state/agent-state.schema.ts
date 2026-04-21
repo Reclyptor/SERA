@@ -43,7 +43,7 @@ export class PendingConfirmation {
 export const PendingConfirmationSchema =
   SchemaFactory.createForClass(PendingConfirmation);
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'states' })
 export class AgentState {
   @Prop({ required: true, unique: true, index: true })
   threadID: string;

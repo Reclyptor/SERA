@@ -1,10 +1,10 @@
 import type { ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
 
 export function resolveWorkspace(
-  context: ToolExecutionContext,
+  _context: ToolExecutionContext,
   fallback: string,
 ): string {
-  return context.workspaceDir ?? fallback;
+  return fallback;
 }
 
 export function truncateOutput(content: string, maxSize: number): string {

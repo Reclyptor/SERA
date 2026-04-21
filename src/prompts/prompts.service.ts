@@ -7,10 +7,10 @@ import { join, basename } from 'path';
 import Redis from 'ioredis';
 import { Prompt, PromptDocument } from './prompt.schema';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { PROMPT_SEEDS_DIR } from '../seeds/paths';
 
 const CACHE_PREFIX = 'prompt:';
 const CACHE_TTL = 300;
-const SEEDS_DIR = join(__dirname, 'seeds');
 const MAX_EXTENDS_DEPTH = 10;
 
 export interface PromptVariables {
@@ -18,7 +18,6 @@ export interface PromptVariables {
   agentID?: string;
   userName?: string;
   userID?: string;
-  workspaceDir?: string;
 }
 
 @Injectable()
@@ -164,7 +163,7 @@ export class PromptsService implements OnModuleInit {
   private async seedFromFiles(): Promise<void> {
     let files: string[];
     try {
-      files = await readdir(SEEDS_DIR);
+      files = await readdir(PROMPT_SEEDS_DIR);
     } catch {
       this.logger.warn('Seeds directory not found, skipping prompt seeding');
       return;
@@ -174,7 +173,7 @@ export class PromptsService implements OnModuleInit {
 
     for (const file of mdFiles) {
       const slug = basename(file, '.md');
-      const filePath = join(SEEDS_DIR, file);
+      const filePath = join(PROMPT_SEEDS_DIR, file);
 
       try {
         const content = (await readFile(filePath, 'utf-8')).trimEnd();
@@ -211,7 +210,6 @@ export class PromptsService implements OnModuleInit {
       agentID: variables.agentID ?? '',
       userName: variables.userName ?? '',
       userID: variables.userID ?? '',
-      workspaceDir: variables.workspaceDir ?? '',
       currentDate: now.toISOString().split('T')[0],
       currentTime: now.toTimeString().slice(0, 5),
       currentDateTime: now.toISOString(),

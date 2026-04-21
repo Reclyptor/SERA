@@ -25,7 +25,6 @@ export class AgentsService {
       promptSlug: dto.promptSlug,
       modelOptions: dto.modelOptions,
       toolPolicy: dto.toolPolicy ?? { mode: 'deny', tools: [] },
-      workspaceDir: dto.workspaceDir,
       messagingPolicy: dto.messagingPolicy ?? {
         enabled: false,
         allowedAgents: [],

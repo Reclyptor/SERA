@@ -31,7 +31,6 @@ export class PromptBuilderService {
       agentName: agentConfig.name,
       agentID: agentConfig.agentID,
       userID,
-      workspaceDir: agentConfig.workspaceDir,
     };
 
     const basePrompt = await this.promptsService.resolve(promptSlug, variables);
@@ -72,7 +71,11 @@ export class PromptBuilderService {
         agentConfig.agentID,
         availableTools,
       );
-      const skillsPrompt = this.skillsService.formatForPrompt(skills);
+      const skillsPrompt = this.skillsService.formatForPrompt(skills, {
+        agentName: agentConfig.name,
+        agentID: agentConfig.agentID,
+        userID,
+      });
       if (skillsPrompt) parts.push(skillsPrompt);
     } catch {
       // Supplementary context — safe to skip

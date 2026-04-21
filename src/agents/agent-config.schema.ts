@@ -79,7 +79,7 @@ export class HeartbeatConfig {
 export const HeartbeatConfigSchema =
   SchemaFactory.createForClass(HeartbeatConfig);
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'agents' })
 export class AgentConfig {
   @Prop({ required: true, unique: true, index: true })
   agentID: string;
@@ -98,9 +98,6 @@ export class AgentConfig {
 
   @Prop({ type: ToolPolicySchema, default: { mode: 'deny', tools: [] } })
   toolPolicy: ToolPolicy;
-
-  @Prop()
-  workspaceDir?: string;
 
   @Prop({
     type: MessagingPolicySchema,

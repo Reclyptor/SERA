@@ -13,7 +13,6 @@ export interface ToolExecutionContext {
   runID: string;
   userID?: string;
   agentID: string;
-  workspaceDir?: string;
   sandbox?: SandboxContext;
   delegationDepth?: number;
   metadata?: Record<string, unknown>;

@@ -49,34 +49,28 @@ export interface SelfConfigHeartbeatLike {
 export interface SelfConfigSkillsLike {
   create(dto: {
     name: string;
-    displayName?: string;
     description: string;
     content: string;
+    license?: string;
+    compatibility?: string;
     allowedTools?: string[];
-    triggerKeywords?: string[];
-    agentIDs?: string[];
-    priority?: number;
-    enabled?: boolean;
-  }): Promise<{ name: string; displayName?: string }>;
+    metadata?: Record<string, string>;
+  }): Promise<{ name: string }>;
   findAll(): Promise<
     Array<{
       name: string;
-      displayName?: string;
       description: string;
-      agentIDs: string[];
-      enabled: boolean;
     }>
   >;
   update(
     name: string,
     dto: {
-      displayName?: string;
       description?: string;
       content?: string;
+      license?: string;
+      compatibility?: string;
       allowedTools?: string[];
-      triggerKeywords?: string[];
-      priority?: number;
-      enabled?: boolean;
+      metadata?: Record<string, string>;
     },
   ): Promise<unknown>;
   remove(name: string): Promise<boolean>;
@@ -121,13 +115,12 @@ const parameters = z.object({
   skill: z
     .object({
       name: z.string().optional(),
-      displayName: z.string().optional(),
       description: z.string().optional(),
       content: z.string().optional(),
+      license: z.string().optional(),
+      compatibility: z.string().optional(),
       allowedTools: z.array(z.string()).optional(),
-      triggerKeywords: z.array(z.string()).optional(),
-      priority: z.number().optional(),
-      enabled: z.boolean().optional(),
+      metadata: z.record(z.string()).optional(),
     })
     .optional()
     .describe('Skill data (for create_skill, update_skill, delete_skill)'),
@@ -248,23 +241,17 @@ export class AgentConfigTool implements Tool<typeof parameters> {
 
   private async listSkills(agentID: string): Promise<ToolExecutionResult> {
     const all = await this.skills.findAll();
-    const mine = all.filter(
-      (s) => s.agentIDs.length === 0 || s.agentIDs.includes(agentID),
-    );
     return {
       success: true,
-      result: mine.map((s) => ({
+      result: all.map((s) => ({
         name: s.name,
-        displayName: s.displayName,
         description: s.description,
-        scoped: s.agentIDs.includes(agentID),
-        enabled: s.enabled,
       })),
     };
   }
 
   private async createSkill(
-    agentID: string,
+    _agentID: string,
     args: z.infer<typeof parameters>,
   ): Promise<ToolExecutionResult> {
     if (!args.skill?.name || !args.skill?.content) {
@@ -276,19 +263,17 @@ export class AgentConfigTool implements Tool<typeof parameters> {
 
     const skill = await this.skills.create({
       name: args.skill.name,
-      displayName: args.skill.displayName,
       description: args.skill.description ?? '',
       content: args.skill.content,
+      license: args.skill.license,
+      compatibility: args.skill.compatibility,
       allowedTools: args.skill.allowedTools,
-      triggerKeywords: args.skill.triggerKeywords,
-      agentIDs: [agentID],
-      priority: args.skill.priority,
-      enabled: args.skill.enabled,
+      metadata: args.skill.metadata,
     });
 
     return {
       success: true,
-      result: { name: skill.name, agentID },
+      result: { name: skill.name },
     };
   }
 

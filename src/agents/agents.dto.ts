@@ -36,7 +36,6 @@ export class CreateAgentDto {
   promptSlug?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
-  workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
   sandboxConfig?: SandboxConfigDto;
   heartbeatConfig?: HeartbeatConfigDto;
@@ -49,7 +48,6 @@ export class UpdateAgentDto {
   promptSlug?: string;
   modelOptions?: ModelOptionsDto;
   toolPolicy?: ToolPolicyDto;
-  workspaceDir?: string;
   messagingPolicy?: MessagingPolicyDto;
   sandboxConfig?: SandboxConfigDto;
   heartbeatConfig?: HeartbeatConfigDto;

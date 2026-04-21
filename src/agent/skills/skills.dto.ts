@@ -1,29 +1,18 @@
-export class SkillCompatibilityDto {
-  tools?: string[];
-  env?: string[];
-}
-
 export class CreateSkillDto {
   name: string;
-  displayName?: string;
   description: string;
   content: string;
+  license?: string;
+  compatibility?: string;
   allowedTools?: string[];
-  triggerKeywords?: string[];
-  agentIDs?: string[];
-  priority?: number;
-  enabled?: boolean;
-  compatibility?: SkillCompatibilityDto;
+  metadata?: Record<string, string>;
 }
 
 export class UpdateSkillDto {
-  displayName?: string;
   description?: string;
   content?: string;
+  license?: string;
+  compatibility?: string;
   allowedTools?: string[];
-  triggerKeywords?: string[];
-  agentIDs?: string[];
-  priority?: number;
-  enabled?: boolean;
-  compatibility?: SkillCompatibilityDto;
+  metadata?: Record<string, string>;
 }

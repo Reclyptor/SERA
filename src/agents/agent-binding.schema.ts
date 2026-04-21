@@ -3,7 +3,7 @@ import { HydratedDocument } from 'mongoose';
 
 export type AgentBindingDocument = HydratedDocument<AgentBinding>;
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'bindings' })
 export class AgentBinding {
   @Prop({ required: true, unique: true, index: true })
   bindingID: string;

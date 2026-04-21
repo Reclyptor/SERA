@@ -5,8 +5,8 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "assets": [
-      { "include": "prompts/seeds/*.md", "watchAssets": true },
-      { "include": "agent/skills/seeds/*.md", "watchAssets": true }
+      { "include": "seeds/prompts/*.md", "watchAssets": true },
+      { "include": "seeds/skills/**/*", "watchAssets": true }
     ]
   }
 }

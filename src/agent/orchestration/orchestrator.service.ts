@@ -111,7 +111,6 @@ export class OrchestratorService {
         runID,
         userID,
         agentID: goal.agentID,
-        workspaceDir: agentConfig.workspaceDir,
         sandbox,
         delegationDepth: goal.delegationDepth ?? 0,
       };
@@ -364,7 +363,7 @@ export class OrchestratorService {
     try {
       const skillEvalPrompt =
         (await this.promptsService.get('evaluation')) ??
-        'Evaluate whether this interaction should become a reusable skill. Respond with JSON: {"create": false} or {"create": true, "name": "kebab-case-id", "displayName": "Human Name", "description": "...", "content": "...", "triggerKeywords": [...]}';
+        'Evaluate whether this interaction should become a reusable skill. Respond with JSON: {"create": false} or {"create": true, "name": "kebab-case-name", "description": "What it does and when to use it.", "content": "...", "allowedTools": [...]}';
 
       const result = await this.modelRouter.generate({
         system: skillEvalPrompt,
@@ -390,10 +389,9 @@ export class OrchestratorService {
       const evaluation = JSON.parse(raw) as {
         create: boolean;
         name?: string;
-        displayName?: string;
         description?: string;
         content?: string;
-        triggerKeywords?: string[];
+        allowedTools?: string[];
       };
 
       if (!evaluation.create || !evaluation.name || !evaluation.content) {
@@ -410,13 +408,9 @@ export class OrchestratorService {
 
       await this.skillsService.create({
         name: evaluation.name,
-        displayName: evaluation.displayName,
         description: evaluation.description ?? '',
         content: evaluation.content,
-        triggerKeywords: evaluation.triggerKeywords ?? [],
-        agentIDs: [goal.agentID],
-        priority: 0,
-        enabled: true,
+        allowedTools: evaluation.allowedTools,
       });
 
       this.logger.log(

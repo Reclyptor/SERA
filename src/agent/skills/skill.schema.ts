@@ -1,27 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
 export type SkillDocument = HydratedDocument<Skill>;
-
-@Schema()
-export class SkillCompatibility {
-  @Prop({ type: [String], default: [] })
-  tools: string[];
-
-  @Prop({ type: [String], default: [] })
-  env: string[];
-}
-
-export const SkillCompatibilitySchema =
-  SchemaFactory.createForClass(SkillCompatibility);
 
 @Schema({ timestamps: true })
 export class Skill {
   @Prop({ required: true, unique: true, index: true })
   name: string;
-
-  @Prop()
-  displayName?: string;
 
   @Prop({ required: true })
   description: string;
@@ -29,23 +14,17 @@ export class Skill {
   @Prop({ required: true })
   content: string;
 
-  @Prop({ type: [String], default: [], index: true })
-  allowedTools: string[];
+  @Prop()
+  license?: string;
 
-  @Prop({ type: [String], default: [], index: true })
-  triggerKeywords: string[];
+  @Prop()
+  compatibility?: string;
 
   @Prop({ type: [String], default: [] })
-  agentIDs: string[];
+  allowedTools: string[];
 
-  @Prop({ default: 0 })
-  priority: number;
-
-  @Prop({ default: true })
-  enabled: boolean;
-
-  @Prop({ type: SkillCompatibilitySchema })
-  compatibility?: SkillCompatibility;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  metadata?: Record<string, string>;
 
   @Prop()
   seedHash?: string;

@@ -17,7 +17,7 @@ export class ActiveHours {
 
 export const ActiveHoursSchema = SchemaFactory.createForClass(ActiveHours);
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'heartbeats' })
 export class HeartbeatConfig {
   @Prop({ required: true, unique: true, index: true })
   agentID: string;

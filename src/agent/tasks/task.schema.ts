@@ -33,7 +33,7 @@ export class Task {
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'tasks' })
 export class TaskPlan {
   @Prop({ required: true, unique: true, index: true })
   planID: string;

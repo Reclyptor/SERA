@@ -37,8 +37,8 @@ export class ImageTool implements Tool<typeof parameters> {
     private readonly workspaceDir?: string,
   ) {}
 
-  private resolveWorkspace(context: ToolExecutionContext): string | undefined {
-    return context.workspaceDir ?? this.workspaceDir;
+  private resolveWorkspace(_context: ToolExecutionContext): string | undefined {
+    return this.workspaceDir;
   }
 
   async execute(

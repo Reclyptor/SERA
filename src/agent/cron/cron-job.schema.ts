@@ -3,7 +3,7 @@ import { HydratedDocument } from 'mongoose';
 
 export type CronJobDocument = HydratedDocument<CronJob>;
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'crons' })
 export class CronJob {
   @Prop({ required: true, unique: true, index: true })
   jobID: string;

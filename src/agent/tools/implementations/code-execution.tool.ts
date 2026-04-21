@@ -48,8 +48,8 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
     private readonly toolsRegistry?: ToolsRegistry,
   ) {}
 
-  private resolveWorkspace(context: ToolExecutionContext): string {
-    return context.workspaceDir ?? this.workspaceDir;
+  private resolveWorkspace(_context: ToolExecutionContext): string {
+    return this.workspaceDir;
   }
 
   async execute(
