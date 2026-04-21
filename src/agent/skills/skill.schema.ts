@@ -3,6 +3,17 @@ import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
 export type SkillDocument = HydratedDocument<Skill>;
 
+@Schema({ _id: false })
+export class SkillFile {
+  @Prop({ required: true })
+  path: string;
+
+  @Prop({ required: true })
+  content: string;
+}
+
+export const SkillFileSchema = SchemaFactory.createForClass(SkillFile);
+
 @Schema({ timestamps: true })
 export class Skill {
   @Prop({ required: true, unique: true, index: true })
@@ -25,6 +36,9 @@ export class Skill {
 
   @Prop({ type: MongooseSchema.Types.Mixed })
   metadata?: Record<string, string>;
+
+  @Prop({ type: [SkillFileSchema], default: [] })
+  files: SkillFile[];
 
   @Prop()
   seedHash?: string;

@@ -16,12 +16,12 @@ metadata:
 
 This skill uses two directory paths:
 
-| Variable | Frontmatter Default | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `ANIME_SOURCE_DIR` | `default-source` metadata | Root directory containing raw MakeMKV rips |
-| `ANIME_OUTPUT_DIR` | `default-output` metadata | Destination for processed output |
+| `ANIME_SOURCE_DIR` | `{{default-source}}` | Root directory containing raw MakeMKV rips |
+| `ANIME_OUTPUT_DIR` | `{{default-output}}` | Destination for processed output |
 
-Resolution order: environment variable -> frontmatter metadata default -> error.
+Resolution order: environment variable -> default above -> error.
 
 **Before starting:** If the effective paths come from frontmatter defaults, or the user mentioned a specific path in their request, confirm both paths with the user before proceeding.
 

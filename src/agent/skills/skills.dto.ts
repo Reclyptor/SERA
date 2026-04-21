@@ -6,6 +6,7 @@ export class CreateSkillDto {
   compatibility?: string;
   allowedTools?: string[];
   metadata?: Record<string, string>;
+  files?: { path: string; content: string }[];
 }
 
 export class UpdateSkillDto {
@@ -15,4 +16,5 @@ export class UpdateSkillDto {
   compatibility?: string;
   allowedTools?: string[];
   metadata?: Record<string, string>;
+  files?: { path: string; content: string }[];
 }

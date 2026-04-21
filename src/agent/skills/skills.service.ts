@@ -1,14 +1,19 @@
-import { Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { createHash } from 'crypto';
 import { readFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import * as yaml from 'js-yaml';
+import Redis from 'ioredis';
 import { Skill, SkillDocument } from './skill.schema';
 import type { CreateSkillDto, UpdateSkillDto } from './skills.dto';
 import { ContentScannerService } from '../security/content-scanner.service';
+import { REDIS_CLIENT } from '../../redis/redis.constants';
 import { SKILL_SEEDS_DIR } from '../../seeds/paths';
+
+const CACHE_PREFIX = 'skill:';
+const CACHE_TTL = 300;
 
 @Injectable()
 export class SkillsService implements OnModuleInit {
@@ -17,6 +22,7 @@ export class SkillsService implements OnModuleInit {
   constructor(
     @InjectModel(Skill.name)
     private readonly skillModel: Model<SkillDocument>,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Optional() private readonly contentScanner?: ContentScannerService,
   ) {}
 
@@ -38,8 +44,11 @@ export class SkillsService implements OnModuleInit {
       compatibility: dto.compatibility,
       allowedTools: dto.allowedTools ?? [],
       metadata: dto.metadata,
+      files: dto.files ?? [],
     });
-    return skill.save();
+    const saved = await skill.save();
+    await this.invalidateCache(dto.name);
+    return saved;
   }
 
   async findAll(): Promise<Skill[]> {
@@ -47,7 +56,25 @@ export class SkillsService implements OnModuleInit {
   }
 
   async findByName(name: string): Promise<Skill | null> {
-    return this.skillModel.findOne({ name }).exec();
+    const cacheKey = `${CACHE_PREFIX}${name}`;
+
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached !== null) return JSON.parse(cached);
+    } catch {
+      this.logger.warn('Redis read failed, falling back to MongoDB');
+    }
+
+    const skill = await this.skillModel.findOne({ name }).exec();
+    if (!skill) return null;
+
+    try {
+      await this.redis.set(cacheKey, JSON.stringify(skill.toObject()), 'EX', CACHE_TTL);
+    } catch {
+      this.logger.warn('Redis write failed');
+    }
+
+    return skill;
   }
 
   async update(name: string, dto: UpdateSkillDto): Promise<Skill> {
@@ -64,12 +91,78 @@ export class SkillsService implements OnModuleInit {
     if (!skill) {
       throw new NotFoundException(`Skill "${name}" not found`);
     }
+    await this.invalidateCache(name);
     return skill;
   }
 
   async remove(name: string): Promise<boolean> {
     const result = await this.skillModel.deleteOne({ name }).exec();
+    if (result.deletedCount > 0) await this.invalidateCache(name);
     return result.deletedCount > 0;
+  }
+
+  async listFiles(name: string): Promise<string[]> {
+    const skill = await this.skillModel.findOne({ name }).exec();
+    if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
+    return skill.files.map((f) => f.path);
+  }
+
+  async findFile(name: string, filePath: string): Promise<string | null> {
+    const cacheKey = `${CACHE_PREFIX}${name}:file:${filePath}`;
+
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached !== null) return cached;
+    } catch {
+      this.logger.warn('Redis read failed, falling back to MongoDB');
+    }
+
+    const skill = await this.skillModel.findOne({ name }).exec();
+    if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
+    const file = skill.files.find((f) => f.path === filePath);
+    const content = file?.content ?? null;
+
+    if (content !== null) {
+      try {
+        await this.redis.set(cacheKey, content, 'EX', CACHE_TTL);
+      } catch {
+        this.logger.warn('Redis write failed');
+      }
+    }
+
+    return content;
+  }
+
+  async addFile(name: string, filePath: string, content: string): Promise<void> {
+    const skill = await this.skillModel.findOne({ name }).exec();
+    if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
+    if (skill.files.some((f) => f.path === filePath)) {
+      throw new Error(`File "${filePath}" already exists in skill "${name}"`);
+    }
+    await this.skillModel.updateOne({ name }, { $push: { files: { path: filePath, content } } });
+    await this.invalidateCache(name);
+  }
+
+  async updateFile(name: string, filePath: string, content: string): Promise<void> {
+    const result = await this.skillModel.updateOne(
+      { name, 'files.path': filePath },
+      { $set: { 'files.$.content': content } },
+    );
+    if (result.matchedCount === 0) {
+      throw new NotFoundException(`File "${filePath}" not found in skill "${name}"`);
+    }
+    await this.invalidateCache(name);
+  }
+
+  async removeFile(name: string, filePath: string): Promise<void> {
+    const result = await this.skillModel.updateOne(
+      { name },
+      { $pull: { files: { path: filePath } } },
+    );
+    if (result.matchedCount === 0) {
+      throw new NotFoundException(`Skill "${name}" not found`);
+    }
+    await this.invalidateCache(name);
   }
 
   async findRelevant(
@@ -117,9 +210,12 @@ export class SkillsService implements OnModuleInit {
   ): string {
     if (skills.length === 0) return '';
 
-    const sections = skills.map(
-      (s) => `### ${s.name}\n${s.content}`,
-    );
+    const sections = skills.map((s) => {
+      const content = s.metadata
+        ? this.substituteMetadata(s.content, s.metadata)
+        : s.content;
+      return `### ${s.name}\n${content}`;
+    });
 
     return `## Skills\n\n${sections.join('\n\n')}`;
   }
@@ -143,8 +239,15 @@ export class SkillsService implements OnModuleInit {
 
       try {
         const raw = (await readFile(skillFile, 'utf-8')).trimEnd();
-        const hash = createHash('sha256').update(raw).digest('hex');
         const { meta, content } = this.parseFrontmatter(raw);
+        const supplementaryFiles = await this.collectFiles(entryPath);
+
+        const allFiles = [
+          { path: 'SKILL.md', content: raw },
+          ...supplementaryFiles,
+        ].sort((a, b) => a.path.localeCompare(b.path));
+        const hashInput = allFiles.map((f) => `${f.path}\n${f.content}`).join('\0');
+        const hash = createHash('sha256').update(hashInput).digest('hex');
 
         const existing = await this.skillModel.findOne({ name }).exec();
 
@@ -157,9 +260,10 @@ export class SkillsService implements OnModuleInit {
             compatibility: meta.compatibility,
             allowedTools: meta.allowedTools ?? [],
             metadata: meta.metadata,
+            files: supplementaryFiles,
             seedHash: hash,
           });
-          this.logger.log(`Seeded skill "${name}" from ${entry}/SKILL.md`);
+          this.logger.log(`Seeded skill "${name}" from ${entry}/`);
         } else if (existing.seedHash !== hash) {
           await this.skillModel.updateOne(
             { name },
@@ -171,15 +275,58 @@ export class SkillsService implements OnModuleInit {
                 compatibility: meta.compatibility ?? existing.compatibility,
                 allowedTools: meta.allowedTools ?? existing.allowedTools,
                 metadata: meta.metadata ?? existing.metadata,
+                files: supplementaryFiles,
                 seedHash: hash,
               },
             },
           );
-          this.logger.log(`Updated skill "${name}" from ${entry}/SKILL.md (content changed)`);
+          this.logger.log(`Updated skill "${name}" (content changed)`);
         }
       } catch (err) {
         this.logger.error(`Failed to seed skill from ${entry}/SKILL.md:`, err);
       }
+    }
+  }
+
+  private async collectFiles(
+    skillDir: string,
+    base?: string,
+  ): Promise<{ path: string; content: string }[]> {
+    const root = base ?? skillDir;
+    const results: { path: string; content: string }[] = [];
+    const dirEntries = await readdir(skillDir);
+
+    for (const dirEntry of dirEntries) {
+      if (!base && dirEntry === 'SKILL.md') continue;
+      const fullPath = join(skillDir, dirEntry);
+      const s = await stat(fullPath).catch(() => null);
+      if (!s) continue;
+
+      if (s.isDirectory()) {
+        const nested = await this.collectFiles(fullPath, root);
+        results.push(...nested);
+      } else {
+        const fileContent = (await readFile(fullPath, 'utf-8')).trimEnd();
+        results.push({ path: relative(root, fullPath), content: fileContent });
+      }
+    }
+
+    return results;
+  }
+
+  private substituteMetadata(content: string, metadata: Record<string, string>): string {
+    return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
+      return key in metadata ? metadata[key] : match;
+    });
+  }
+
+  private async invalidateCache(name: string): Promise<void> {
+    try {
+      const pattern = `${CACHE_PREFIX}${name}*`;
+      const keys = await this.redis.keys(pattern);
+      if (keys.length > 0) await this.redis.del(...keys);
+    } catch {
+      this.logger.warn('Redis cache invalidation failed');
     }
   }
 

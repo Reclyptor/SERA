@@ -73,7 +73,22 @@ export interface SelfConfigSkillsLike {
       metadata?: Record<string, string>;
     },
   ): Promise<unknown>;
+  findByName(name: string): Promise<{
+    name: string;
+    description: string;
+    content: string;
+    license?: string;
+    compatibility?: string;
+    allowedTools: string[];
+    metadata?: Record<string, string>;
+    files: { path: string }[];
+  } | null>;
   remove(name: string): Promise<boolean>;
+  listFiles(name: string): Promise<string[]>;
+  findFile(name: string, filePath: string): Promise<string | null>;
+  addFile(name: string, filePath: string, content: string): Promise<void>;
+  updateFile(name: string, filePath: string, content: string): Promise<void>;
+  removeFile(name: string, filePath: string): Promise<void>;
 }
 
 const parameters = z.object({
@@ -84,9 +99,15 @@ const parameters = z.object({
       'get_heartbeat',
       'update_heartbeat',
       'list_skills',
+      'get_skill',
       'create_skill',
       'update_skill',
       'delete_skill',
+      'list_skill_files',
+      'read_skill_file',
+      'add_skill_file',
+      'update_skill_file',
+      'remove_skill_file',
     ])
     .describe('Operation to perform on own agent configuration'),
   promptSlug: z
@@ -124,6 +145,14 @@ const parameters = z.object({
     })
     .optional()
     .describe('Skill data (for create_skill, update_skill, delete_skill)'),
+  filePath: z
+    .string()
+    .optional()
+    .describe('File path within a skill (for skill file operations)'),
+  fileContent: z
+    .string()
+    .optional()
+    .describe('File content (for add_skill_file, update_skill_file)'),
 });
 
 export class AgentConfigTool implements Tool<typeof parameters> {
@@ -156,12 +185,24 @@ export class AgentConfigTool implements Tool<typeof parameters> {
           return await this.updateHeartbeat(agentID, args);
         case 'list_skills':
           return await this.listSkills(agentID);
+        case 'get_skill':
+          return await this.getSkill(args);
         case 'create_skill':
           return await this.createSkill(agentID, args);
         case 'update_skill':
           return await this.updateSkill(args);
         case 'delete_skill':
           return await this.deleteSkill(args);
+        case 'list_skill_files':
+          return await this.listSkillFiles(args);
+        case 'read_skill_file':
+          return await this.readSkillFile(args);
+        case 'add_skill_file':
+          return await this.addSkillFile(args);
+        case 'update_skill_file':
+          return await this.updateSkillFile(args);
+        case 'remove_skill_file':
+          return await this.removeSkillFile(args);
       }
     } catch (error) {
       return {
@@ -250,6 +291,33 @@ export class AgentConfigTool implements Tool<typeof parameters> {
     };
   }
 
+  private async getSkill(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name) {
+      return { success: false, error: 'skill.name is required for get_skill' };
+    }
+
+    const skill = await this.skills.findByName(args.skill.name);
+    if (!skill) {
+      return { success: false, error: `Skill "${args.skill.name}" not found` };
+    }
+
+    return {
+      success: true,
+      result: {
+        name: skill.name,
+        description: skill.description,
+        content: skill.content,
+        license: skill.license,
+        compatibility: skill.compatibility,
+        allowedTools: skill.allowedTools,
+        metadata: skill.metadata,
+        files: skill.files.map((f) => f.path),
+      },
+    };
+  }
+
   private async createSkill(
     _agentID: string,
     args: z.infer<typeof parameters>,
@@ -301,5 +369,63 @@ export class AgentConfigTool implements Tool<typeof parameters> {
       return { success: false, error: `Skill "${args.skill.name}" not found` };
     }
     return { success: true, result: { deleted: args.skill.name } };
+  }
+
+  private async listSkillFiles(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name) {
+      return { success: false, error: 'skill.name is required for list_skill_files' };
+    }
+
+    const files = await this.skills.listFiles(args.skill.name);
+    return { success: true, result: { name: args.skill.name, files } };
+  }
+
+  private async readSkillFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name || !args.filePath) {
+      return { success: false, error: 'skill.name and filePath are required for read_skill_file' };
+    }
+
+    const content = await this.skills.findFile(args.skill.name, args.filePath);
+    if (content === null) {
+      return { success: false, error: `File "${args.filePath}" not found in skill "${args.skill.name}"` };
+    }
+    return { success: true, result: { name: args.skill.name, filePath: args.filePath, content } };
+  }
+
+  private async addSkillFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name || !args.filePath || args.fileContent === undefined) {
+      return { success: false, error: 'skill.name, filePath, and fileContent are required for add_skill_file' };
+    }
+
+    await this.skills.addFile(args.skill.name, args.filePath, args.fileContent);
+    return { success: true, result: { name: args.skill.name, filePath: args.filePath, action: 'added' } };
+  }
+
+  private async updateSkillFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name || !args.filePath || args.fileContent === undefined) {
+      return { success: false, error: 'skill.name, filePath, and fileContent are required for update_skill_file' };
+    }
+
+    await this.skills.updateFile(args.skill.name, args.filePath, args.fileContent);
+    return { success: true, result: { name: args.skill.name, filePath: args.filePath, action: 'updated' } };
+  }
+
+  private async removeSkillFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
+    if (!args.skill?.name || !args.filePath) {
+      return { success: false, error: 'skill.name and filePath are required for remove_skill_file' };
+    }
+
+    await this.skills.removeFile(args.skill.name, args.filePath);
+    return { success: true, result: { name: args.skill.name, filePath: args.filePath, action: 'removed' } };
   }
 }
