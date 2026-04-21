@@ -75,7 +75,7 @@ Original filenames preserved under `Extras/` with original subdirectory structur
 
 ## Workflow
 
-Process one series at a time. Load the relevant reference for each step using `agent_config` with `read_skill_file`.
+Process one series at a time. Load the relevant reference for each step using `skills` with `read_skill_file`.
 
 1. **Inventory** -- Scan the series directory under `$ANIME_SOURCE_DIR`, build track list with file sizes, identify structural type. Load `references/taxonomy.md` for type definitions (A-F)
 2. **Classify Tracks** -- Apply size-based heuristics to classify each track. Load `references/classification.md` for heuristics. Verify counts computationally via shell commands -- never count by hand

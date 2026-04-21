@@ -37,7 +37,7 @@ import {
   SubagentsTool,
   AgentsListTool,
   TaskPlanTool,
-  AgentConfigTool,
+  SkillsTool,
   TriggerTool,
 } from './implementations';
 
@@ -165,16 +165,11 @@ export class ToolsBootstrapService implements OnModuleInit {
     };
     this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
 
-    // Agent self-configuration (lazily resolved)
-    const lazyHeartbeat: import('./implementations/agent-config.tool').SelfConfigHeartbeatLike = {
-      findByAgent: (agentID) => this.resolveHeartbeatService().findByAgent(agentID),
-      create: (data) => this.resolveHeartbeatService().create(data),
-      update: (agentID, data) => this.resolveHeartbeatService().update(agentID, data),
-    };
-    const lazySkills: import('./implementations/agent-config.tool').SelfConfigSkillsLike = {
-      create: (dto) => this.resolveSkillsService().create(dto),
+    // Skills (lazily resolved)
+    const lazySkills: import('./implementations/skills.tool').SkillsServiceLike = {
       findAll: () => this.resolveSkillsService().findAll(),
       findByName: (name) => this.resolveSkillsService().findByName(name),
+      create: (dto) => this.resolveSkillsService().create(dto),
       update: (name, dto) => this.resolveSkillsService().update(name, dto),
       remove: (name) => this.resolveSkillsService().remove(name),
       listFiles: (name) => this.resolveSkillsService().listFiles(name),
@@ -183,9 +178,7 @@ export class ToolsBootstrapService implements OnModuleInit {
       updateFile: (name, path, content) => this.resolveSkillsService().updateFile(name, path, content),
       removeFile: (name, path) => this.resolveSkillsService().removeFile(name, path),
     };
-    this.toolsService.registerTool(
-      new AgentConfigTool(this.agentsService, lazyHeartbeat, lazySkills),
-    );
+    this.toolsService.registerTool(new SkillsTool(lazySkills));
 
     // Webhook triggers (lazily resolved)
     const lazyTriggers: import('./implementations/trigger.tool').TriggersServiceLike = {
@@ -230,14 +223,6 @@ export class ToolsBootstrapService implements OnModuleInit {
     const { TasksService } = require('../tasks/tasks.service');
     const svc = this.moduleRef.get(TasksService, { strict: false });
     if (!svc) throw new Error('TasksService not available');
-    return svc;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  private resolveHeartbeatService() {
-    const { HeartbeatService } = require('../heartbeat/heartbeat.service');
-    const svc = this.moduleRef.get(HeartbeatService, { strict: false });
-    if (!svc) throw new Error('HeartbeatService not available');
     return svc;
   }
 
