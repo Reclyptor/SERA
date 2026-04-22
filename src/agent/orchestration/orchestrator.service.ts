@@ -64,6 +64,10 @@ export class OrchestratorService {
       await this.stateService.getOrCreateThread(threadID);
       await this.stateService.startRun(threadID, runID);
 
+      if (goal.chatID) {
+        await this.eventEmitter.initRun(runID, threadID, goal.chatID);
+      }
+
       const agentConfig = await this.agentsService.findByIDOrThrow(goal.agentID);
 
       const effectiveModelOptions = {
@@ -71,7 +75,7 @@ export class OrchestratorService {
         ...goal.modelOptions,
       };
       const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
-      this.emitEvent(runID, threadID, 'run.started', {
+      await this.emitEvent(runID, threadID, 'run.started', {
         provider: resolved.provider,
         modelID: resolved.modelID,
         chatID: goal.chatID,
@@ -183,7 +187,7 @@ export class OrchestratorService {
               break;
             case 'reasoning-delta':
               accumulatedReasoning += part.text;
-              this.emitEvent(runID, threadID, 'thinking.delta', {
+              await this.emitEvent(runID, threadID, 'thinking.delta', {
                 content: part.text,
               } satisfies ThinkingDeltaData);
               break;
@@ -194,18 +198,18 @@ export class OrchestratorService {
                 );
                 thinkingStartTime = null;
               }
-              this.emitEvent(runID, threadID, 'thinking.done', {
+              await this.emitEvent(runID, threadID, 'thinking.done', {
                 content: accumulatedReasoning,
               } satisfies ThinkingDoneData);
               break;
             case 'text-delta':
               accumulatedText += part.text;
-              this.emitEvent(runID, threadID, 'text.delta', {
+              await this.emitEvent(runID, threadID, 'text.delta', {
                 content: part.text,
               } satisfies TextDeltaData);
               break;
             case 'tool-call':
-              this.emitEvent(runID, threadID, 'tool_call.started', {
+              await this.emitEvent(runID, threadID, 'tool_call.started', {
                 toolCallID: String(part.toolCallId),
                 toolName: String(part.toolName),
                 args: (part.input ?? {}) as Record<string, unknown>,
@@ -219,7 +223,7 @@ export class OrchestratorService {
         }
 
         if (accumulatedText) {
-          this.emitEvent(runID, threadID, 'text.done', {
+          await this.emitEvent(runID, threadID, 'text.done', {
             content: accumulatedText,
           } satisfies TextDoneData);
           finalText = accumulatedText;
@@ -283,13 +287,13 @@ export class OrchestratorService {
           error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`Run ${runID} failed:`, error);
         await this.stateService.failRun(runID, errorMessage);
-        this.emitEvent(runID, threadID, 'run.failed', {
+        await this.emitEvent(runID, threadID, 'run.failed', {
           error: errorMessage,
         } satisfies RunFailedData);
       }
     } finally {
       this.abortControllers.delete(runID);
-      this.eventEmitter.complete(runID);
+      await this.eventEmitter.complete(runID, goal.chatID);
     }
   }
 
@@ -328,7 +332,7 @@ export class OrchestratorService {
       }
     }
 
-    this.emitEvent(runID, threadID, 'run.completed', {
+    await this.emitEvent(runID, threadID, 'run.completed', {
       response,
     } satisfies RunCompletedData);
 
@@ -429,13 +433,13 @@ export class OrchestratorService {
     }
   }
 
-  private emitEvent(
+  private async emitEvent(
     runID: string,
     threadID: string,
     type: string,
     data: unknown,
-  ): void {
-    this.eventEmitter.emitEvent(
+  ): Promise<void> {
+    await this.eventEmitter.emitEvent(
       runID,
       threadID,
       type as import('../streaming/stream.interfaces').AgentEventType,

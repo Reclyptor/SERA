@@ -1,21 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Subject, Observable, filter } from 'rxjs';
+import { RunStreamService } from './run-stream.service';
 import type { AgentEvent, AgentEventType } from './stream.interfaces';
 
 @Injectable()
 export class AgentEventEmitter {
+  private readonly logger = new Logger(AgentEventEmitter.name);
   private readonly subjects = new Map<string, Subject<AgentEvent>>();
 
-  /**
-   * Get or create an event stream for a run.
-   */
+  constructor(private readonly runStream: RunStreamService) {}
+
   getStream(runID: string): Observable<AgentEvent> {
     return this.getOrCreateSubject(runID).asObservable();
   }
 
-  /**
-   * Get a filtered stream for specific event types.
-   */
   getFilteredStream(
     runID: string,
     ...types: AgentEventType[]
@@ -26,23 +24,23 @@ export class AgentEventEmitter {
     );
   }
 
-  /**
-   * Emit an event to all subscribers of a run.
-   */
-  emit(runID: string, event: AgentEvent): void {
+  async emit(runID: string, event: AgentEvent): Promise<void> {
+    try {
+      const streamID = await this.runStream.appendEvent(runID, event);
+      event.streamID = streamID;
+    } catch (err) {
+      this.logger.warn(`Redis append failed for run ${runID}, delivering in-memory only:`, err);
+    }
     this.getOrCreateSubject(runID).next(event);
   }
 
-  /**
-   * Helper to create and emit an event in one call.
-   */
-  emitEvent(
+  async emitEvent(
     runID: string,
     threadID: string,
     type: AgentEventType,
     data: unknown,
-  ): void {
-    this.emit(runID, {
+  ): Promise<void> {
+    await this.emit(runID, {
       type,
       runID,
       threadID,
@@ -51,20 +49,29 @@ export class AgentEventEmitter {
     });
   }
 
-  /**
-   * Complete the stream for a run (signals no more events).
-   */
-  complete(runID: string): void {
+  async initRun(runID: string, threadID: string, chatID: string): Promise<void> {
+    try {
+      await this.runStream.initRun(runID, threadID, chatID);
+    } catch (err) {
+      this.logger.warn(`Redis init failed for run ${runID}:`, err);
+    }
+  }
+
+  async complete(runID: string, chatID?: string): Promise<void> {
     const subject = this.subjects.get(runID);
     if (subject) {
       subject.complete();
       this.subjects.delete(runID);
     }
+    if (chatID) {
+      try {
+        await this.runStream.completeRun(runID, chatID);
+      } catch (err) {
+        this.logger.warn(`Redis cleanup failed for run ${runID}:`, err);
+      }
+    }
   }
 
-  /**
-   * Check if a run has an active stream.
-   */
   hasStream(runID: string): boolean {
     return this.subjects.has(runID);
   }

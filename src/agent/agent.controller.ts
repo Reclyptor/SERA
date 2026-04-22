@@ -7,6 +7,7 @@ import {
   Req,
   Sse,
   BadRequestException,
+  NotFoundException,
   UploadedFile,
   UseInterceptors,
   Logger,
@@ -16,6 +17,7 @@ import { Observable, map } from 'rxjs';
 import type { Request } from 'express';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
+import { RunStreamService } from './streaming/run-stream.service';
 import { StateService } from './state/state.service';
 import { AgentRouterService } from '../agents/agent-router.service';
 import { ImageStorage } from './storage/image.storage';
@@ -45,6 +47,7 @@ export class AgentController {
   constructor(
     private readonly orchestrator: OrchestratorService,
     private readonly eventEmitter: AgentEventEmitter,
+    private readonly runStream: RunStreamService,
     private readonly stateService: StateService,
     private readonly agentRouter: AgentRouterService,
     private readonly imageStorage: ImageStorage,
@@ -118,19 +121,48 @@ export class AgentController {
     return { runID, threadID, chatID };
   }
 
-  /**
-   * SSE stream for a run. The client connects here after POST /chat.
-   */
   @Sse('stream/:runID')
-  streamRun(@Param('runID') runID: string): Observable<MessageEvent> {
+  streamRun(
+    @Param('runID') runID: string,
+    @Req() req: Request,
+  ): Observable<MessageEvent> {
+    const lastEventID = req.headers['last-event-id'] as string | undefined;
+    const replay = (req.query as Record<string, string>).replay === 'true';
+
+    if (replay) {
+      return this.runStream.createReconnectionObservable(
+        runID,
+        '0',
+      ) as Observable<MessageEvent>;
+    }
+
+    if (lastEventID) {
+      return this.runStream.createReconnectionObservable(
+        runID,
+        lastEventID,
+      ) as Observable<MessageEvent>;
+    }
+
     return this.eventEmitter.getStream(runID).pipe(
       map(
         (event) =>
           ({
             data: JSON.stringify(event),
+            ...(event.streamID && { id: event.streamID }),
           }) as MessageEvent,
       ),
     );
+  }
+
+  @Get('active-run/:chatID')
+  async getActiveRun(
+    @Param('chatID') chatID: string,
+  ): Promise<{ runID: string; threadID: string }> {
+    const activeRun = await this.runStream.getActiveRun(chatID);
+    if (!activeRun) {
+      throw new NotFoundException('No active run for this chat');
+    }
+    return activeRun;
   }
 
   /**
@@ -173,7 +205,7 @@ export class AgentController {
     );
 
     if (resolved && confirmation.runID) {
-      this.eventEmitter.emitEvent(
+      await this.eventEmitter.emitEvent(
         confirmation.runID,
         threadID,
         'confirmation.resolved',

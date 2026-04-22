@@ -12,6 +12,7 @@ export type AgentEventType =
   | 'tool_call.error'
   | 'confirmation.required'
   | 'confirmation.resolved'
+  | 'replay.done'
   | 'error';
 
 export interface AgentEvent {
@@ -20,6 +21,7 @@ export interface AgentEvent {
   threadID: string;
   timestamp: number;
   data: unknown;
+  streamID?: string;
 }
 
 export interface RunStartedData {
