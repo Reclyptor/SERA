@@ -10,6 +10,7 @@ import { SkillsService } from '../skills/skills.service';
 import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';
+import type { ToolCallBlock } from '../../chats/chat.schema';
 import type {
   AgentGoal,
   OrchestratorConfig,
@@ -24,11 +25,26 @@ import type {
   TextDeltaData,
   TextDoneData,
   ToolCallStartedData,
+  ToolCallExecutingData,
+  ToolCallResultData,
+  ToolCallErrorData,
+  SubagentSpawnedData,
+  SubagentCompletedData,
+  SubagentFailedData,
 } from '../streaming/stream.interfaces';
 import { ContextCompressorService } from '../context/context-compressor.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { PromptsService } from '../../prompts/prompts.service';
+
+const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
+const MAX_EVENT_RESULT_LENGTH = 5000;
+
+function truncateResult(value: unknown): unknown {
+  const str = typeof value === 'string' ? value : JSON.stringify(value);
+  if (!str || str.length <= MAX_EVENT_RESULT_LENGTH) return value;
+  return str.slice(0, MAX_EVENT_RESULT_LENGTH) + `\n...[truncated, ${str.length} chars total]`;
+}
 
 @Injectable()
 export class OrchestratorService {
@@ -147,6 +163,7 @@ export class OrchestratorService {
       let lastReasoningText: string | undefined;
       let lastThinkingDuration: number | undefined;
       let finalText = '';
+      const toolCallBlocks: ToolCallBlock[] = [];
 
       while (iterationCount < cfg.maxIterations) {
         iterationCount++;
@@ -208,13 +225,90 @@ export class OrchestratorService {
                 content: part.text,
               } satisfies TextDeltaData);
               break;
-            case 'tool-call':
+            case 'tool-call': {
+              const toolCallID = String(part.toolCallId);
+              const toolName = String(part.toolName);
+              const args = (part.input ?? {}) as Record<string, unknown>;
+              toolCallBlocks.push({
+                toolCallID,
+                toolName,
+                args,
+                status: 'executing',
+              } as ToolCallBlock);
               await this.emitEvent(runID, threadID, 'tool_call.started', {
-                toolCallID: String(part.toolCallId),
-                toolName: String(part.toolName),
-                args: (part.input ?? {}) as Record<string, unknown>,
+                toolCallID,
+                toolName,
+                args,
               } satisfies ToolCallStartedData);
+              await this.stateService.recordToolCall(threadID, toolName, args, toolCallID);
+              await this.stateService.markToolCallExecuting(threadID, toolCallID);
+              await this.emitEvent(runID, threadID, 'tool_call.executing', {
+                toolCallID,
+                toolName,
+              } satisfies ToolCallExecutingData);
               break;
+            }
+            case 'tool-result': {
+              const toolCallID = String(part.toolCallId);
+              const toolName = String(part.toolName);
+              const output = part.output;
+              const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
+              if (block) {
+                block.status = 'completed';
+                block.result = output;
+              }
+              await this.stateService.markToolCallCompleted(threadID, toolCallID, output);
+              await this.emitEvent(runID, threadID, 'tool_call.result', {
+                toolCallID,
+                toolName,
+                result: truncateResult(output),
+                success: true,
+              } satisfies ToolCallResultData);
+              if (SUBAGENT_TOOL_NAMES.has(toolName)) {
+                await this.emitSubagentEvents(runID, threadID, toolCallID, output);
+                if (block) {
+                  block.isSubagent = true;
+                  const inner = (output as Record<string, unknown>)?.result as Record<string, unknown> | undefined;
+                  if (inner) {
+                    block.subagentMeta = {
+                      runID: (inner.runID ?? '') as string,
+                      threadID: (inner.threadID ?? '') as string,
+                      agentID: (inner.agentID ?? inner.targetAgentID ?? '') as string,
+                      goal: (inner.goal ?? inner.message ?? '') as string,
+                    };
+                  }
+                }
+              }
+              break;
+            }
+            case 'tool-error': {
+              const toolCallID = String(part.toolCallId);
+              const toolName = String(part.toolName);
+              const errorStr = part.error instanceof Error ? part.error.message : String(part.error);
+              const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
+              if (block) {
+                block.status = 'failed';
+                block.error = errorStr;
+              }
+              await this.stateService.markToolCallFailed(threadID, toolCallID, errorStr);
+              await this.emitEvent(runID, threadID, 'tool_call.error', {
+                toolCallID,
+                toolName,
+                error: errorStr,
+              } satisfies ToolCallErrorData);
+              if (SUBAGENT_TOOL_NAMES.has(toolName)) {
+                const result = (part as unknown as { output?: unknown }).output;
+                const subRunID = (result as Record<string, unknown>)?.runID as string | undefined;
+                if (subRunID) {
+                  await this.emitEvent(runID, threadID, 'subagent.failed', {
+                    toolCallID,
+                    subagentRunID: subRunID,
+                    error: errorStr,
+                  } satisfies SubagentFailedData);
+                }
+              }
+              break;
+            }
           }
         }
 
@@ -236,13 +330,6 @@ export class OrchestratorService {
 
         for (const step of steps) {
           totalToolCalls += step.toolCalls.length;
-          for (const tc of step.toolCalls) {
-            await this.stateService.recordToolCall(
-              threadID,
-              tc.toolName,
-              (tc.input ?? {}) as Record<string, unknown>,
-            );
-          }
         }
 
         if (streamResponse.messages) {
@@ -263,6 +350,7 @@ export class OrchestratorService {
             lastReasoningText,
             lastThinkingDuration,
             totalToolCalls,
+            toolCallBlocks,
           );
           break;
         }
@@ -312,6 +400,7 @@ export class OrchestratorService {
     thinking?: string,
     thinkingDuration?: number,
     totalToolCalls?: number,
+    toolCalls?: ToolCallBlock[],
   ): Promise<void> {
     const { runID, threadID, userID } = goal;
 
@@ -325,6 +414,7 @@ export class OrchestratorService {
           content: response,
           thinking,
           thinkingDuration,
+          toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
           createdAt: new Date(),
         });
       } catch (err) {
@@ -424,6 +514,47 @@ export class OrchestratorService {
       this.logger.debug(
         `Skill evaluation skipped: ${err instanceof Error ? err.message : err}`,
       );
+    }
+  }
+
+  private async emitSubagentEvents(
+    runID: string,
+    threadID: string,
+    toolCallID: string,
+    output: unknown,
+  ): Promise<void> {
+    const result = output as Record<string, unknown> | undefined;
+    if (!result?.result) return;
+    const inner = result.result as Record<string, unknown>;
+    const subRunID = (inner.runID ?? '') as string;
+    const subThreadID = (inner.threadID ?? '') as string;
+    const agentID = (inner.agentID ?? inner.targetAgentID ?? '') as string;
+    const goal = (inner.goal ?? inner.message ?? '') as string;
+    const status = (inner.status ?? '') as string;
+
+    if (!subRunID) return;
+
+    await this.emitEvent(runID, threadID, 'subagent.spawned', {
+      toolCallID,
+      subagentRunID: subRunID,
+      subagentThreadID: subThreadID,
+      agentID,
+      goal,
+    } satisfies SubagentSpawnedData);
+
+    if (status === 'completed') {
+      await this.emitEvent(runID, threadID, 'subagent.completed', {
+        toolCallID,
+        subagentRunID: subRunID,
+        status,
+        response: inner.response as string | undefined,
+      } satisfies SubagentCompletedData);
+    } else if (status === 'failed') {
+      await this.emitEvent(runID, threadID, 'subagent.failed', {
+        toolCallID,
+        subagentRunID: subRunID,
+        error: (inner.error as string) ?? 'Unknown error',
+      } satisfies SubagentFailedData);
     }
   }
 

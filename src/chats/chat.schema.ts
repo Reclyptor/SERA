@@ -1,7 +1,57 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
 export type ChatDocument = HydratedDocument<Chat>;
+
+@Schema({ _id: false })
+export class SubagentMeta {
+  @Prop({ required: true })
+  runID: string;
+
+  @Prop({ required: true })
+  threadID: string;
+
+  @Prop({ required: true })
+  agentID: string;
+
+  @Prop({ required: true })
+  goal: string;
+}
+
+export const SubagentMetaSchema = SchemaFactory.createForClass(SubagentMeta);
+
+@Schema({ _id: false })
+export class ToolCallBlock {
+  @Prop({ required: true })
+  toolCallID: string;
+
+  @Prop({ required: true })
+  toolName: string;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  args: Record<string, unknown>;
+
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  result?: unknown;
+
+  @Prop()
+  error?: string;
+
+  @Prop({
+    required: true,
+    enum: ['started', 'executing', 'completed', 'failed'],
+    default: 'started',
+  })
+  status: string;
+
+  @Prop()
+  isSubagent?: boolean;
+
+  @Prop({ type: SubagentMetaSchema })
+  subagentMeta?: SubagentMeta;
+}
+
+export const ToolCallBlockSchema = SchemaFactory.createForClass(ToolCallBlock);
 
 @Schema()
 export class Message {
@@ -19,6 +69,9 @@ export class Message {
 
   @Prop()
   thinkingDuration?: number;
+
+  @Prop({ type: [ToolCallBlockSchema] })
+  toolCalls?: ToolCallBlock[];
 
   @Prop({ default: Date.now })
   createdAt: Date;

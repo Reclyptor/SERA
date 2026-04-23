@@ -59,11 +59,11 @@ export class StateStore {
 
   async addToolCall(
     threadID: string,
-    toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'>,
+    toolCall: Omit<ToolCall, 'id' | 'timestamp' | 'status'> & { id?: string },
   ): Promise<ToolCall> {
     const fullToolCall: ToolCall = {
       ...toolCall,
-      id: crypto.randomUUID(),
+      id: toolCall.id ?? crypto.randomUUID(),
       status: 'pending',
       timestamp: new Date(),
     };

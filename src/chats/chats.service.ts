@@ -106,13 +106,13 @@ export class ChatsService {
       throw new ForbiddenException('You do not have access to this chat');
     }
 
-    // Map messages, ensuring createdAt has a default value
     chat.messages = updateChatDto.messages.map((m) => ({
       id: m.id,
       role: m.role,
       content: m.content,
       thinking: m.thinking,
       thinkingDuration: m.thinkingDuration,
+      toolCalls: m.toolCalls,
       createdAt: m.createdAt ?? new Date(),
     }));
     return chat.save();

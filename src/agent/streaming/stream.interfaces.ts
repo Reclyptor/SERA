@@ -10,6 +10,9 @@ export type AgentEventType =
   | 'tool_call.executing'
   | 'tool_call.result'
   | 'tool_call.error'
+  | 'subagent.spawned'
+  | 'subagent.completed'
+  | 'subagent.failed'
   | 'confirmation.required'
   | 'confirmation.resolved'
   | 'replay.done'
@@ -60,6 +63,11 @@ export interface ToolCallStartedData {
   args: Record<string, unknown>;
 }
 
+export interface ToolCallExecutingData {
+  toolCallID: string;
+  toolName: string;
+}
+
 export interface ToolCallResultData {
   toolCallID: string;
   toolName: string;
@@ -83,6 +91,27 @@ export interface ConfirmationRequiredData {
 export interface ConfirmationResolvedData {
   confirmationID: string;
   approved: boolean;
+}
+
+export interface SubagentSpawnedData {
+  toolCallID: string;
+  subagentRunID: string;
+  subagentThreadID: string;
+  agentID: string;
+  goal: string;
+}
+
+export interface SubagentCompletedData {
+  toolCallID: string;
+  subagentRunID: string;
+  status: string;
+  response?: string;
+}
+
+export interface SubagentFailedData {
+  toolCallID: string;
+  subagentRunID: string;
+  error: string;
 }
 
 export interface ErrorData {

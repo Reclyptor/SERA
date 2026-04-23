@@ -40,8 +40,9 @@ export class StateService {
     threadID: string,
     name: string,
     args: Record<string, unknown>,
+    toolCallID?: string,
   ): Promise<ToolCall> {
-    return this.store.addToolCall(threadID, { name, args });
+    return this.store.addToolCall(threadID, { name, args, id: toolCallID });
   }
 
   async markToolCallExecuting(
