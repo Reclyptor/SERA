@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.constants';
 import type { CoreMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 import { ToolsService } from '../tools/tools.service';
@@ -50,6 +52,7 @@ function truncateResult(value: unknown): unknown {
 export class OrchestratorService {
   private readonly logger = new Logger(OrchestratorService.name);
   private readonly abortControllers = new Map<string, AbortController>();
+  private readonly subscriber: Redis;
 
   constructor(
     private readonly modelRouter: ModelRouterService,
@@ -64,7 +67,20 @@ export class OrchestratorService {
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly promptsService: PromptsService,
-  ) {}
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {
+    this.subscriber = this.redis.duplicate();
+    this.subscriber.on('message', (_channel: string, runID: string) => {
+      const controller = this.abortControllers.get(runID);
+      if (controller) {
+        controller.abort();
+      }
+    });
+  }
+
+  private cancelChannel(runID: string): string {
+    return `cancel:${runID}`;
+  }
 
   async executeGoal(
     goal: AgentGoal,
@@ -75,6 +91,7 @@ export class OrchestratorService {
 
     const abortController = new AbortController();
     this.abortControllers.set(runID, abortController);
+    await this.subscriber.subscribe(this.cancelChannel(runID));
 
     try {
       await this.stateService.getOrCreateThread(threadID);
@@ -381,17 +398,17 @@ export class OrchestratorService {
       }
     } finally {
       this.abortControllers.delete(runID);
+      await this.subscriber.unsubscribe(this.cancelChannel(runID));
       await this.eventEmitter.complete(runID, goal.chatID);
     }
   }
 
-  cancelRun(runID: string): boolean {
-    const controller = this.abortControllers.get(runID);
-    if (controller) {
-      controller.abort();
-      return true;
-    }
-    return false;
+  async cancelRun(runID: string): Promise<boolean> {
+    const listeners = await this.redis.publish(
+      this.cancelChannel(runID),
+      runID,
+    );
+    return listeners > 0;
   }
 
   private async completeRun(

@@ -157,8 +157,8 @@ export class AgentController {
    * Cancel a running execution.
    */
   @Post('cancel/:runID')
-  cancel(@Param('runID') runID: string): { cancelled: boolean } {
-    const cancelled = this.orchestrator.cancelRun(runID);
+  async cancel(@Param('runID') runID: string): Promise<{ cancelled: boolean }> {
+    const cancelled = await this.orchestrator.cancelRun(runID);
     return { cancelled };
   }
 
@@ -217,9 +217,9 @@ export class AgentController {
 
   @Post('upload-image')
   @UseInterceptors(FileInterceptor('image'))
-  uploadImage(
+  async uploadImage(
     @UploadedFile() file: Express.Multer.File,
-  ): UploadImageResponseDto {
+  ): Promise<UploadImageResponseDto> {
     if (!file) {
       throw new BadRequestException('No image file provided');
     }
@@ -239,7 +239,7 @@ export class AgentController {
     const imageID = crypto.randomUUID();
     const base64Data = file.buffer.toString('base64');
 
-    this.imageStorage.store(imageID, base64Data, file.mimetype);
+    await this.imageStorage.store(imageID, base64Data, file.mimetype);
 
     return {
       imageID,
