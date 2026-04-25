@@ -1,4 +1,4 @@
-import type { CoreMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import type { ModelRequestOptions } from '../model/model.interfaces';
 
 export interface AgentGoal {
@@ -8,7 +8,7 @@ export interface AgentGoal {
   chatID?: string;
   agentID: string;
   userMessage: string;
-  conversationHistory: CoreMessage[];
+  conversationHistory: ModelMessage[];
   modelOptions?: ModelRequestOptions;
   isHeartbeat?: boolean;
   delegationDepth?: number;

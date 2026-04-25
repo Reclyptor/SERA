@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
-import type { CoreMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 import { ToolsService } from '../tools/tools.service';
 import { ActionsService } from '../actions/actions.service';
@@ -168,9 +168,9 @@ export class OrchestratorService {
         const loaded = await this.chatsService.loadConversationHistory(
           goal.chatID,
         );
-        history = loaded as CoreMessage[];
+        history = loaded as ModelMessage[];
       }
-      const messages: CoreMessage[] =
+      const messages: ModelMessage[] =
         history.length > 0
           ? history
           : [{ role: 'user', content: goal.userMessage }];
@@ -351,7 +351,7 @@ export class OrchestratorService {
 
         if (streamResponse.messages) {
           messages.push(
-            ...(streamResponse.messages as unknown as CoreMessage[]),
+            ...(streamResponse.messages as unknown as ModelMessage[]),
           );
         }
 

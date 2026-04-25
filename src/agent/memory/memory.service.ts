@@ -330,7 +330,7 @@ export class MemoryService {
       'Extract important facts about the user. Return ONLY a JSON array of strings.';
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-4-5',
       max_tokens: 1024,
       messages: [
         {

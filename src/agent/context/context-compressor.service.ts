@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { CoreMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import { ModelRouterService } from '../model/model-router.service';
 import { PromptsService } from '../../prompts/prompts.service';
 
@@ -47,10 +47,10 @@ export class ContextCompressorService {
   }
 
   async compress(
-    messages: CoreMessage[],
+    messages: ModelMessage[],
     provider: string,
     systemPrompt?: string,
-  ): Promise<CoreMessage[]> {
+  ): Promise<ModelMessage[]> {
     const contextWindow = this.contextWindows[provider] ?? 200_000;
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
 
@@ -87,8 +87,8 @@ export class ContextCompressorService {
     return compressed;
   }
 
-  private pruneToolOutputs(messages: CoreMessage[]): CoreMessage[] {
-    return messages.map((msg): CoreMessage => {
+  private pruneToolOutputs(messages: ModelMessage[]): ModelMessage[] {
+    return messages.map((msg): ModelMessage => {
       if (msg.role !== 'tool') return msg;
 
       if (!Array.isArray(msg.content)) return msg;
@@ -106,15 +106,15 @@ export class ContextCompressorService {
         return { ...part, output: `[Pruned: ${outputStr.length} chars, ${lines} lines]` };
       });
 
-      return { ...msg, content: prunedContent as unknown } as CoreMessage;
+      return { ...msg, content: prunedContent as unknown } as ModelMessage;
     });
   }
 
   private async summarizeMiddle(
-    messages: CoreMessage[],
+    messages: ModelMessage[],
     tokenBudget: number,
     provider: string,
-  ): Promise<CoreMessage[]> {
+  ): Promise<ModelMessage[]> {
     if (messages.length <= PROTECTED_HEAD_COUNT + 1) {
       return messages;
     }
@@ -170,7 +170,7 @@ export class ContextCompressorService {
     }
   }
 
-  private messagesToText(messages: CoreMessage[]): string {
+  private messagesToText(messages: ModelMessage[]): string {
     return messages
       .map((msg) => {
         const role = msg.role.toUpperCase();
@@ -188,7 +188,7 @@ export class ContextCompressorService {
     return Math.ceil(text.length / ratio);
   }
 
-  private estimateMessageTokens(msg: CoreMessage, provider?: string): number {
+  private estimateMessageTokens(msg: ModelMessage, provider?: string): number {
     const content =
       typeof msg.content === 'string'
         ? msg.content
@@ -196,7 +196,7 @@ export class ContextCompressorService {
     return this.estimateTokens(content, provider) + 4; // role overhead
   }
 
-  private estimateMessagesTokens(messages: CoreMessage[], provider?: string): number {
+  private estimateMessagesTokens(messages: ModelMessage[], provider?: string): number {
     return messages.reduce(
       (sum, msg) => sum + this.estimateMessageTokens(msg, provider),
       0,

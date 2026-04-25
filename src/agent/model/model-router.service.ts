@@ -4,16 +4,15 @@ import {
   generateText,
   streamText,
   stepCountIs,
-  wrapLanguageModel,
-  extractReasoningMiddleware,
   type GenerateTextResult,
   type StreamTextResult,
-  type CoreMessage,
+  type ModelMessage,
   type ToolSet,
   type LanguageModel,
 } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { ModelRequestOptions, ResolvedModel } from './model.interfaces';
@@ -23,6 +22,7 @@ interface ProviderEntry {
   priority: number;
   factory: (modelID: string) => LanguageModel;
   defaultModel: string;
+  allowedModels: Set<string>;
 }
 
 @Injectable()
@@ -69,6 +69,11 @@ export class ModelRouterService {
         priority: 1,
         factory: (modelID) => anthropic(modelID),
         defaultModel: 'claude-sonnet-4-6',
+        allowedModels: new Set([
+          'claude-haiku-4-5',
+          'claude-sonnet-4-6',
+          'claude-opus-4-7',
+        ]),
       });
     }
 
@@ -80,6 +85,7 @@ export class ModelRouterService {
         priority: 2,
         factory: (modelID) => openai(modelID),
         defaultModel: 'gpt-4o',
+        allowedModels: new Set(['gpt-4o-mini', 'gpt-4o', 'o3']),
       });
     }
 
@@ -91,41 +97,28 @@ export class ModelRouterService {
         priority: 3,
         factory: (modelID) => google(modelID),
         defaultModel: 'gemini-2.0-flash',
+        allowedModels: new Set(['gemini-2.0-flash']),
       });
     }
 
-    const luceboxURL = this.configService.get<string>('LUCEBOX_BASE_URL');
-    if (luceboxURL) {
-      const lucebox = createOpenAI({
-        baseURL: luceboxURL,
+    const ollamaURL = this.configService.get<string>('OLLAMA_URL');
+    if (ollamaURL) {
+      const ollama = createOpenAICompatible({
+        name: 'ollama',
+        baseURL: `${ollamaURL.replace(/\/+$/, '')}/v1`,
         apiKey: 'noop',
-        fetch: async (url, init) => {
-          if (init?.body && typeof init.body === 'string') {
-            const body = JSON.parse(init.body);
-            delete body.stream_options;
-            if (Array.isArray(body.messages)) {
-              for (const msg of body.messages) {
-                if (msg.role === 'developer') msg.role = 'system';
-              }
-            }
-            init = { ...init, body: JSON.stringify(body) };
-          }
-          return globalThis.fetch(url, init);
-        },
-      });
-      const reasoningMiddleware = extractReasoningMiddleware({
-        tagName: 'think',
-        startWithReasoning: true,
       });
       this.providers.push({
-        id: 'lucebox',
+        id: 'ollama',
         priority: 4,
-        factory: (modelID) =>
-          wrapLanguageModel({
-            model: lucebox.chat(modelID),
-            middleware: reasoningMiddleware,
-          }),
-        defaultModel: 'luce-dflash',
+        factory: (modelID) => ollama.chatModel(modelID),
+        defaultModel: 'qwen3.6:35b-a3b-q8_0',
+        allowedModels: new Set([
+          'qwen3.6:35b-a3b-q8_0',
+          'qwen3.6:27b-q8_0',
+          'qwen3.6:35b-a3b-q4_K_M',
+          'qwen3.6:27b-q4_K_M',
+        ]),
       });
     }
 
@@ -152,6 +145,11 @@ export class ModelRouterService {
    * Resolve a model specification to an AI SDK LanguageModel.
    */
   private buildResolved(entry: ProviderEntry, modelID: string): ResolvedModel {
+    if (!entry.allowedModels.has(modelID)) {
+      throw new Error(
+        `Model "${modelID}" is not allowed for provider "${entry.id}"`,
+      );
+    }
     return {
       model: entry.factory(modelID),
       provider: entry.id,
@@ -221,9 +219,6 @@ export class ModelRouterService {
     modelID: string,
   ): ProviderOptions | undefined {
     if (provider === 'anthropic' && this.thinkingEnabled) {
-      if (modelID.includes('haiku')) {
-        return undefined;
-      }
       const isAdaptiveModel =
         modelID.includes('claude-opus-4') ||
         modelID.includes('claude-sonnet-4-6') ||
@@ -256,7 +251,7 @@ export class ModelRouterService {
    * Generate text with automatic provider fallback on rate limits.
    */
   async generate(params: {
-    messages: CoreMessage[];
+    messages: ModelMessage[];
     tools?: ToolSet;
     system?: string;
     stopSteps?: number;
@@ -316,7 +311,7 @@ export class ModelRouterService {
    * Stream text with automatic provider fallback on rate limits.
    */
   stream(params: {
-    messages: CoreMessage[];
+    messages: ModelMessage[];
     tools?: ToolSet;
     system?: string;
     stopSteps?: number;
