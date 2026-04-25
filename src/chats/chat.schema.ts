@@ -87,6 +87,9 @@ export class Chat {
   @Prop({ required: true })
   title: string;
 
+  @Prop()
+  model?: string;
+
   @Prop({ type: [MessageSchema], default: [] })
   messages: Message[];
 

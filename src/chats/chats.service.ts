@@ -118,14 +118,20 @@ export class ChatsService {
     return chat.save();
   }
 
+  async updateModel(chatID: string, model: string): Promise<void> {
+    await this.chatModel.findByIdAndUpdate(chatID, { model }).exec();
+  }
+
   async createWithUserMessage(
     userID: string,
     message: Message,
+    model?: string,
   ): Promise<ChatDocument> {
     const chat = new this.chatModel({
       userID,
       title: 'New Chat',
       messages: [message],
+      ...(model && { model }),
     });
     const saved = await chat.save();
 

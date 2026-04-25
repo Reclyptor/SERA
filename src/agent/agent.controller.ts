@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Observable, map } from 'rxjs';
+import { Observable } from 'rxjs';
 import type { Request } from 'express';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
@@ -31,6 +31,7 @@ interface ChatRequestBody {
   chatID?: string;
   threadID?: string;
   agentID?: string;
+  model?: string;
   config?: Partial<OrchestratorConfig>;
 }
 
@@ -83,10 +84,14 @@ export class AgentController {
     if (body.chatID) {
       chatID = body.chatID;
       await this.chatsService.appendMessage(chatID, userMessage);
+      if (body.model) {
+        await this.chatsService.updateModel(chatID, body.model);
+      }
     } else {
       const chat = await this.chatsService.createWithUserMessage(
         userID,
         userMessage,
+        body.model,
       );
       chatID = String(chat._id);
     }
@@ -111,6 +116,9 @@ export class AgentController {
           agentID,
           userMessage: body.message,
           conversationHistory: [],
+          modelOptions: body.model
+            ? { preferredModel: body.model }
+            : undefined,
         },
         body.config,
       )
@@ -127,31 +135,11 @@ export class AgentController {
     @Req() req: Request,
   ): Observable<MessageEvent> {
     const lastEventID = req.headers['last-event-id'] as string | undefined;
-    const replay = (req.query as Record<string, string>).replay === 'true';
 
-    if (replay) {
-      return this.runStream.createReconnectionObservable(
-        runID,
-        '0',
-      ) as Observable<MessageEvent>;
-    }
-
-    if (lastEventID) {
-      return this.runStream.createReconnectionObservable(
-        runID,
-        lastEventID,
-      ) as Observable<MessageEvent>;
-    }
-
-    return this.eventEmitter.getStream(runID).pipe(
-      map(
-        (event) =>
-          ({
-            data: JSON.stringify(event),
-            ...(event.streamID && { id: event.streamID }),
-          }) as MessageEvent,
-      ),
-    );
+    return this.runStream.createReconnectionObservable(
+      runID,
+      lastEventID ?? '0',
+    ) as Observable<MessageEvent>;
   }
 
   @Get('active-run/:chatID')

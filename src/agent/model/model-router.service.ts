@@ -4,6 +4,8 @@ import {
   generateText,
   streamText,
   stepCountIs,
+  wrapLanguageModel,
+  extractReasoningMiddleware,
   type GenerateTextResult,
   type StreamTextResult,
   type CoreMessage,
@@ -92,6 +94,41 @@ export class ModelRouterService {
       });
     }
 
+    const luceboxURL = this.configService.get<string>('LUCEBOX_BASE_URL');
+    if (luceboxURL) {
+      const lucebox = createOpenAI({
+        baseURL: luceboxURL,
+        apiKey: 'noop',
+        fetch: async (url, init) => {
+          if (init?.body && typeof init.body === 'string') {
+            const body = JSON.parse(init.body);
+            delete body.stream_options;
+            if (Array.isArray(body.messages)) {
+              for (const msg of body.messages) {
+                if (msg.role === 'developer') msg.role = 'system';
+              }
+            }
+            init = { ...init, body: JSON.stringify(body) };
+          }
+          return globalThis.fetch(url, init);
+        },
+      });
+      const reasoningMiddleware = extractReasoningMiddleware({
+        tagName: 'think',
+        startWithReasoning: true,
+      });
+      this.providers.push({
+        id: 'lucebox',
+        priority: 4,
+        factory: (modelID) =>
+          wrapLanguageModel({
+            model: lucebox.chat(modelID),
+            middleware: reasoningMiddleware,
+          }),
+        defaultModel: 'luce-dflash',
+      });
+    }
+
     this.providers.sort((a, b) => a.priority - b.priority);
   }
 
@@ -114,6 +151,14 @@ export class ModelRouterService {
   /**
    * Resolve a model specification to an AI SDK LanguageModel.
    */
+  private buildResolved(entry: ProviderEntry, modelID: string): ResolvedModel {
+    return {
+      model: entry.factory(modelID),
+      provider: entry.id,
+      modelID,
+    };
+  }
+
   resolveModel(options?: ModelRequestOptions): ResolvedModel {
     const excludeSet = new Set(options?.excludeProviders ?? []);
 
@@ -124,11 +169,7 @@ export class ModelRouterService {
         (p) => p.id === provider && !excludeSet.has(p.id),
       );
       if (entry) {
-        return {
-          model: entry.factory(model),
-          provider: entry.id,
-          modelID: model,
-        };
+        return this.buildResolved(entry, model);
       }
     }
 
@@ -138,11 +179,7 @@ export class ModelRouterService {
         (p) => p.id === options.preferredProvider && !excludeSet.has(p.id),
       );
       if (entry) {
-        return {
-          model: entry.factory(entry.defaultModel),
-          provider: entry.id,
-          modelID: entry.defaultModel,
-        };
+        return this.buildResolved(entry, entry.defaultModel);
       }
     }
 
@@ -153,11 +190,7 @@ export class ModelRouterService {
       (p) => p.id === primaryProvider && !excludeSet.has(p.id),
     );
     if (primaryEntry) {
-      return {
-        model: primaryEntry.factory(primaryModelID),
-        provider: primaryEntry.id,
-        modelID: primaryModelID,
-      };
+      return this.buildResolved(primaryEntry, primaryModelID);
     }
 
     // Try fallbacks in order
@@ -167,22 +200,14 @@ export class ModelRouterService {
         (p) => p.id === provider && !excludeSet.has(p.id),
       );
       if (entry) {
-        return {
-          model: entry.factory(model),
-          provider: entry.id,
-          modelID: model,
-        };
+        return this.buildResolved(entry, model);
       }
     }
 
     // Last resort: any available provider
     const available = this.providers.find((p) => !excludeSet.has(p.id));
     if (available) {
-      return {
-        model: available.factory(available.defaultModel),
-        provider: available.id,
-        modelID: available.defaultModel,
-      };
+      return this.buildResolved(available, available.defaultModel);
     }
 
     throw new Error('No model providers available');
@@ -196,6 +221,9 @@ export class ModelRouterService {
     modelID: string,
   ): ProviderOptions | undefined {
     if (provider === 'anthropic' && this.thinkingEnabled) {
+      if (modelID.includes('haiku')) {
+        return undefined;
+      }
       const isAdaptiveModel =
         modelID.includes('claude-opus-4') ||
         modelID.includes('claude-sonnet-4-6') ||
