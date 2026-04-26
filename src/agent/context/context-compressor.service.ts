@@ -1,19 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ModelMessage } from 'ai';
+import { getEncoding, type TiktokenEncoding } from 'js-tiktoken';
 import { ModelRouterService } from '../model/model-router.service';
 import { PromptsService } from '../../prompts/prompts.service';
-
-const CHARS_PER_TOKEN: Record<string, number> = {
-  anthropic: 3.5,
-  openai: 4,
-  google: 4,
-};
 
 const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   anthropic: 200_000,
   openai: 128_000,
   google: 1_000_000,
+};
+
+const ENCODING_FOR_PROVIDER: Record<string, TiktokenEncoding> = {
+  anthropic: 'cl100k_base',
+  openai: 'o200k_base',
+  google: 'o200k_base',
 };
 
 const COMPRESSION_THRESHOLD = 0.75;
@@ -25,6 +26,7 @@ const TOOL_OUTPUT_PRUNE_THRESHOLD = 2_000;
 export class ContextCompressorService {
   private readonly logger = new Logger(ContextCompressorService.name);
   private readonly contextWindows: Record<string, number>;
+  private readonly encoders = new Map<string, ReturnType<typeof getEncoding>>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -46,6 +48,16 @@ export class ContextCompressorService {
     }
   }
 
+  private getEncoder(provider: string) {
+    const cached = this.encoders.get(provider);
+    if (cached) return cached;
+
+    const encoding = ENCODING_FOR_PROVIDER[provider] ?? 'o200k_base';
+    const enc = getEncoding(encoding);
+    this.encoders.set(provider, enc);
+    return enc;
+  }
+
   async compress(
     messages: ModelMessage[],
     provider: string,
@@ -55,9 +67,9 @@ export class ContextCompressorService {
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
 
     const systemTokens = systemPrompt
-      ? this.estimateTokens(systemPrompt, provider)
+      ? this.countTokens(systemPrompt, provider)
       : 0;
-    const messageTokens = this.estimateMessagesTokens(messages, provider);
+    const messageTokens = this.countMessagesTokens(messages, provider);
     const totalTokens = systemTokens + messageTokens;
 
     if (totalTokens <= threshold) {
@@ -70,7 +82,7 @@ export class ContextCompressorService {
 
     // Tier 1: Prune large tool outputs
     const pruned = this.pruneToolOutputs(messages);
-    const prunedTokens = systemTokens + this.estimateMessagesTokens(pruned, provider);
+    const prunedTokens = systemTokens + this.countMessagesTokens(pruned, provider);
 
     if (prunedTokens <= threshold) {
       this.logger.debug(
@@ -82,7 +94,7 @@ export class ContextCompressorService {
     // Tier 2: LLM summarization of middle turns
     const compressed = await this.summarizeMiddle(pruned, threshold - systemTokens, provider);
     this.logger.debug(
-      `LLM compression: ${prunedTokens} → ${systemTokens + this.estimateMessagesTokens(compressed, provider)} tokens`,
+      `LLM compression: ${prunedTokens} → ${systemTokens + this.countMessagesTokens(compressed, provider)} tokens`,
     );
     return compressed;
   }
@@ -121,13 +133,12 @@ export class ContextCompressorService {
 
     const head = messages.slice(0, PROTECTED_HEAD_COUNT);
 
-    // Find the split point for the tail based on token budget
     let tailTokens = 0;
     let tailStart = messages.length;
     const tailBudget = Math.min(PROTECTED_TAIL_TOKENS, Math.floor(tokenBudget * 0.4));
 
     for (let i = messages.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
-      const msgTokens = this.estimateMessageTokens(messages[i], provider);
+      const msgTokens = this.countMessageTokens(messages[i], provider);
       if (tailTokens + msgTokens > tailBudget) break;
       tailTokens += msgTokens;
       tailStart = i;
@@ -183,22 +194,21 @@ export class ContextCompressorService {
       .join('\n\n');
   }
 
-  private estimateTokens(text: string, provider?: string): number {
-    const ratio = (provider ? CHARS_PER_TOKEN[provider] : undefined) ?? 4;
-    return Math.ceil(text.length / ratio);
+  private countTokens(text: string, provider: string): number {
+    return this.getEncoder(provider).encode(text).length;
   }
 
-  private estimateMessageTokens(msg: ModelMessage, provider?: string): number {
+  private countMessageTokens(msg: ModelMessage, provider: string): number {
     const content =
       typeof msg.content === 'string'
         ? msg.content
         : JSON.stringify(msg.content);
-    return this.estimateTokens(content, provider) + 4; // role overhead
+    return this.countTokens(content, provider) + 4;
   }
 
-  private estimateMessagesTokens(messages: ModelMessage[], provider?: string): number {
+  private countMessagesTokens(messages: ModelMessage[], provider: string): number {
     return messages.reduce(
-      (sum, msg) => sum + this.estimateMessageTokens(msg, provider),
+      (sum, msg) => sum + this.countMessageTokens(msg, provider),
       0,
     );
   }
