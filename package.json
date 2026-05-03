@@ -91,5 +91,12 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "mem0ai": {
+      "@anthropic-ai/sdk": "$@anthropic-ai/sdk",
+      "@qdrant/js-client-rest": "$@qdrant/js-client-rest",
+      "@types/jest": "$@types/jest"
+    }
   }
 }
