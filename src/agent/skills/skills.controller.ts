@@ -15,6 +15,11 @@ import { CreateSkillDto, UpdateSkillDto } from './skills.dto';
 export class SkillsController {
   constructor(private readonly skillsService: SkillsService) {}
 
+  @Post('sync')
+  sync() {
+    return this.skillsService.syncFromGitHub();
+  }
+
   @Post()
   async create(@Body() dto: CreateSkillDto) {
     return this.skillsService.create(dto);

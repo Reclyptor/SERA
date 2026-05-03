@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Put,
   Delete,
   Param,
@@ -12,6 +13,11 @@ import { PromptsService } from './prompts.service';
 @Controller('prompts')
 export class PromptsController {
   constructor(private readonly promptsService: PromptsService) {}
+
+  @Post('sync')
+  sync() {
+    return this.promptsService.syncFromGitHub();
+  }
 
   @Get()
   list() {

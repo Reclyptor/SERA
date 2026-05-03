@@ -1,13 +1,10 @@
 import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { createHash } from 'crypto';
-import { readFile, readdir } from 'fs/promises';
-import { join, basename } from 'path';
 import Redis from 'ioredis';
 import { Prompt, PromptDocument } from './prompt.schema';
 import { REDIS_CLIENT } from '../redis/redis.constants';
-import { PROMPT_SEEDS_DIR } from '../seeds/paths';
+import { GitHubSyncService } from '../github/github-sync.service';
 
 const CACHE_PREFIX = 'prompt:';
 const CACHE_TTL = 300;
@@ -27,22 +24,23 @@ export class PromptsService implements OnModuleInit {
   constructor(
     @InjectModel(Prompt.name) private promptModel: Model<PromptDocument>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly githubSync: GitHubSyncService,
   ) {}
 
   async onModuleInit() {
-    await this.seedFromFiles();
+    this.syncFromGitHub().catch((err) =>
+      this.logger.error('GitHub sync failed, using existing MongoDB data:', err),
+    );
   }
 
-  /**
-   * Resolve a prompt by slug, walking the extends chain and substituting variables.
-   * Returns the fully composed prompt string.
-   */
+  async syncFromGitHub() {
+    return this.githubSync.syncPrompts(this.promptModel);
+  }
+
   async resolve(slug: string, variables?: PromptVariables): Promise<string | null> {
-    const parts: string[] = [];
     const visited = new Set<string>();
     let currentSlug: string | undefined = slug;
 
-    // Walk the extends chain, collecting content from leaf to root
     const chain: string[] = [];
     while (currentSlug) {
       if (visited.has(currentSlug)) {
@@ -71,9 +69,6 @@ export class PromptsService implements OnModuleInit {
     return variables ? this.substituteVariables(resolved, variables) : resolved;
   }
 
-  /**
-   * Get raw prompt content by slug (no chain resolution).
-   */
   async get(slug: string): Promise<string | null> {
     const cacheKey = `${CACHE_PREFIX}${slug}`;
 
@@ -96,16 +91,10 @@ export class PromptsService implements OnModuleInit {
     return prompt.content;
   }
 
-  /**
-   * Get full prompt document by slug.
-   */
   async getDocument(slug: string): Promise<Prompt | null> {
     return this.promptModel.findOne({ slug }).exec();
   }
 
-  /**
-   * Create or update a prompt by slug.
-   */
   async upsert(
     slug: string,
     data: {
@@ -129,23 +118,29 @@ export class PromptsService implements OnModuleInit {
       .exec();
 
     await this.invalidateCache(slug);
-
     this.logger.log(`Prompt "${slug}" upserted`);
+
+    const newSha = await this.githubSync.pushPrompt(slug, data);
+    if (newSha) {
+      await this.promptModel.updateOne({ slug }, { $set: { seedHash: newSha } });
+    }
+
     return prompt;
   }
 
-  /**
-   * Delete a prompt by slug.
-   */
   async delete(slug: string): Promise<boolean> {
     const result = await this.promptModel.deleteOne({ slug }).exec();
     await this.invalidateCache(slug);
+
+    if (result.deletedCount > 0) {
+      this.githubSync.deletePromptFile(slug).catch((err) =>
+        this.logger.warn(`Failed to delete prompt "${slug}" from GitHub:`, err),
+      );
+    }
+
     return result.deletedCount > 0;
   }
 
-  /**
-   * List all prompts (with metadata, without full content).
-   */
   async list(): Promise<
     Pick<Prompt, 'slug' | 'extends' | 'description' | 'metadata' | 'createdAt' | 'updatedAt'>[]
   > {
@@ -154,53 +149,6 @@ export class PromptsService implements OnModuleInit {
       .select('slug extends description metadata createdAt updatedAt')
       .sort({ slug: 1 })
       .exec();
-  }
-
-  /**
-   * Seed prompts from MD files in the seeds directory.
-   * Creates missing entries and updates existing ones if the file content changed.
-   */
-  private async seedFromFiles(): Promise<void> {
-    let files: string[];
-    try {
-      files = await readdir(PROMPT_SEEDS_DIR);
-    } catch {
-      this.logger.warn('Seeds directory not found, skipping prompt seeding');
-      return;
-    }
-
-    const mdFiles = files.filter((f) => f.endsWith('.md'));
-
-    for (const file of mdFiles) {
-      const slug = basename(file, '.md');
-      const filePath = join(PROMPT_SEEDS_DIR, file);
-
-      try {
-        const content = (await readFile(filePath, 'utf-8')).trimEnd();
-        const hash = createHash('sha256').update(content).digest('hex');
-
-        const existing = await this.promptModel.findOne({ slug }).exec();
-
-        if (!existing) {
-          await this.promptModel.create({
-            slug,
-            content,
-            seedHash: hash,
-            description: `Seeded from ${file}`,
-          });
-          this.logger.log(`Seeded prompt "${slug}" from ${file}`);
-        } else if (existing.seedHash !== hash) {
-          await this.promptModel.updateOne(
-            { slug },
-            { $set: { content, seedHash: hash } },
-          );
-          await this.invalidateCache(slug);
-          this.logger.log(`Updated prompt "${slug}" from ${file} (content changed)`);
-        }
-      } catch (err) {
-        this.logger.error(`Failed to seed prompt from ${file}:`, err);
-      }
-    }
   }
 
   private substituteVariables(content: string, variables: PromptVariables): string {

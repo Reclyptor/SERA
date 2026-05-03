@@ -1,16 +1,13 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { createHash } from 'crypto';
-import { readFile, readdir, stat } from 'fs/promises';
-import { join, relative } from 'path';
 import * as yaml from 'js-yaml';
 import Redis from 'ioredis';
 import { Skill, SkillDocument } from './skill.schema';
 import type { CreateSkillDto, UpdateSkillDto } from './skills.dto';
 import { ContentScannerService } from '../security/content-scanner.service';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
-import { SKILL_SEEDS_DIR } from '../../seeds/paths';
+import { GitHubSyncService } from '../../github/github-sync.service';
 
 const CACHE_PREFIX = 'skill:';
 const CACHE_TTL = 300;
@@ -23,11 +20,18 @@ export class SkillsService implements OnModuleInit {
     @InjectModel(Skill.name)
     private readonly skillModel: Model<SkillDocument>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly githubSync: GitHubSyncService,
     @Optional() private readonly contentScanner?: ContentScannerService,
   ) {}
 
   async onModuleInit() {
-    await this.seedFromFiles();
+    this.syncFromGitHub().catch((err) =>
+      this.logger.error('GitHub sync failed, using existing MongoDB data:', err),
+    );
+  }
+
+  async syncFromGitHub() {
+    return this.githubSync.syncSkills(this.skillModel);
   }
 
   async create(dto: CreateSkillDto): Promise<Skill> {
@@ -48,6 +52,17 @@ export class SkillsService implements OnModuleInit {
     });
     const saved = await skill.save();
     await this.invalidateCache(dto.name);
+
+    this.githubSync.pushSkill(dto.name, {
+      content: dto.content,
+      description: dto.description,
+      license: dto.license,
+      compatibility: dto.compatibility,
+      allowedTools: dto.allowedTools,
+      metadata: dto.metadata,
+      files: dto.files,
+    }).catch((err) => this.logger.warn(`Failed to push skill "${dto.name}" to GitHub:`, err));
+
     return saved;
   }
 
@@ -92,12 +107,28 @@ export class SkillsService implements OnModuleInit {
       throw new NotFoundException(`Skill "${name}" not found`);
     }
     await this.invalidateCache(name);
+
+    this.githubSync.pushSkill(name, {
+      content: skill.content,
+      description: skill.description,
+      license: skill.license,
+      compatibility: skill.compatibility,
+      allowedTools: skill.allowedTools,
+      metadata: skill.metadata as Record<string, string>,
+      files: skill.files,
+    }).catch((err) => this.logger.warn(`Failed to push skill "${name}" to GitHub:`, err));
+
     return skill;
   }
 
   async remove(name: string): Promise<boolean> {
     const result = await this.skillModel.deleteOne({ name }).exec();
-    if (result.deletedCount > 0) await this.invalidateCache(name);
+    if (result.deletedCount > 0) {
+      await this.invalidateCache(name);
+      this.githubSync.deleteSkillFiles(name).catch((err) =>
+        this.logger.warn(`Failed to delete skill "${name}" from GitHub:`, err),
+      );
+    }
     return result.deletedCount > 0;
   }
 
@@ -242,100 +273,6 @@ export class SkillsService implements OnModuleInit {
     return `## Skills\n\n${sections.join('\n\n')}`;
   }
 
-  private async seedFromFiles(): Promise<void> {
-    let files: string[];
-    try {
-      files = await readdir(SKILL_SEEDS_DIR);
-    } catch {
-      this.logger.warn('Skills seeds directory not found, skipping');
-      return;
-    }
-
-    for (const entry of files) {
-      const entryPath = join(SKILL_SEEDS_DIR, entry);
-      const entryStat = await stat(entryPath).catch(() => null);
-      if (!entryStat?.isDirectory()) continue;
-
-      const skillFile = join(entryPath, 'SKILL.md');
-      const name = entry;
-
-      try {
-        const raw = (await readFile(skillFile, 'utf-8')).trimEnd();
-        const { meta, content } = this.parseFrontmatter(raw);
-        const supplementaryFiles = await this.collectFiles(entryPath);
-
-        const allFiles = [
-          { path: 'SKILL.md', content: raw },
-          ...supplementaryFiles,
-        ].sort((a, b) => a.path.localeCompare(b.path));
-        const hashInput = allFiles.map((f) => `${f.path}\n${f.content}`).join('\0');
-        const hash = createHash('sha256').update(hashInput).digest('hex');
-
-        const existing = await this.skillModel.findOne({ name }).exec();
-
-        if (!existing) {
-          await this.skillModel.create({
-            name,
-            description: meta.description ?? `Seeded from ${entry}/SKILL.md`,
-            content,
-            license: meta.license,
-            compatibility: meta.compatibility,
-            allowedTools: meta.allowedTools ?? [],
-            metadata: meta.metadata,
-            files: supplementaryFiles,
-            seedHash: hash,
-          });
-          this.logger.log(`Seeded skill "${name}" from ${entry}/`);
-        } else if (existing.seedHash !== hash) {
-          await this.skillModel.updateOne(
-            { name },
-            {
-              $set: {
-                description: meta.description ?? existing.description,
-                content,
-                license: meta.license,
-                compatibility: meta.compatibility ?? existing.compatibility,
-                allowedTools: meta.allowedTools ?? existing.allowedTools,
-                metadata: meta.metadata ?? existing.metadata,
-                files: supplementaryFiles,
-                seedHash: hash,
-              },
-            },
-          );
-          this.logger.log(`Updated skill "${name}" (content changed)`);
-        }
-      } catch (err) {
-        this.logger.error(`Failed to seed skill from ${entry}/SKILL.md:`, err);
-      }
-    }
-  }
-
-  private async collectFiles(
-    skillDir: string,
-    base?: string,
-  ): Promise<{ path: string; content: string }[]> {
-    const root = base ?? skillDir;
-    const results: { path: string; content: string }[] = [];
-    const dirEntries = await readdir(skillDir);
-
-    for (const dirEntry of dirEntries) {
-      if (!base && dirEntry === 'SKILL.md') continue;
-      const fullPath = join(skillDir, dirEntry);
-      const s = await stat(fullPath).catch(() => null);
-      if (!s) continue;
-
-      if (s.isDirectory()) {
-        const nested = await this.collectFiles(fullPath, root);
-        results.push(...nested);
-      } else {
-        const fileContent = (await readFile(fullPath, 'utf-8')).trimEnd();
-        results.push({ path: relative(root, fullPath), content: fileContent });
-      }
-    }
-
-    return results;
-  }
-
   private substituteMetadata(content: string, metadata: Record<string, string>): string {
     return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
       return key in metadata ? metadata[key] : match;
@@ -349,43 +286,6 @@ export class SkillsService implements OnModuleInit {
       if (keys.length > 0) await this.redis.del(...keys);
     } catch {
       this.logger.warn('Redis cache invalidation failed');
-    }
-  }
-
-  private parseFrontmatter(raw: string): {
-    meta: Record<string, any>;
-    content: string;
-  } {
-    if (!raw.startsWith('---')) {
-      return { meta: {}, content: raw };
-    }
-
-    const endIndex = raw.indexOf('---', 3);
-    if (endIndex === -1) {
-      return { meta: {}, content: raw };
-    }
-
-    const frontmatter = raw.slice(3, endIndex).trim();
-    const content = raw.slice(endIndex + 3).trim();
-
-    try {
-      const parsed = yaml.load(frontmatter) as Record<string, any>;
-      if (!parsed || typeof parsed !== 'object') {
-        return { meta: {}, content };
-      }
-
-      const meta: Record<string, any> = { ...parsed };
-
-      // Convert spec field names to schema field names
-      if (meta['allowed-tools']) {
-        meta.allowedTools = (meta['allowed-tools'] as string).split(/\s+/);
-        delete meta['allowed-tools'];
-      }
-
-      return { meta, content };
-    } catch {
-      this.logger.warn('Failed to parse skill frontmatter');
-      return { meta: {}, content: raw };
     }
   }
 }
