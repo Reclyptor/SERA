@@ -7,6 +7,15 @@ import { ToolsService } from '../tools/tools.service';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
 import type { AgentConfig } from '../../agents/agent-config.schema';
 
+const PROMPT_LOAD_ORDER: string[] = [
+  'system',
+  'soul',
+  'identity',
+  'user',
+  'tools',
+  'heartbeat',
+];
+
 @Injectable()
 export class PromptBuilderService {
   private readonly logger = new Logger(PromptBuilderService.name);
@@ -25,23 +34,28 @@ export class PromptBuilderService {
     agentConfig: AgentConfig,
     frozenMemoryContext?: string,
   ): Promise<string> {
-    const promptSlug = agentConfig.promptSlug ?? 'system';
-
     const variables: PromptVariables = {
       agentName: agentConfig.name,
       agentID: agentConfig.agentID,
       userID,
     };
 
-    const basePrompt = await this.promptsService.resolve(promptSlug, variables);
-    if (!basePrompt) {
-      this.logger.error(
-        `Prompt "${promptSlug}" not found in database. Ensure prompts have been seeded.`,
-      );
-      throw new Error(`Prompt "${promptSlug}" not found`);
+    const parts: string[] = [];
+
+    // Load well-known prompts in priority order
+    const loadOrder = agentConfig.promptSlug
+      ? [agentConfig.promptSlug, ...PROMPT_LOAD_ORDER.filter((s) => s !== agentConfig.promptSlug)]
+      : PROMPT_LOAD_ORDER;
+
+    for (const slug of loadOrder) {
+      const resolved = await this.promptsService.resolve(slug, variables);
+      if (resolved) parts.push(resolved);
     }
 
-    const parts: string[] = [basePrompt];
+    if (parts.length === 0) {
+      this.logger.error('No prompts found in database. Ensure prompts have been synced.');
+      throw new Error('No prompts found');
+    }
 
     if (frozenMemoryContext) {
       parts.push(frozenMemoryContext);
