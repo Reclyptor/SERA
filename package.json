@@ -32,7 +32,6 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@qdrant/js-client-rest": "^1.17.0",
-    "@temporalio/client": "^1.14.1",
     "ai": "^6.0.168",
     "cron-parser": "^5.5.0",
     "ioredis": "^5.10.1",

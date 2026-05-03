@@ -9,7 +9,6 @@ import { StateModule } from '../state/state.module';
 import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { PromptsModule } from '../../prompts/prompts.module';
-import { TemporalModule } from '../temporal/temporal.module';
 import { ChatsModule } from '../../chats/chats.module';
 import { AgentsModule } from '../../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
@@ -27,7 +26,6 @@ import { InsightsModule } from '../insights/insights.module';
     MemoryModule,
     KnowledgeModule,
     PromptsModule,
-    TemporalModule,
     ChatsModule,
     AgentsModule,
     SkillsModule,
