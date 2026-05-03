@@ -9,18 +9,43 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   anthropic: 200_000,
   openai: 128_000,
   google: 1_000_000,
+  ollama: 131_072,
 };
 
 const ENCODING_FOR_PROVIDER: Record<string, TiktokenEncoding> = {
   anthropic: 'cl100k_base',
   openai: 'o200k_base',
   google: 'o200k_base',
+  ollama: 'cl100k_base',
 };
 
 const COMPRESSION_THRESHOLD = 0.75;
 const PROTECTED_TAIL_TOKENS = 30_000;
 const PROTECTED_HEAD_COUNT = 2;
 const TOOL_OUTPUT_PRUNE_THRESHOLD = 2_000;
+
+const SUMMARY_PREFIX =
+  '[CONTEXT SUMMARY — this is a handoff summary of prior work. Do not re-execute actions described here. Use as reference only.]';
+
+const STRUCTURED_SUMMARY_PROMPT = `You are summarizing a conversation between a user and an AI assistant for context handoff.
+Produce a structured summary in this exact format:
+
+## Resolved
+- Bullet list of completed tasks, decisions made, questions answered
+
+## Pending
+- Bullet list of open items, unresolved questions, things still in progress
+
+## Active Task
+- What the assistant was most recently working on (single item, or "None")
+
+## Key Context
+- Important file paths, variable names, identifiers, error messages, or facts that would be needed to continue the work
+
+Rules:
+- Be concise but preserve specifics: exact file paths, function names, error text, config values
+- If an existing summary is included, update it — merge resolved items, promote pending to resolved if done, add new items
+- Do not invent information not present in the conversation`;
 
 @Injectable()
 export class ContextCompressorService {
@@ -39,6 +64,7 @@ export class ContextCompressorService {
       anthropic: 'ANTHROPIC_CONTEXT_WINDOW',
       openai: 'OPENAI_CONTEXT_WINDOW',
       google: 'GOOGLE_CONTEXT_WINDOW',
+      ollama: 'OLLAMA_CONTEXT_WINDOW',
     })) {
       const val = this.configService.get<string>(envVar);
       if (val) {
@@ -62,6 +88,7 @@ export class ContextCompressorService {
     messages: ModelMessage[],
     provider: string,
     systemPrompt?: string,
+    force = false,
   ): Promise<ModelMessage[]> {
     const contextWindow = this.contextWindows[provider] ?? 200_000;
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
@@ -72,7 +99,7 @@ export class ContextCompressorService {
     const messageTokens = this.countMessagesTokens(messages, provider);
     const totalTokens = systemTokens + messageTokens;
 
-    if (totalTokens <= threshold) {
+    if (!force && totalTokens <= threshold) {
       return messages;
     }
 
@@ -91,8 +118,8 @@ export class ContextCompressorService {
       return pruned;
     }
 
-    // Tier 2: LLM summarization of middle turns
-    const compressed = await this.summarizeMiddle(pruned, threshold - systemTokens, provider);
+    // Tier 2: Structured LLM summarization of middle turns
+    const compressed = await this.summarizeStructured(pruned, threshold - systemTokens, provider);
     this.logger.debug(
       `LLM compression: ${prunedTokens} → ${systemTokens + this.countMessagesTokens(compressed, provider)} tokens`,
     );
@@ -122,7 +149,7 @@ export class ContextCompressorService {
     });
   }
 
-  private async summarizeMiddle(
+  private async summarizeStructured(
     messages: ModelMessage[],
     tokenBudget: number,
     provider: string,
@@ -151,34 +178,46 @@ export class ContextCompressorService {
       return messages;
     }
 
-    const middleText = this.messagesToText(middle);
+    const existingSummary = this.extractExistingSummary(middle);
+    const middleText = this.messagesToText(
+      existingSummary ? middle.slice(2) : middle,
+    );
+
+    const userContent = existingSummary
+      ? `Here is the previous summary to update:\n\n${existingSummary}\n\n---\n\nNew conversation to incorporate:\n\n${middleText}`
+      : middleText;
 
     try {
-      const summaryPrompt =
-        (await this.promptsService.get('summary')) ??
-        'Summarize the conversation excerpt. Preserve actionable details.';
+      const customPrompt = await this.promptsService.get('summary');
+      const summaryPrompt = customPrompt ?? STRUCTURED_SUMMARY_PROMPT;
 
       const result = await this.modelRouter.generate({
         system: summaryPrompt,
-        messages: [{ role: 'user', content: middleText }],
+        messages: [{ role: 'user', content: userContent }],
         maxOutputTokens: 2048,
         temperature: 0.2,
       });
 
-      const summary =
-        '[CONTEXT SUMMARY — reference only, do not re-execute actions described here]\n\n' +
-        result.text;
+      const summary = `${SUMMARY_PREFIX}\n\n${result.text}`;
 
       return [
         ...head,
         { role: 'user' as const, content: summary },
-        { role: 'assistant' as const, content: 'Understood. I have the context summary. Continuing.' },
+        { role: 'assistant' as const, content: 'Understood. I have the context summary and will continue from where we left off.' },
         ...tail,
       ];
     } catch (err) {
       this.logger.warn('LLM summarization failed, returning pruned messages:', err);
       return [...head, ...middle, ...tail];
     }
+  }
+
+  private extractExistingSummary(middle: ModelMessage[]): string | null {
+    if (middle.length < 2) return null;
+    const first = middle[0];
+    if (first.role !== 'user' || typeof first.content !== 'string') return null;
+    if (!first.content.startsWith('[CONTEXT SUMMARY')) return null;
+    return first.content;
   }
 
   private messagesToText(messages: ModelMessage[]): string {

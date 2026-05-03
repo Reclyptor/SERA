@@ -11,9 +11,12 @@ import { CronModule } from './cron/cron.module';
 import { TasksModule } from './tasks/tasks.module';
 import { TriggersModule } from './triggers/triggers.module';
 import { SandboxModule } from './sandbox/sandbox.module';
+import { InsightsModule } from './insights/insights.module';
+import { McpModule } from './mcp/mcp.module';
+import { PluginsModule } from './plugins/plugins.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule, SandboxModule],
+  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule, SandboxModule, InsightsModule, McpModule, PluginsModule],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

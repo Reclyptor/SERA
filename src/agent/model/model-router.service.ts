@@ -7,6 +7,7 @@ import {
   type GenerateTextResult,
   type StreamTextResult,
   type ModelMessage,
+  type SystemModelMessage,
   type ToolSet,
   type LanguageModel,
 } from 'ai';
@@ -16,6 +17,10 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { ModelRequestOptions, ResolvedModel } from './model.interfaces';
+import { PromptCacheService } from './prompt-cache.service';
+import { CredentialPoolService } from './credential-pool.service';
+import { classifyError } from './error-classifier';
+import { withRetry } from './retry-utils';
 
 interface ProviderEntry {
   id: string;
@@ -34,7 +39,11 @@ export class ModelRouterService {
   private readonly thinkingEnabled: boolean;
   private readonly thinkingBudget: number;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly promptCache: PromptCacheService,
+    private readonly credentialPool: CredentialPoolService,
+  ) {
     this.primaryModel = this.configService.getOrThrow<string>('PRIMARY_MODEL');
     this.fallbackModels = this.configService
       .get<string>('FALLBACK_MODELS', '')
@@ -63,11 +72,13 @@ export class ModelRouterService {
   private initializeProviders(): void {
     const anthropicKey = this.configService.get<string>('ANTHROPIC_API_KEY');
     if (anthropicKey) {
-      const anthropic = createAnthropic({ apiKey: anthropicKey });
       this.providers.push({
         id: 'anthropic',
         priority: 1,
-        factory: (modelID) => anthropic(modelID),
+        factory: (modelID) => {
+          const key = this.credentialPool.getKey('anthropic') ?? anthropicKey;
+          return createAnthropic({ apiKey: key })(modelID);
+        },
         defaultModel: 'claude-sonnet-4-6',
         allowedModels: new Set([
           'claude-haiku-4-5',
@@ -79,11 +90,13 @@ export class ModelRouterService {
 
     const openaiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (openaiKey) {
-      const openai = createOpenAI({ apiKey: openaiKey });
       this.providers.push({
         id: 'openai',
         priority: 2,
-        factory: (modelID) => openai(modelID),
+        factory: (modelID) => {
+          const key = this.credentialPool.getKey('openai') ?? openaiKey;
+          return createOpenAI({ apiKey: key })(modelID);
+        },
         defaultModel: 'gpt-4o',
         allowedModels: new Set(['gpt-4o-mini', 'gpt-4o', 'o3']),
       });
@@ -91,11 +104,13 @@ export class ModelRouterService {
 
     const googleKey = this.configService.get<string>('GOOGLE_API_KEY');
     if (googleKey) {
-      const google = createGoogleGenerativeAI({ apiKey: googleKey });
       this.providers.push({
         id: 'google',
         priority: 3,
-        factory: (modelID) => google(modelID),
+        factory: (modelID) => {
+          const key = this.credentialPool.getKey('google') ?? googleKey;
+          return createGoogleGenerativeAI({ apiKey: key })(modelID);
+        },
         defaultModel: 'gemini-2.0-flash',
         allowedModels: new Set(['gemini-2.0-flash']),
       });
@@ -234,22 +249,6 @@ export class ModelRouterService {
     return undefined;
   }
 
-  /**
-   * Check if an error is a rate limit (429) response.
-   */
-  private isRateLimitError(error: unknown): boolean {
-    if (error && typeof error === 'object') {
-      const e = error as Record<string, unknown>;
-      if (e.status === 429 || e.statusCode === 429) return true;
-      if (typeof e.message === 'string' && e.message.includes('429'))
-        return true;
-    }
-    return false;
-  }
-
-  /**
-   * Generate text with automatic provider fallback on rate limits.
-   */
   async generate(params: {
     messages: ModelMessage[];
     tools?: ToolSet;
@@ -270,41 +269,75 @@ export class ModelRouterService {
         excludeProviders,
       });
 
+      const cachedMessages = this.promptCache.applyCacheBreakpoints(
+        params.messages,
+        resolved.provider,
+      );
+      const cachedSystem = params.system
+        ? this.promptCache.buildSystemWithCache(params.system, resolved.provider)
+        : undefined;
+
       try {
         this.logger.debug(`Calling ${resolved.provider}/${resolved.modelID}`);
 
-        const result = await generateText({
-          model: resolved.model,
-          messages: params.messages,
-          tools: params.tools,
-          system: params.system,
-          stopWhen: params.stopSteps
-            ? stepCountIs(params.stopSteps)
-            : undefined,
-          maxOutputTokens:
-            params.maxOutputTokens ?? params.options?.maxOutputTokens,
-          temperature: params.temperature ?? params.options?.temperature,
-          abortSignal: params.abortSignal,
-          providerOptions: this.buildProviderOptions(
-            resolved.provider,
-            resolved.modelID,
-          ),
-        });
+        const result = await withRetry(
+          () =>
+            generateText({
+              model: resolved.model,
+              messages: cachedMessages,
+              tools: params.tools,
+              system: cachedSystem,
+              stopWhen: params.stopSteps
+                ? stepCountIs(params.stopSteps)
+                : undefined,
+              maxOutputTokens:
+                params.maxOutputTokens ?? params.options?.maxOutputTokens,
+              temperature: params.temperature ?? params.options?.temperature,
+              abortSignal: params.abortSignal,
+              providerOptions: this.buildProviderOptions(
+                resolved.provider,
+                resolved.modelID,
+              ),
+            }),
+          {
+            maxAttempts: 3,
+            signal: params.abortSignal,
+            shouldRetry: (err) => {
+              const classified = classifyError(err);
+              return classified.retryable && !classified.shouldRotate;
+            },
+            onRetry: (err, retryAttempt, delayMs) => {
+              const classified = classifyError(err);
+              this.logger.warn(
+                `Transient error [${classified.reason}] from ${resolved.provider}/${resolved.modelID}, ` +
+                  `retry ${retryAttempt} in ${delayMs}ms`,
+              );
+            },
+          },
+        );
 
         return result;
       } catch (error) {
-        if (this.isRateLimitError(error)) {
+        const classified = classifyError(error);
+
+        if (classified.shouldCompress) {
+          throw error;
+        }
+
+        if (classified.shouldRotate) {
           this.logger.warn(
-            `Rate limited by ${resolved.provider}/${resolved.modelID}, falling back...`,
+            `[${classified.reason}] ${resolved.provider}/${resolved.modelID}, falling back...`,
           );
+          this.credentialPool.markCooldown(resolved.provider);
           excludeProviders.push(resolved.provider);
           continue;
         }
+
         throw error;
       }
     }
 
-    throw new Error('All model providers are rate limited');
+    throw new Error('All model providers exhausted');
   }
 
   /**
@@ -325,15 +358,23 @@ export class ModelRouterService {
   }): StreamTextResult<ToolSet, never> {
     const resolved = this.resolveModel(params.options);
 
+    const cachedMessages = this.promptCache.applyCacheBreakpoints(
+      params.messages,
+      resolved.provider,
+    );
+    const cachedSystem = params.system
+      ? this.promptCache.buildSystemWithCache(params.system, resolved.provider)
+      : undefined;
+
     this.logger.debug(
       `Streaming from ${resolved.provider}/${resolved.modelID}`,
     );
 
     return streamText({
       model: resolved.model,
-      messages: params.messages,
+      messages: cachedMessages,
       tools: params.tools,
-      system: params.system,
+      system: cachedSystem,
       stopWhen: params.stopSteps ? stepCountIs(params.stopSteps) : undefined,
       maxOutputTokens:
         params.maxOutputTokens ?? params.options?.maxOutputTokens,

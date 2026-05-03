@@ -39,6 +39,7 @@ import {
   TaskPlanTool,
   SkillsTool,
   TriggerTool,
+  SessionSearchTool,
 } from './implementations';
 
 @Injectable()
@@ -59,6 +60,7 @@ export class ToolsBootstrapService implements OnModuleInit {
 
   onModuleInit() {
     this.registerCoreTools();
+    this.registerMcpTools();
   }
 
   private registerCoreTools() {
@@ -107,6 +109,9 @@ export class ToolsBootstrapService implements OnModuleInit {
     // Memory
     this.toolsService.registerTool(new MemorySearchTool(this.memoryService));
     this.toolsService.registerTool(new MemoryGetTool(this.memoryService));
+
+    // Session search
+    this.toolsService.registerTool(new SessionSearchTool(this.chatsService));
 
     // Automation & messaging
     const lazyCronScheduler: import('./implementations/cron.tool').CronSchedulerLike = {
@@ -190,7 +195,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new TriggerTool(lazyTriggers));
 
     this.logger.log(
-      `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 32 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 
@@ -240,5 +245,32 @@ export class ToolsBootstrapService implements OnModuleInit {
     const svc = this.moduleRef.get(TriggersService, { strict: false });
     if (!svc) throw new Error('TriggersService not available');
     return svc;
+  }
+
+  private registerMcpTools() {
+    // Delay MCP tool registration to allow MCP connections to be established
+    setTimeout(() => {
+      try {
+        const { McpClientService } = require('../mcp/mcp-client.service');
+        const mcpClient = this.moduleRef.get(McpClientService, { strict: false });
+        if (!mcpClient) return;
+
+        const { adaptMcpTool } = require('../mcp/mcp-tool-adapter');
+        const tools = mcpClient.getDiscoveredTools();
+
+        for (const toolDef of tools) {
+          const adapted = adaptMcpTool(toolDef, mcpClient);
+          this.toolsService.registerTool(adapted);
+        }
+
+        if (tools.length > 0) {
+          this.logger.log(`Registered ${tools.length} MCP tools`);
+        }
+      } catch (err) {
+        this.logger.debug(
+          `MCP tool registration skipped: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }, 2000);
   }
 }

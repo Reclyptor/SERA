@@ -165,12 +165,34 @@ export class SkillsService implements OnModuleInit {
     await this.invalidateCache(name);
   }
 
+  async markUsed(name: string): Promise<void> {
+    await this.skillModel.updateOne(
+      { name },
+      {
+        $set: { lastUsedAt: new Date(), status: 'active' },
+        $inc: { usageCount: 1 },
+      },
+    );
+    await this.invalidateCache(name);
+  }
+
+  async setStatus(
+    name: string,
+    status: 'active' | 'stale' | 'archived',
+    notes?: string,
+  ): Promise<void> {
+    const update: Record<string, unknown> = { status };
+    if (notes !== undefined) update.curatorNotes = notes;
+    await this.skillModel.updateOne({ name }, { $set: update });
+    await this.invalidateCache(name);
+  }
+
   async findRelevant(
     query: string,
     _agentID?: string,
     availableTools?: string[],
   ): Promise<Skill[]> {
-    const skills = await this.skillModel.find().exec();
+    const skills = await this.skillModel.find({ status: { $ne: 'archived' } }).exec();
 
     const queryWords = query
       .toLowerCase()

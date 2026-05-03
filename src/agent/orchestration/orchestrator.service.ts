@@ -38,6 +38,9 @@ import { ContextCompressorService } from '../context/context-compressor.service'
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { PromptsService } from '../../prompts/prompts.service';
+import { LoopDetectionService } from '../tools/loop-detection.service';
+import { classifyError } from '../model/error-classifier';
+import { InsightsService } from '../insights/insights.service';
 
 const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
 const MAX_EVENT_RESULT_LENGTH = 5000;
@@ -67,6 +70,8 @@ export class OrchestratorService {
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly promptsService: PromptsService,
+    private readonly loopDetection: LoopDetectionService,
+    private readonly insightsService: InsightsService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -181,6 +186,10 @@ export class OrchestratorService {
       let lastThinkingDuration: number | undefined;
       let finalText = '';
       const toolCallBlocks: ToolCallBlock[] = [];
+      let forceCompress = false;
+      const runStartTime = Date.now();
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
 
       while (iterationCount < cfg.maxIterations) {
         iterationCount++;
@@ -195,7 +204,9 @@ export class OrchestratorService {
           messages,
           resolved.provider,
           systemPrompt,
+          forceCompress,
         );
+        forceCompress = false;
         if (compressed !== messages) {
           messages.length = 0;
           messages.push(...compressed);
@@ -204,8 +215,12 @@ export class OrchestratorService {
         let accumulatedReasoning = '';
         let accumulatedText = '';
         let thinkingStartTime: number | null = null;
+        const pendingToolArgs = new Map<string, { toolName: string; args: Record<string, unknown> }>();
 
-        const streamResult = this.modelRouter.stream({
+        let streamResult: ReturnType<typeof this.modelRouter.stream>;
+        try {
+
+        streamResult = this.modelRouter.stream({
           messages,
           tools,
           system: systemPrompt,
@@ -246,6 +261,7 @@ export class OrchestratorService {
               const toolCallID = String(part.toolCallId);
               const toolName = String(part.toolName);
               const args = (part.input ?? {}) as Record<string, unknown>;
+              pendingToolArgs.set(toolCallID, { toolName, args });
               toolCallBlocks.push({
                 toolCallID,
                 toolName,
@@ -269,6 +285,8 @@ export class OrchestratorService {
               const toolCallID = String(part.toolCallId);
               const toolName = String(part.toolName);
               const output = part.output;
+              const pending = pendingToolArgs.get(toolCallID);
+              this.loopDetection.record(runID, toolName, pending?.args ?? {});
               const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
               if (block) {
                 block.status = 'completed';
@@ -302,6 +320,8 @@ export class OrchestratorService {
               const toolCallID = String(part.toolCallId);
               const toolName = String(part.toolName);
               const errorStr = part.error instanceof Error ? part.error.message : String(part.error);
+              const pending = pendingToolArgs.get(toolCallID);
+              this.loopDetection.record(runID, toolName, pending?.args ?? {}, errorStr);
               const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
               if (block) {
                 block.status = 'failed';
@@ -347,6 +367,10 @@ export class OrchestratorService {
 
         for (const step of steps) {
           totalToolCalls += step.toolCalls.length;
+          if (step.usage) {
+            totalInputTokens += step.usage.inputTokens ?? 0;
+            totalOutputTokens += step.usage.outputTokens ?? 0;
+          }
         }
 
         if (streamResponse.messages) {
@@ -355,8 +379,57 @@ export class OrchestratorService {
           );
         }
 
-        // The model is done when its last step has no tool calls —
-        // meaning it gave a final text response rather than requesting more work.
+        const loop = this.loopDetection.detect(runID);
+        if (loop) {
+          this.logger.warn(`Loop detected in run ${runID}: [${loop.type}] ${loop.message}`);
+          if (loop.type === 'circuit_breaker') {
+            messages.push({
+              role: 'user',
+              content: `[SYSTEM] ${loop.message} You must provide a final answer now without calling any more tools.`,
+            });
+            const finalStream = this.modelRouter.stream({
+              messages,
+              system: systemPrompt,
+              options: effectiveModelOptions,
+              abortSignal: abortController.signal,
+            });
+            for await (const p of finalStream.fullStream) {
+              if (p.type === 'text-delta') {
+                finalText += p.text;
+                await this.emitEvent(runID, threadID, 'text.delta', {
+                  content: p.text,
+                } satisfies TextDeltaData);
+              }
+            }
+            if (finalText) {
+              await this.emitEvent(runID, threadID, 'text.done', {
+                content: finalText,
+              } satisfies TextDoneData);
+            }
+            await this.completeRun(
+              goal,
+              finalText,
+              lastReasoningText,
+              lastThinkingDuration,
+              totalToolCalls,
+              toolCallBlocks,
+              {
+                provider: resolved.provider,
+                modelID: resolved.modelID,
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens,
+                durationMs: Date.now() - runStartTime,
+                iterationCount,
+              },
+            );
+            break;
+          }
+          messages.push({
+            role: 'user',
+            content: `[SYSTEM] Warning: ${loop.message}`,
+          });
+        }
+
         const lastStep = steps[steps.length - 1];
         const modelFinished = !lastStep || lastStep.toolCalls.length === 0;
 
@@ -368,8 +441,28 @@ export class OrchestratorService {
             lastThinkingDuration,
             totalToolCalls,
             toolCallBlocks,
+            {
+              provider: resolved.provider,
+              modelID: resolved.modelID,
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+              durationMs: Date.now() - runStartTime,
+              iterationCount,
+            },
           );
           break;
+        }
+
+        } catch (streamError) {
+          const classified = classifyError(streamError);
+          if (classified.shouldCompress && iterationCount < cfg.maxIterations) {
+            this.logger.warn(
+              `Context length exceeded in run ${runID}, forcing compression and retrying...`,
+            );
+            forceCompress = true;
+            continue;
+          }
+          throw streamError;
         }
       }
 
@@ -381,6 +474,15 @@ export class OrchestratorService {
           lastReasoningText,
           lastThinkingDuration,
           totalToolCalls,
+          undefined,
+          {
+            provider: resolved.provider,
+            modelID: resolved.modelID,
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            durationMs: Date.now() - runStartTime,
+            iterationCount,
+          },
         );
       }
     } catch (error) {
@@ -397,6 +499,7 @@ export class OrchestratorService {
         } satisfies RunFailedData);
       }
     } finally {
+      this.loopDetection.clear(runID);
       this.abortControllers.delete(runID);
       await this.subscriber.unsubscribe(this.cancelChannel(runID));
       await this.eventEmitter.complete(runID, goal.chatID);
@@ -418,10 +521,38 @@ export class OrchestratorService {
     thinkingDuration?: number,
     totalToolCalls?: number,
     toolCalls?: ToolCallBlock[],
+    usageData?: {
+      provider: string;
+      modelID: string;
+      inputTokens: number;
+      outputTokens: number;
+      durationMs: number;
+      iterationCount: number;
+    },
   ): Promise<void> {
     const { runID, threadID, userID } = goal;
 
     await this.stateService.completeRun(runID, response);
+
+    if (usageData) {
+      this.insightsService
+        .recordUsage({
+          runID,
+          userID,
+          provider: usageData.provider,
+          modelID: usageData.modelID,
+          tokens: {
+            input: usageData.inputTokens,
+            output: usageData.outputTokens,
+          },
+          toolCallCount: totalToolCalls ?? 0,
+          durationMs: usageData.durationMs,
+          iterationCount: usageData.iterationCount,
+        })
+        .catch((err) => {
+          this.logger.warn('Usage recording failed:', err);
+        });
+    }
 
     if (goal.chatID && response) {
       try {

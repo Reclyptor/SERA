@@ -25,6 +25,9 @@ export { TtsTool } from './tts.tool';
 export { MemorySearchTool } from './memory-search.tool';
 export { MemoryGetTool } from './memory-get.tool';
 
+// Session search
+export { SessionSearchTool } from './session-search.tool';
+
 // Automation & messaging
 export { CronTool } from './cron.tool';
 export { MessageTool } from './message.tool';

@@ -43,6 +43,18 @@ export class Skill {
   @Prop()
   seedHash?: string;
 
+  @Prop({ default: 'active', enum: ['active', 'stale', 'archived'] })
+  status: string;
+
+  @Prop()
+  lastUsedAt?: Date;
+
+  @Prop({ default: 0 })
+  usageCount: number;
+
+  @Prop()
+  curatorNotes?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }

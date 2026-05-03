@@ -7,10 +7,11 @@ import { AgentsModule } from '../../agents/agents.module';
 import { ToolsRegistry } from './tools.registry';
 import { ToolsService } from './tools.service';
 import { ToolsBootstrapService } from './tools-bootstrap.service';
+import { LoopDetectionService } from './loop-detection.service';
 
 @Module({
   imports: [ConfigModule, MemoryModule, StateModule, ChatsModule, AgentsModule],
-  providers: [ToolsRegistry, ToolsService, ToolsBootstrapService],
-  exports: [ToolsService, ToolsRegistry],
+  providers: [ToolsRegistry, ToolsService, ToolsBootstrapService, LoopDetectionService],
+  exports: [ToolsService, ToolsRegistry, LoopDetectionService],
 })
 export class ToolsModule {}

@@ -160,6 +160,52 @@ export class ChatsService {
     return chat.messages.map((m) => ({ role: m.role, content: m.content }));
   }
 
+  async searchMessages(
+    userID: string,
+    query: string,
+    opts?: { limit?: number },
+  ): Promise<
+    Array<{
+      chatID: string;
+      title: string;
+      matches: Array<{ role: string; content: string; createdAt: Date }>;
+      score: number;
+    }>
+  > {
+    const limit = opts?.limit ?? 10;
+
+    const results = await this.chatModel
+      .find(
+        { userID, $text: { $search: query } },
+        { score: { $meta: 'textScore' } },
+      )
+      .sort({ score: { $meta: 'textScore' } })
+      .limit(limit)
+      .exec();
+
+    return results.map((chat) => {
+      const queryWords = query.toLowerCase().split(/\s+/);
+      const matches = chat.messages
+        .filter((m) => {
+          const lower = m.content.toLowerCase();
+          return queryWords.some((w) => lower.includes(w));
+        })
+        .slice(0, 5)
+        .map((m) => ({
+          role: m.role,
+          content: m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content,
+          createdAt: m.createdAt,
+        }));
+
+      return {
+        chatID: (chat as ChatDocument)._id.toString(),
+        title: chat.title,
+        matches,
+        score: (chat as unknown as { score: number }).score,
+      };
+    });
+  }
+
   async remove(chatID: string, userID: string): Promise<void> {
     const chat = await this.chatModel.findById(chatID).exec();
 
