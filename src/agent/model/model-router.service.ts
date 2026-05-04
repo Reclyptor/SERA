@@ -130,6 +130,7 @@ export class ModelRouterService {
         defaultModel: 'Qwen3.6-27B-FP8',
         allowedModels: new Set([
           'Qwen3.6-27B-FP8',
+          'Huihui-Qwen3.6-27B-abliterated',
         ]),
       });
     }
