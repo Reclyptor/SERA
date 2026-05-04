@@ -40,6 +40,10 @@ export class SkillsService implements OnModuleInit {
       this.contentScanner?.assertSafe(dto.description, 'skill create description');
     }
 
+    if (dto.files) {
+      for (const f of dto.files) this.validateFilePath(f.path);
+    }
+
     const skill = new this.skillModel({
       name: dto.name,
       description: dto.description,
@@ -49,6 +53,7 @@ export class SkillsService implements OnModuleInit {
       allowedTools: dto.allowedTools ?? [],
       metadata: dto.metadata,
       files: dto.files ?? [],
+      origin: dto.origin ?? 'user',
     });
     const saved = await skill.save();
     await this.invalidateCache(dto.name);
@@ -165,6 +170,7 @@ export class SkillsService implements OnModuleInit {
   }
 
   async addFile(name: string, filePath: string, content: string): Promise<void> {
+    this.validateFilePath(filePath);
     const skill = await this.skillModel.findOne({ name }).exec();
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
     if (skill.files.some((f) => f.path === filePath)) {
@@ -175,6 +181,7 @@ export class SkillsService implements OnModuleInit {
   }
 
   async updateFile(name: string, filePath: string, content: string): Promise<void> {
+    this.validateFilePath(filePath);
     const result = await this.skillModel.updateOne(
       { name, 'files.path': filePath },
       { $set: { 'files.$.content': content } },
@@ -277,6 +284,16 @@ export class SkillsService implements OnModuleInit {
     return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
       return key in metadata ? metadata[key] : match;
     });
+  }
+
+  private validateFilePath(filePath: string): void {
+    const ALLOWED_PREFIXES = ['references/', 'templates/', 'scripts/'];
+    const hasSlash = filePath.includes('/');
+    if (hasSlash && !ALLOWED_PREFIXES.some((p) => filePath.startsWith(p))) {
+      throw new Error(
+        `Invalid file path "${filePath}". Subdirectory files must use: ${ALLOWED_PREFIXES.join(', ')}`,
+      );
+    }
   }
 
   private async invalidateCache(name: string): Promise<void> {

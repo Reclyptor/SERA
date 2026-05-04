@@ -43,6 +43,12 @@ export class Skill {
   @Prop()
   seedHash?: string;
 
+  @Prop({ default: 'user', enum: ['seed', 'agent', 'user'] })
+  origin: string;
+
+  @Prop()
+  absorbedInto?: string;
+
   @Prop({ default: 'active', enum: ['active', 'stale', 'archived'] })
   status: string;
 

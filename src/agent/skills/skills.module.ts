@@ -6,15 +6,20 @@ import { SkillsService } from './skills.service';
 import { SkillsController } from './skills.controller';
 import { SecurityModule } from '../security/security.module';
 import { SkillCuratorService } from './skill-curator.service';
+import { SkillReviewService } from './skill-review.service';
+import { ModelModule } from '../model/model.module';
+import { ToolsModule } from '../tools/tools.module';
 
 @Module({
   imports: [
     ConfigModule,
     SecurityModule,
+    ModelModule,
+    ToolsModule,
     MongooseModule.forFeature([{ name: Skill.name, schema: SkillSchema }]),
   ],
   controllers: [SkillsController],
-  providers: [SkillsService, SkillCuratorService],
-  exports: [SkillsService],
+  providers: [SkillsService, SkillCuratorService, SkillReviewService],
+  exports: [SkillsService, SkillReviewService],
 })
 export class SkillsModule {}

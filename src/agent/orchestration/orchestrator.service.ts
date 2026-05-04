@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
 import type { ModelMessage } from 'ai';
@@ -9,6 +10,7 @@ import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
 import { AgentsService } from '../../agents/agents.service';
 import { SkillsService } from '../skills/skills.service';
+import { SkillReviewService } from '../skills/skill-review.service';
 import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';
@@ -67,11 +69,13 @@ export class OrchestratorService {
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
     private readonly skillsService: SkillsService,
+    private readonly skillReview: SkillReviewService,
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly promptsService: PromptsService,
     private readonly loopDetection: LoopDetectionService,
     private readonly insightsService: InsightsService,
+    private readonly configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -587,80 +591,77 @@ export class OrchestratorService {
           });
       }
 
-      if (totalToolCalls && totalToolCalls >= 5) {
-        this.evaluateSkillCreation(goal, response, totalToolCalls).catch(
-          (err) => {
-            this.logger.warn('Skill evaluation failed:', err);
-          },
-        );
-      }
+      this.maybeRunSkillReview(goal, response, totalToolCalls ?? 0).catch(
+        (err) => {
+          this.logger.warn('Skill review trigger failed:', err);
+        },
+      );
     }
   }
 
-  private async evaluateSkillCreation(
+  private async maybeRunSkillReview(
     goal: AgentGoal,
     response: string,
-    toolCallCount: number,
+    totalToolCalls: number,
   ): Promise<void> {
-    try {
-      const skillEvalPrompt =
-        (await this.promptsService.get('evaluation')) ??
-        'Evaluate whether this interaction should become a reusable skill. Respond with JSON: {"create": false} or {"create": true, "name": "kebab-case-name", "description": "What it does and when to use it.", "content": "...", "allowedTools": [...]}';
+    const { threadID } = goal;
 
-      const result = await this.modelRouter.generate({
-        system: skillEvalPrompt,
-        messages: [
-          {
-            role: 'user',
-            content:
-              `Agent "${goal.agentID}" completed a run with ${toolCallCount} tool calls.\n\n` +
-              `User request: ${goal.userMessage}\n\n` +
-              `Agent response (truncated): ${response.slice(0, 2000)}\n\n` +
-              'Should this be turned into a reusable skill? Consider: Is this a repeatable pattern? ' +
-              'Would a skill template help the agent handle similar requests faster?',
-          },
-        ],
-        maxOutputTokens: 1024,
-        temperature: 0.1,
-      });
+    const prevTurns =
+      (await this.stateService.getCustomState<number>(
+        threadID,
+        'turnsSinceReview',
+      )) ?? 0;
+    const prevToolCalls =
+      (await this.stateService.getCustomState<number>(
+        threadID,
+        'toolCallsSinceReview',
+      )) ?? 0;
 
-      let raw = result.text.trim();
-      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) raw = fenceMatch[1].trim();
+    const newTurns = prevTurns + 1;
+    const newToolCalls = prevToolCalls + totalToolCalls;
 
-      const evaluation = JSON.parse(raw) as {
-        create: boolean;
-        name?: string;
-        description?: string;
-        content?: string;
-        allowedTools?: string[];
-      };
+    const turnThreshold =
+      parseInt(
+        this.configService.get<string>('SKILL_REVIEW_TURN_THRESHOLD', '3'),
+        10,
+      ) || 3;
+    const toolThreshold =
+      parseInt(
+        this.configService.get<string>('SKILL_REVIEW_TOOL_THRESHOLD', '5'),
+        10,
+      ) || 5;
 
-      if (!evaluation.create || !evaluation.name || !evaluation.content) {
-        return;
-      }
-
-      const existing = await this.skillsService.findByName(evaluation.name);
-      if (existing) {
-        this.logger.debug(
-          `Skill "${evaluation.name}" already exists, skipping auto-creation`,
-        );
-        return;
-      }
-
-      await this.skillsService.create({
-        name: evaluation.name,
-        description: evaluation.description ?? '',
-        content: evaluation.content,
-        allowedTools: evaluation.allowedTools,
-      });
-
-      this.logger.log(
-        `Auto-created skill "${evaluation.name}" from run ${goal.runID}`,
+    if (newTurns >= turnThreshold || newToolCalls >= toolThreshold) {
+      await this.stateService.setCustomState(threadID, 'turnsSinceReview', 0);
+      await this.stateService.setCustomState(
+        threadID,
+        'toolCallsSinceReview',
+        0,
       );
-    } catch (err) {
-      this.logger.debug(
-        `Skill evaluation skipped: ${err instanceof Error ? err.message : err}`,
+
+      this.skillReview
+        .review({
+          userMessage: goal.userMessage,
+          response,
+          conversationHistory: goal.conversationHistory,
+          agentID: goal.agentID,
+          threadID: goal.threadID,
+          runID: goal.runID,
+          toolCallCount: totalToolCalls,
+        })
+        .catch((err) => {
+          this.logger.warn('Skill review failed:', err);
+        });
+    } else {
+      await this.stateService.setCustomState(
+        threadID,
+        'turnsSinceReview',
+        newTurns,
+      );
+      await this.stateService.setCustomState(
+        threadID,
+        'toolCallsSinceReview',
+        newToolCalls,
       );
     }
   }

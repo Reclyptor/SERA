@@ -7,6 +7,7 @@ export class CreateSkillDto {
   allowedTools?: string[];
   metadata?: Record<string, string>;
   files?: { path: string; content: string }[];
+  origin?: 'seed' | 'agent' | 'user';
 }
 
 export class UpdateSkillDto {
