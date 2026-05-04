@@ -116,23 +116,20 @@ export class ModelRouterService {
       });
     }
 
-    const ollamaURL = this.configService.get<string>('OLLAMA_URL');
-    if (ollamaURL) {
-      const ollama = createOpenAICompatible({
-        name: 'ollama',
-        baseURL: `${ollamaURL.replace(/\/+$/, '')}/v1`,
+    const vllmURL = this.configService.get<string>('VLLM_URL');
+    if (vllmURL) {
+      const vllm = createOpenAICompatible({
+        name: 'vllm',
+        baseURL: `${vllmURL.replace(/\/+$/, '')}/v1`,
         apiKey: 'noop',
       });
       this.providers.push({
-        id: 'ollama',
+        id: 'vllm',
         priority: 4,
-        factory: (modelID) => ollama.chatModel(modelID),
-        defaultModel: 'qwen3.6:35b-a3b-q8_0',
+        factory: (modelID) => vllm.chatModel(modelID),
+        defaultModel: 'Qwen3.6-27B-FP8',
         allowedModels: new Set([
-          'qwen3.6:35b-a3b-q8_0',
-          'qwen3.6:27b-q8_0',
-          'qwen3.6:35b-a3b-q4_K_M',
-          'qwen3.6:27b-q4_K_M',
+          'Qwen3.6-27B-FP8',
         ]),
       });
     }

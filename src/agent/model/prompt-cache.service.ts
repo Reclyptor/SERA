@@ -14,7 +14,7 @@ const PROVIDER_CACHE_STRATEGY: Record<string, CacheStrategy> = {
   anthropic: 'explicit',
   openai: 'automatic',
   google: 'automatic',
-  ollama: 'none',
+  vllm: 'none',
 };
 
 @Injectable()

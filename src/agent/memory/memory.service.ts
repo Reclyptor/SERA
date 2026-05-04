@@ -55,7 +55,7 @@ export class MemoryService {
         provider: 'anthropic',
         config: { model: 'claude-haiku-4-5' },
       },
-      disableHistory: false,
+      disableHistory: true,
     });
   }
 

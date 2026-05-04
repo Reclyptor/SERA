@@ -9,14 +9,14 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   anthropic: 200_000,
   openai: 128_000,
   google: 1_000_000,
-  ollama: 131_072,
+  vllm: 131_072,
 };
 
 const ENCODING_FOR_PROVIDER: Record<string, TiktokenEncoding> = {
   anthropic: 'cl100k_base',
   openai: 'o200k_base',
   google: 'o200k_base',
-  ollama: 'cl100k_base',
+  vllm: 'cl100k_base',
 };
 
 const COMPRESSION_THRESHOLD = 0.75;
@@ -64,7 +64,7 @@ export class ContextCompressorService {
       anthropic: 'ANTHROPIC_CONTEXT_WINDOW',
       openai: 'OPENAI_CONTEXT_WINDOW',
       google: 'GOOGLE_CONTEXT_WINDOW',
-      ollama: 'OLLAMA_CONTEXT_WINDOW',
+      vllm: 'VLLM_CONTEXT_WINDOW',
     })) {
       const val = this.configService.get<string>(envVar);
       if (val) {
