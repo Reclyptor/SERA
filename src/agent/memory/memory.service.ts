@@ -42,6 +42,7 @@ export class MemoryService {
         provider: 'qdrant',
         config: {
           collectionName: COLLECTION_NAME,
+          dimension: embeddingDims,
           embeddingModelDims: embeddingDims,
           url: qdrantUrl,
           ...(qdrantApiKey && { apiKey: qdrantApiKey }),
@@ -49,7 +50,11 @@ export class MemoryService {
       },
       embedder: {
         provider: 'openai',
-        config: { model: embeddingModel },
+        config: {
+          apiKey: this.configService.get<string>('OPENAI_API_KEY'),
+          model: embeddingModel,
+          embeddingDims,
+        },
       },
       llm: {
         provider: 'anthropic',

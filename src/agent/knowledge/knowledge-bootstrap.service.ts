@@ -39,6 +39,7 @@ export class KnowledgeBootstrapService implements OnModuleInit {
       new DocumentKnowledgeProvider({
         qdrantUrl,
         qdrantApiKey,
+        openaiApiKey: this.configService.get<string>('OPENAI_API_KEY'),
         embeddingModel,
         chunkSize,
         chunkOverlap,

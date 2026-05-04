@@ -14,6 +14,7 @@ const COLLECTION_NAME = 'knowledge_chunks';
 export interface DocumentKnowledgeProviderOptions {
   qdrantUrl?: string;
   qdrantApiKey?: string;
+  openaiApiKey?: string;
   embeddingModel?: string;
   chunkSize?: number;
   chunkOverlap?: number;
@@ -43,7 +44,9 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       ...(options?.qdrantApiKey && { apiKey: options.qdrantApiKey }),
       checkCompatibility: false,
     });
-    this.openai = new OpenAI();
+    this.openai = new OpenAI({
+      ...(options?.openaiApiKey && { apiKey: options.openaiApiKey }),
+    });
     this.embeddingModel = options?.embeddingModel ?? 'text-embedding-3-small';
     this.chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
     this.chunkOverlap = options?.chunkOverlap ?? DEFAULT_CHUNK_OVERLAP;
