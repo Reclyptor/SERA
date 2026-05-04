@@ -3,7 +3,7 @@
 # ============================================
 # Stage 1: Dependencies
 # ============================================
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN npm ci
 # ============================================
 # Stage 2: Builder
 # ============================================
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN npm prune --production
 # ============================================
 # Stage 3: Production
 # ============================================
-FROM node:22-alpine AS production
+FROM node:24-alpine AS production
 
 WORKDIR /app
 
