@@ -58,8 +58,8 @@ SERA is an agentic AI backend that orchestrates LLM-powered agents with tool use
 - **LLM SDK:** Vercel AI SDK (`ai` package)
 - **Container:** Node 24 Alpine, non-root user, port 3001
 - **Global API Prefix:** `/api/v1` (except `/health`)
-- **Body Limit:** 50 MB (JSON and URL-encoded)
-- **CORS:** Configurable origin, credentials enabled
+- **Body Limit:** 50 MB (JSON, URL-encoded, and `text/*`)
+- **CORS:** Configurable origin, credentials enabled, allowed headers: `Content-Type`, `Cookie`
 
 ### Module Dependency Graph
 
@@ -696,11 +696,14 @@ Ownership enforced: users can only access their own chats.
 
 | Method | Path             | Auth | Body / Params                                    | Response                    |
 | ------ | ---------------- | ---- | ------------------------------------------------ | --------------------------- |
-| POST   | `/prompts/sync`  | Yes  |                                                  | SyncResult                  |
-| GET    | `/prompts`       | Yes  |                                                  | Prompt[] (excludes content) |
-| GET    | `/prompts/:slug` | Yes  |                                                  | Prompt                      |
-| PUT    | `/prompts/:slug` | Yes  | `{ content, extends?, description?, metadata? }` | Prompt                      |
-| DELETE | `/prompts/:slug` | Yes  |                                                  | `{ deleted: true }`         |
+| POST   | `/prompts/sync`  | Yes  |                                                  | SyncResult          |
+| GET    | `/prompts`       | Yes  |                                                  | PromptSummary[]     |
+| GET    | `/prompts/:slug` | Yes  |                                                  | PromptResponse      |
+| PUT    | `/prompts/:slug` | Yes  | `{ content, extends?, description?, metadata? }` | PromptResponse      |
+| DELETE | `/prompts/:slug` | Yes  |                                                  | `{ deleted: true }` |
+
+**PromptSummary:** `{ slug, extends, seedHash, description, metadata, createdAt, updatedAt }` (excludes `content`).
+**PromptResponse:** PromptSummary + `{ content }`.
 
 ### 5.7 Heartbeats
 
@@ -800,6 +803,7 @@ interface AgentGoal {
   threadID: string;
   runID: string;
   userID: string;
+  userName?: string;
   chatID?: string;
   agentID: string;
   userMessage: string;
@@ -832,7 +836,7 @@ If the model returns a context length error during streaming, the orchestrator f
 
 ### Prompt Building
 
-`PromptBuilderService.build()` assembles the system prompt in this order:
+`PromptBuilderService.build(userID, query, agentConfig, frozenMemoryContext?, userName?)` assembles the system prompt in this order:
 
 Default slug load order: `system`, `soul`, `identity`, `user`, `tools`, `heartbeat`.
 
@@ -1104,6 +1108,8 @@ Args are hashed with SHA-256 for comparison. Detection data is cleared on run co
 | `apply_patch` | `path`, `patch`                                                           | No       | Apply unified diff. Hunks applied in reverse order.         |
 
 #### Runtime Execution
+
+All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (default), they return a descriptive error without executing.
 
 | Tool             | Parameters                                                            | Parallel | Description                                                                              |
 | ---------------- | --------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
@@ -1398,13 +1404,13 @@ Skills sync bidirectionally with a GitHub repository:
 
 ### Skill Matching
 
-`findRelevant(query, agentID?, availableTools?)` finds skills by:
+`findRelevant(query, availableTools?)` finds skills by:
 
 1. Text matching against name and description
 2. Filtering by available tools (skills with `allowedTools` must match agent's tool set)
 3. Ranking by match quality
 
-Matched skills are formatted into the system prompt with their content and metadata.
+Matched skills are formatted into the system prompt via `formatForPrompt(skills)` with their content and metadata.
 
 ---
 
@@ -1511,6 +1517,8 @@ Triggers allow external systems to invoke agent execution via HTTP webhooks.
 - Payload is formatted as markdown and sent as the agent's goal
 - Returns `{ runID, triggerID }` with HTTP 202 Accepted
 - Agent executes asynchronously (maxSteps: 10, maxIterations: 2)
+- Runs with `isHeartbeat: true` (skips memory extraction on completion)
+- Uses synthetic `userID: 'webhook:{triggerID}'` (not a real user session)
 - Tracks `executionCount` and `lastTriggeredAt`
 
 ### Trigger Resolution
@@ -1606,6 +1614,10 @@ interface AggregateResult {
   byModel: Record<string, { runs; costCents; inputTokens; outputTokens }>;
 }
 ```
+
+### Top Tools
+
+`getTopTools(userID, limit?)` aggregates tool usage from chat message history via a MongoDB aggregation pipeline on `Chat.messages.toolCalls.toolName`. Returns per-tool invocation counts sorted descending. The `InsightsModule` imports both `UsageRecord` and `Chat` schemas for this.
 
 ---
 
