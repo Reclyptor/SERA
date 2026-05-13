@@ -13,10 +13,11 @@ const requiredEnvVars = [
   'MONGODB_URI',
   'OPENAI_API_KEY',
   'REDIS_URL',
+  'WEBHOOK_API_KEY',
 ] as const;
 
 function validateEnv(): void {
-  const missing = requiredEnvVars.filter((key) => !process.env[key]);
+  const missing: string[] = requiredEnvVars.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}`,
@@ -37,6 +38,7 @@ async function bootstrap() {
   // Increase body size limit for image uploads (50MB)
   app.useBodyParser('json', { limit: '50mb' });
   app.useBodyParser('urlencoded', { limit: '50mb', extended: true });
+  app.useBodyParser('text', { limit: '50mb', type: 'text/*' });
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN,
@@ -47,6 +49,8 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Sera backend running on http://localhost:${port}/api/v1`);
+  new Logger('Bootstrap').log(
+    `Sera backend running on http://localhost:${port}/api/v1`,
+  );
 }
-bootstrap();
+void bootstrap();

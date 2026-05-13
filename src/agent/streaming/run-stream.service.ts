@@ -34,7 +34,11 @@ export class RunStreamService {
     return `chat:${chatID}:activeRun`;
   }
 
-  async initRun(runID: string, threadID: string, chatID: string): Promise<void> {
+  async initRun(
+    runID: string,
+    threadID: string,
+    chatID: string,
+  ): Promise<void> {
     await this.redis.set(
       this.activeRunKey(chatID),
       JSON.stringify({ runID, threadID }),
@@ -57,9 +61,16 @@ export class RunStreamService {
     return streamID;
   }
 
-  async readEvents(runID: string, afterID: string = '0'): Promise<StreamEntry[]> {
+  async readEvents(
+    runID: string,
+    afterID: string = '0',
+  ): Promise<StreamEntry[]> {
     const startID = afterID === '0' ? '-' : `(${afterID}`;
-    const results = await this.redis.xrange(this.streamKey(runID), startID, '+');
+    const results = await this.redis.xrange(
+      this.streamKey(runID),
+      startID,
+      '+',
+    );
     return results.map(([id, fields]) => ({
       id,
       event: JSON.parse(fields[1]) as AgentEvent,

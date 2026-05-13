@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { UsageRecord, UsageRecordDocument } from './usage.schema';
+import { Chat, ChatDocument } from '../../chats/chat.schema';
 import { calculateCost } from './pricing';
 
 export interface RecordUsageParams {
@@ -29,11 +30,21 @@ export interface AggregateResult {
   totalToolCalls: number;
   byProvider: Record<
     string,
-    { runs: number; costCents: number; inputTokens: number; outputTokens: number }
+    {
+      runs: number;
+      costCents: number;
+      inputTokens: number;
+      outputTokens: number;
+    }
   >;
   byModel: Record<
     string,
-    { runs: number; costCents: number; inputTokens: number; outputTokens: number }
+    {
+      runs: number;
+      costCents: number;
+      inputTokens: number;
+      outputTokens: number;
+    }
   >;
 }
 
@@ -44,6 +55,8 @@ export class InsightsService {
   constructor(
     @InjectModel(UsageRecord.name)
     private readonly usageModel: Model<UsageRecordDocument>,
+    @InjectModel(Chat.name)
+    private readonly chatModel: Model<ChatDocument>,
   ) {}
 
   async recordUsage(params: RecordUsageParams): Promise<void> {
@@ -84,8 +97,10 @@ export class InsightsService {
     const filter: Record<string, unknown> = { userID };
     if (opts?.since || opts?.until) {
       filter.createdAt = {};
-      if (opts.since) (filter.createdAt as Record<string, Date>).$gte = opts.since;
-      if (opts.until) (filter.createdAt as Record<string, Date>).$lte = opts.until;
+      if (opts.since)
+        (filter.createdAt as Record<string, Date>).$gte = opts.since;
+      if (opts.until)
+        (filter.createdAt as Record<string, Date>).$lte = opts.until;
     }
 
     const records = await this.usageModel.find(filter).exec();
@@ -107,7 +122,12 @@ export class InsightsService {
       result.totalToolCalls += r.toolCallCount;
 
       if (!result.byProvider[r.provider]) {
-        result.byProvider[r.provider] = { runs: 0, costCents: 0, inputTokens: 0, outputTokens: 0 };
+        result.byProvider[r.provider] = {
+          runs: 0,
+          costCents: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        };
       }
       const prov = result.byProvider[r.provider];
       prov.runs++;
@@ -116,7 +136,12 @@ export class InsightsService {
       prov.outputTokens += r.tokens.output;
 
       if (!result.byModel[r.modelID]) {
-        result.byModel[r.modelID] = { runs: 0, costCents: 0, inputTokens: 0, outputTokens: 0 };
+        result.byModel[r.modelID] = {
+          runs: 0,
+          costCents: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        };
       }
       const mod = result.byModel[r.modelID];
       mod.runs++;
@@ -132,14 +157,29 @@ export class InsightsService {
     userID: string,
     limit = 10,
   ): Promise<Array<{ tool: string; count: number }>> {
-    const pipeline = [
-      { $match: { userID } },
-      { $group: { _id: null, total: { $sum: '$toolCallCount' } } },
-    ];
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
 
-    const result = await this.usageModel.aggregate(pipeline).exec();
-    return result.length > 0
-      ? [{ tool: 'all', count: result[0].total }]
-      : [];
+    return this.chatModel
+      .aggregate<{ tool: string; count: number }>([
+        { $match: { userID } },
+        { $unwind: '$messages' },
+        { $unwind: '$messages.toolCalls' },
+        {
+          $group: {
+            _id: '$messages.toolCalls.toolName',
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1, _id: 1 } },
+        { $limit: safeLimit },
+        {
+          $project: {
+            _id: 0,
+            tool: '$_id',
+            count: 1,
+          },
+        },
+      ])
+      .exec();
   }
 }

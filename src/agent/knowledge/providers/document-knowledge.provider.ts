@@ -102,7 +102,9 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       const content = typeof p.content === 'string' ? p.content : '';
       const startOffset = typeof p.startOffset === 'number' ? p.startOffset : 0;
       const endOffset = typeof p.endOffset === 'number' ? p.endOffset : 0;
-      const metadata = (p.metadata && typeof p.metadata === 'object' ? p.metadata : {}) as Record<string, unknown>;
+      const metadata = (
+        p.metadata && typeof p.metadata === 'object' ? p.metadata : {}
+      ) as Record<string, unknown>;
       return {
         chunk: {
           documentID: docID,
@@ -113,9 +115,7 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
           metadata,
         },
         score: hit.score,
-        document: p.document
-          ? (p.document as KnowledgeDocument)
-          : undefined,
+        document: p.document ? (p.document as KnowledgeDocument) : undefined,
       };
     });
   }
@@ -198,7 +198,11 @@ export class DocumentKnowledgeProvider implements KnowledgeProvider {
       const raw = text.slice(start, end);
       const trimmed = raw.trim();
       const leadingWS = raw.length - raw.trimStart().length;
-      chunks.push({ text: trimmed, start: start + leadingWS, end: start + leadingWS + trimmed.length });
+      chunks.push({
+        text: trimmed,
+        start: start + leadingWS,
+        end: start + leadingWS + trimmed.length,
+      });
       start = end - this.chunkOverlap;
       if (start >= text.length) break;
     }

@@ -40,10 +40,7 @@ export class SkillsController {
   }
 
   @Put(':name')
-  async update(
-    @Param('name') name: string,
-    @Body() dto: UpdateSkillDto,
-  ) {
+  async update(@Param('name') name: string, @Body() dto: UpdateSkillDto) {
     return this.skillsService.update(name, dto);
   }
 

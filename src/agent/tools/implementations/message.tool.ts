@@ -13,9 +13,7 @@ interface ChatServiceLike {
 }
 
 const parameters = z.object({
-  chatID: z
-    .string()
-    .describe('Target chat/thread ID to send the message to'),
+  chatID: z.string().describe('Target chat/thread ID to send the message to'),
   content: z.string().describe('Message content'),
   role: z
     .enum(['assistant', 'system'])

@@ -16,7 +16,20 @@ import { McpModule } from './mcp/mcp.module';
 import { PluginsModule } from './plugins/plugins.module';
 
 @Module({
-  imports: [OrchestrationModule, StateModule, ChatsModule, AgentsModule, HeartbeatModule, CronModule, TasksModule, TriggersModule, SandboxModule, InsightsModule, McpModule, PluginsModule],
+  imports: [
+    OrchestrationModule,
+    StateModule,
+    ChatsModule,
+    AgentsModule,
+    HeartbeatModule,
+    CronModule,
+    TasksModule,
+    TriggersModule,
+    SandboxModule,
+    InsightsModule,
+    McpModule,
+    PluginsModule,
+  ],
   controllers: [AgentController],
   providers: [AgentService, ImageStorage],
   exports: [AgentService, ImageStorage, OrchestrationModule],

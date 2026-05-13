@@ -26,13 +26,15 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'prompt_injection',
     severity: 'high',
-    regex: /(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|above|prior|earlier)\s+(?:instructions?|prompts?|rules?|directives?)/i,
+    regex:
+      /(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|above|prior|earlier)\s+(?:instructions?|prompts?|rules?|directives?)/i,
     label: 'Instruction override attempt',
   },
   {
     category: 'prompt_injection',
     severity: 'high',
-    regex: /you\s+are\s+now\s+(?:a\s+)?(?:new|different|unrestricted|jailbroken)/i,
+    regex:
+      /you\s+are\s+now\s+(?:a\s+)?(?:new|different|unrestricted|jailbroken)/i,
     label: 'Role reassignment attempt',
   },
   {
@@ -58,13 +60,15 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'role_hijack',
     severity: 'high',
-    regex: /(?:from\s+now\s+on|henceforth)\s+you\s+(?:are|will\s+be|must\s+act\s+as)/i,
+    regex:
+      /(?:from\s+now\s+on|henceforth)\s+you\s+(?:are|will\s+be|must\s+act\s+as)/i,
     label: 'Persistent role change',
   },
   {
     category: 'role_hijack',
     severity: 'medium',
-    regex: /(?:act|behave|respond)\s+as\s+(?:if\s+you\s+(?:are|were)|an?\s+(?:evil|unrestricted|unfiltered))/i,
+    regex:
+      /(?:act|behave|respond)\s+as\s+(?:if\s+you\s+(?:are|were)|an?\s+(?:evil|unrestricted|unfiltered))/i,
     label: 'Behavioral override',
   },
 
@@ -72,25 +76,29 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'credential_exfil',
     severity: 'high',
-    regex: /(?:print|output|show|reveal|display|tell\s+me|what\s+is)\s+(?:the\s+)?(?:api[_\s]?key|secret|password|token|credential|private[_\s]?key)/i,
+    regex:
+      /(?:print|output|show|reveal|display|tell\s+me|what\s+is)\s+(?:the\s+)?(?:api[_\s]?key|secret|password|token|credential|private[_\s]?key)/i,
     label: 'Credential extraction request',
   },
   {
     category: 'credential_exfil',
     severity: 'high',
-    regex: /(?:env|process\.env|os\.environ)\s*[\[.(]\s*['"]?\s*(?:API[_\s]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_\s]?KEY|DATABASE[_\s]?URL)/i,
+    regex:
+      /(?:env|process\.env|os\.environ)\s*[\[.(]\s*['"]?\s*(?:API[_\s]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_\s]?KEY|DATABASE[_\s]?URL)/i,
     label: 'Environment variable access',
   },
   {
     category: 'credential_exfil',
     severity: 'medium',
-    regex: /(?:show|print|reveal|output|return|send)\s+(?:the\s+)?(?:apiKey|apiSecret|dbPassword|privateKey|databaseUrl)\b/i,
+    regex:
+      /(?:show|print|reveal|output|return|send)\s+(?:the\s+)?(?:apiKey|apiSecret|dbPassword|privateKey|databaseUrl)\b/i,
     label: 'CamelCase credential extraction',
   },
   {
     category: 'credential_exfil',
     severity: 'medium',
-    regex: /(?:curl|wget|fetch|axios|http)\s+.{0,200}(?:webhook\.site|requestbin|ngrok|burp|pipedream)/i,
+    regex:
+      /(?:curl|wget|fetch|axios|http)\s+.{0,200}(?:webhook\.site|requestbin|ngrok|burp|pipedream)/i,
     label: 'Data exfiltration endpoint',
   },
 
@@ -118,7 +126,8 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'code_injection',
     severity: 'high',
-    regex: /(?:eval|exec|Function)\s*\(\s*['"`].*(?:require|import|child_process|fs\.|net\.|http\.)/i,
+    regex:
+      /(?:eval|exec|Function)\s*\(\s*['"`].*(?:require|import|child_process|fs\.|net\.|http\.)/i,
     label: 'Dynamic code execution with dangerous imports',
   },
   {

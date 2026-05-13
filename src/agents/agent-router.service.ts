@@ -79,10 +79,7 @@ export class AgentRouterService {
       filter.bindingValue = value;
     }
 
-    return this.bindingModel
-      .findOne(filter)
-      .sort({ priority: -1 })
-      .exec();
+    return this.bindingModel.findOne(filter).sort({ priority: -1 }).exec();
   }
 
   // CRUD for bindings
@@ -93,7 +90,9 @@ export class AgentRouterService {
     bindingValue?: string;
     priority?: number;
   }): Promise<AgentBinding> {
-    const agent = await this.agentModel.findOne({ agentID: data.agentID }).exec();
+    const agent = await this.agentModel
+      .findOne({ agentID: data.agentID })
+      .exec();
     if (!agent) {
       throw new NotFoundException(`Agent "${data.agentID}" not found`);
     }
@@ -115,9 +114,7 @@ export class AgentRouterService {
   }
 
   async removeBinding(bindingID: string): Promise<boolean> {
-    const result = await this.bindingModel
-      .deleteOne({ bindingID })
-      .exec();
+    const result = await this.bindingModel.deleteOne({ bindingID }).exec();
     return result.deletedCount > 0;
   }
 }

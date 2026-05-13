@@ -47,23 +47,20 @@ export class TtsTool implements Tool<typeof parameters> {
     const { text, voice, model, format } = args;
 
     try {
-      const response = await fetch(
-        'https://api.openai.com/v1/audio/speech',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model,
-            input: text,
-            voice,
-            response_format: format,
-          }),
-          signal: AbortSignal.timeout(60_000),
+      const response = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
         },
-      );
+        body: JSON.stringify({
+          model,
+          input: text,
+          voice,
+          response_format: format,
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
@@ -88,10 +85,7 @@ export class TtsTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Text-to-speech failed',
+        error: error instanceof Error ? error.message : 'Text-to-speech failed',
       };
     }
   }

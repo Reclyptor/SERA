@@ -58,8 +58,7 @@ export class ToolsRegistry {
 
     for (const [name, t] of this.tools) {
       const inList = policy.tools.includes(name);
-      const include =
-        policy.mode === 'allow' ? inList : !inList;
+      const include = policy.mode === 'allow' ? inList : !inList;
 
       if (include) {
         toolSet[name] = aiTool({

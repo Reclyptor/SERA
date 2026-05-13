@@ -42,7 +42,9 @@ const parameters = z.object({
   agentID: z
     .string()
     .optional()
-    .describe('Agent ID to route this session to. If omitted, uses the default agent binding.'),
+    .describe(
+      'Agent ID to route this session to. If omitted, uses the default agent binding.',
+    ),
   maxSteps: z
     .number()
     .optional()
@@ -57,7 +59,9 @@ const parameters = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('If true, block until the spawned run completes and return its response. If false, return immediately with the runID.'),
+    .describe(
+      'If true, block until the spawned run completes and return its response. If false, return immediately with the runID.',
+    ),
   timeoutMs: z
     .number()
     .optional()
@@ -95,7 +99,8 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     if (!agentID) {
       return {
         success: false,
-        error: 'No agent could be resolved. Provide an agentID or ensure a default binding exists.',
+        error:
+          'No agent could be resolved. Provide an agentID or ensure a default binding exists.',
       };
     }
 

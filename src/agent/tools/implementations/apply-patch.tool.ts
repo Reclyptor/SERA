@@ -39,7 +39,10 @@ export class ApplyPatchTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { path: filePath, patch } = args;
 
-    const validation = validatePath(filePath, resolveWorkspace(context, this.workspaceDir));
+    const validation = validatePath(
+      filePath,
+      resolveWorkspace(context, this.workspaceDir),
+    );
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

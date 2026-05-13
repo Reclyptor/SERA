@@ -129,7 +129,9 @@ export class StateStore {
 
   async updateRun(
     runID: string,
-    update: Partial<Pick<RunState, 'status' | 'completedAt' | 'error' | 'response'>>,
+    update: Partial<
+      Pick<RunState, 'status' | 'completedAt' | 'error' | 'response'>
+    >,
   ): Promise<RunState | undefined> {
     const run = await this.runModel
       .findOneAndUpdate(
@@ -142,7 +144,11 @@ export class StateStore {
   }
 
   async listRuns(
-    filter: { threadID?: string; status?: RunState['status']; runIDs?: string[] },
+    filter: {
+      threadID?: string;
+      status?: RunState['status'];
+      runIDs?: string[];
+    },
     options: { limit?: number; sort?: 'asc' | 'desc' } = {},
   ): Promise<RunState[]> {
     const query: Record<string, unknown> = {};
@@ -170,7 +176,11 @@ export class StateStore {
   }
 
   async listThreads(
-    options: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] } = {},
+    options: {
+      limit?: number;
+      sort?: 'asc' | 'desc';
+      threadIDs?: string[];
+    } = {},
   ): Promise<ThreadState[]> {
     const query: Record<string, unknown> = {};
     if (options.threadIDs?.length) query.threadID = { $in: options.threadIDs };

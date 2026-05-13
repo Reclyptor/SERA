@@ -59,8 +59,9 @@ export class BrowserTool implements Tool<typeof parameters> {
   private async getBrowser(): Promise<PuppeteerBrowser> {
     if (this.browser) return this.browser;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const puppeteer = await (Function('return import("puppeteer")')() as Promise<any>);
+      const puppeteer = await (Function(
+        'return import("puppeteer")',
+      )() as Promise<any>);
       this.browser = await puppeteer.default.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -104,8 +105,7 @@ export class BrowserTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'Browser action failed',
+        error: error instanceof Error ? error.message : 'Browser action failed',
       };
     }
   }

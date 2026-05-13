@@ -52,7 +52,9 @@ const parameters = z.object({
   command: z
     .string()
     .optional()
-    .describe('Instruction or goal for the agent to execute on schedule (required for create)'),
+    .describe(
+      'Instruction or goal for the agent to execute on schedule (required for create)',
+    ),
   description: z.string().optional().describe('Human-readable description'),
   jobID: z
     .string()
@@ -130,7 +132,9 @@ export class CronTool implements Tool<typeof parameters> {
     }
   }
 
-  private async list(context: ToolExecutionContext): Promise<ToolExecutionResult> {
+  private async list(
+    context: ToolExecutionContext,
+  ): Promise<ToolExecutionResult> {
     try {
       const jobs = await this.scheduler.findAll(context.agentID);
       return {
@@ -154,9 +158,14 @@ export class CronTool implements Tool<typeof parameters> {
     }
   }
 
-  private async delete(jobID: string | undefined): Promise<ToolExecutionResult> {
+  private async delete(
+    jobID: string | undefined,
+  ): Promise<ToolExecutionResult> {
     if (!jobID) {
-      return { success: false, error: 'jobID is required for delete operation' };
+      return {
+        success: false,
+        error: 'jobID is required for delete operation',
+      };
     }
 
     const deleted = await this.scheduler.remove(jobID);

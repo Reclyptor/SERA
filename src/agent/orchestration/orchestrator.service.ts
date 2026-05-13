@@ -9,16 +9,12 @@ import { ActionsService } from '../actions/actions.service';
 import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
 import { AgentsService } from '../../agents/agents.service';
-import { SkillsService } from '../skills/skills.service';
 import { SkillReviewService } from '../skills/skill-review.service';
 import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';
 import type { ToolCallBlock } from '../../chats/chat.schema';
-import type {
-  AgentGoal,
-  OrchestratorConfig,
-} from './orchestration.interfaces';
+import type { AgentGoal, OrchestratorConfig } from './orchestration.interfaces';
 import { DEFAULT_ORCHESTRATOR_CONFIG } from './orchestration.interfaces';
 import type {
   RunStartedData,
@@ -39,7 +35,6 @@ import type {
 import { ContextCompressorService } from '../context/context-compressor.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
-import { PromptsService } from '../../prompts/prompts.service';
 import { LoopDetectionService } from '../tools/loop-detection.service';
 import { classifyError } from '../model/error-classifier';
 import { InsightsService } from '../insights/insights.service';
@@ -50,7 +45,10 @@ const MAX_EVENT_RESULT_LENGTH = 5000;
 function truncateResult(value: unknown): unknown {
   const str = typeof value === 'string' ? value : JSON.stringify(value);
   if (!str || str.length <= MAX_EVENT_RESULT_LENGTH) return value;
-  return str.slice(0, MAX_EVENT_RESULT_LENGTH) + `\n...[truncated, ${str.length} chars total]`;
+  return (
+    str.slice(0, MAX_EVENT_RESULT_LENGTH) +
+    `\n...[truncated, ${str.length} chars total]`
+  );
 }
 
 @Injectable()
@@ -68,11 +66,9 @@ export class OrchestratorService {
     private readonly eventEmitter: AgentEventEmitter,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
-    private readonly skillsService: SkillsService,
     private readonly skillReview: SkillReviewService,
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
-    private readonly promptsService: PromptsService,
     private readonly loopDetection: LoopDetectionService,
     private readonly insightsService: InsightsService,
     private readonly configService: ConfigService,
@@ -110,7 +106,9 @@ export class OrchestratorService {
         await this.eventEmitter.initRun(runID, threadID, goal.chatID);
       }
 
-      const agentConfig = await this.agentsService.findByIDOrThrow(goal.agentID);
+      const agentConfig = await this.agentsService.findByIDOrThrow(
+        goal.agentID,
+      );
 
       const effectiveModelOptions = {
         ...agentConfig.modelOptions,
@@ -140,6 +138,7 @@ export class OrchestratorService {
         goal.userMessage,
         agentConfig,
         frozenMemoryContext,
+        goal.userName,
       );
 
       const sandbox = agentConfig.sandboxConfig?.enabled
@@ -219,197 +218,267 @@ export class OrchestratorService {
         let accumulatedReasoning = '';
         let accumulatedText = '';
         let thinkingStartTime: number | null = null;
-        const pendingToolArgs = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+        const pendingToolArgs = new Map<
+          string,
+          { toolName: string; args: Record<string, unknown> }
+        >();
 
         let streamResult: ReturnType<typeof this.modelRouter.stream>;
         try {
+          streamResult = this.modelRouter.stream({
+            messages,
+            tools,
+            system: systemPrompt,
+            stopSteps: cfg.maxSteps,
+            options: effectiveModelOptions,
+            abortSignal: abortController.signal,
+          });
 
-        streamResult = this.modelRouter.stream({
-          messages,
-          tools,
-          system: systemPrompt,
-          stopSteps: cfg.maxSteps,
-          options: effectiveModelOptions,
-          abortSignal: abortController.signal,
-        });
-
-        for await (const part of streamResult.fullStream) {
-          switch (part.type) {
-            case 'reasoning-start':
-              thinkingStartTime = Date.now();
-              break;
-            case 'reasoning-delta':
-              accumulatedReasoning += part.text;
-              await this.emitEvent(runID, threadID, 'thinking.delta', {
-                content: part.text,
-              } satisfies ThinkingDeltaData);
-              break;
-            case 'reasoning-end':
-              if (thinkingStartTime !== null) {
-                lastThinkingDuration = Math.round(
-                  (Date.now() - thinkingStartTime) / 1000,
+          for await (const part of streamResult.fullStream) {
+            switch (part.type) {
+              case 'reasoning-start':
+                thinkingStartTime = Date.now();
+                break;
+              case 'reasoning-delta':
+                accumulatedReasoning += part.text;
+                await this.emitEvent(runID, threadID, 'thinking.delta', {
+                  content: part.text,
+                } satisfies ThinkingDeltaData);
+                break;
+              case 'reasoning-end':
+                if (thinkingStartTime !== null) {
+                  lastThinkingDuration = Math.round(
+                    (Date.now() - thinkingStartTime) / 1000,
+                  );
+                  thinkingStartTime = null;
+                }
+                await this.emitEvent(runID, threadID, 'thinking.done', {
+                  content: accumulatedReasoning,
+                } satisfies ThinkingDoneData);
+                break;
+              case 'text-delta':
+                accumulatedText += part.text;
+                await this.emitEvent(runID, threadID, 'text.delta', {
+                  content: part.text,
+                } satisfies TextDeltaData);
+                break;
+              case 'tool-call': {
+                const toolCallID = String(part.toolCallId);
+                const toolName = String(part.toolName);
+                const args = (part.input ?? {}) as Record<string, unknown>;
+                pendingToolArgs.set(toolCallID, { toolName, args });
+                toolCallBlocks.push({
+                  toolCallID,
+                  toolName,
+                  args,
+                  status: 'executing',
+                });
+                await this.emitEvent(runID, threadID, 'tool_call.started', {
+                  toolCallID,
+                  toolName,
+                  args,
+                } satisfies ToolCallStartedData);
+                await this.stateService.recordToolCall(
+                  threadID,
+                  toolName,
+                  args,
+                  toolCallID,
                 );
-                thinkingStartTime = null;
+                await this.stateService.markToolCallExecuting(
+                  threadID,
+                  toolCallID,
+                );
+                await this.emitEvent(runID, threadID, 'tool_call.executing', {
+                  toolCallID,
+                  toolName,
+                } satisfies ToolCallExecutingData);
+                break;
               }
-              await this.emitEvent(runID, threadID, 'thinking.done', {
-                content: accumulatedReasoning,
-              } satisfies ThinkingDoneData);
-              break;
-            case 'text-delta':
-              accumulatedText += part.text;
-              await this.emitEvent(runID, threadID, 'text.delta', {
-                content: part.text,
-              } satisfies TextDeltaData);
-              break;
-            case 'tool-call': {
-              const toolCallID = String(part.toolCallId);
-              const toolName = String(part.toolName);
-              const args = (part.input ?? {}) as Record<string, unknown>;
-              pendingToolArgs.set(toolCallID, { toolName, args });
-              toolCallBlocks.push({
-                toolCallID,
-                toolName,
-                args,
-                status: 'executing',
-              } as ToolCallBlock);
-              await this.emitEvent(runID, threadID, 'tool_call.started', {
-                toolCallID,
-                toolName,
-                args,
-              } satisfies ToolCallStartedData);
-              await this.stateService.recordToolCall(threadID, toolName, args, toolCallID);
-              await this.stateService.markToolCallExecuting(threadID, toolCallID);
-              await this.emitEvent(runID, threadID, 'tool_call.executing', {
-                toolCallID,
-                toolName,
-              } satisfies ToolCallExecutingData);
-              break;
-            }
-            case 'tool-result': {
-              const toolCallID = String(part.toolCallId);
-              const toolName = String(part.toolName);
-              const output = part.output;
-              const pending = pendingToolArgs.get(toolCallID);
-              this.loopDetection.record(runID, toolName, pending?.args ?? {});
-              const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
-              if (block) {
-                block.status = 'completed';
-                block.result = output;
-              }
-              await this.stateService.markToolCallCompleted(threadID, toolCallID, output);
-              await this.emitEvent(runID, threadID, 'tool_call.result', {
-                toolCallID,
-                toolName,
-                result: truncateResult(output),
-                success: true,
-              } satisfies ToolCallResultData);
-              if (SUBAGENT_TOOL_NAMES.has(toolName)) {
-                await this.emitSubagentEvents(runID, threadID, toolCallID, output);
+              case 'tool-result': {
+                const toolCallID = String(part.toolCallId);
+                const toolName = String(part.toolName);
+                const output = part.output;
+                const pending = pendingToolArgs.get(toolCallID);
+                this.loopDetection.record(runID, toolName, pending?.args ?? {});
+                const block = toolCallBlocks.find(
+                  (b) => b.toolCallID === toolCallID,
+                );
                 if (block) {
-                  block.isSubagent = true;
-                  const inner = (output as Record<string, unknown>)?.result as Record<string, unknown> | undefined;
-                  if (inner) {
-                    block.subagentMeta = {
-                      runID: (inner.runID ?? '') as string,
-                      threadID: (inner.threadID ?? '') as string,
-                      agentID: (inner.agentID ?? inner.targetAgentID ?? '') as string,
-                      goal: (inner.goal ?? inner.message ?? '') as string,
-                    };
+                  block.status = 'completed';
+                  block.result = output;
+                }
+                await this.stateService.markToolCallCompleted(
+                  threadID,
+                  toolCallID,
+                  output,
+                );
+                await this.emitEvent(runID, threadID, 'tool_call.result', {
+                  toolCallID,
+                  toolName,
+                  result: truncateResult(output),
+                  success: true,
+                } satisfies ToolCallResultData);
+                if (SUBAGENT_TOOL_NAMES.has(toolName)) {
+                  await this.emitSubagentEvents(
+                    runID,
+                    threadID,
+                    toolCallID,
+                    output,
+                  );
+                  if (block) {
+                    block.isSubagent = true;
+                    const inner = (output as Record<string, unknown>)
+                      ?.result as Record<string, unknown> | undefined;
+                    if (inner) {
+                      block.subagentMeta = {
+                        runID: (inner.runID ?? '') as string,
+                        threadID: (inner.threadID ?? '') as string,
+                        agentID: (inner.agentID ??
+                          inner.targetAgentID ??
+                          '') as string,
+                        goal: (inner.goal ?? inner.message ?? '') as string,
+                      };
+                    }
                   }
                 }
+                break;
               }
-              break;
+              case 'tool-error': {
+                const toolCallID = String(part.toolCallId);
+                const toolName = String(part.toolName);
+                const errorStr =
+                  part.error instanceof Error
+                    ? part.error.message
+                    : String(part.error);
+                const pending = pendingToolArgs.get(toolCallID);
+                this.loopDetection.record(
+                  runID,
+                  toolName,
+                  pending?.args ?? {},
+                  errorStr,
+                );
+                const block = toolCallBlocks.find(
+                  (b) => b.toolCallID === toolCallID,
+                );
+                if (block) {
+                  block.status = 'failed';
+                  block.error = errorStr;
+                }
+                await this.stateService.markToolCallFailed(
+                  threadID,
+                  toolCallID,
+                  errorStr,
+                );
+                await this.emitEvent(runID, threadID, 'tool_call.error', {
+                  toolCallID,
+                  toolName,
+                  error: errorStr,
+                } satisfies ToolCallErrorData);
+                if (SUBAGENT_TOOL_NAMES.has(toolName)) {
+                  const result = (part as unknown as { output?: unknown })
+                    .output;
+                  const subRunID = (result as Record<string, unknown>)
+                    ?.runID as string | undefined;
+                  if (subRunID) {
+                    await this.emitEvent(runID, threadID, 'subagent.failed', {
+                      toolCallID,
+                      subagentRunID: subRunID,
+                      error: errorStr,
+                    } satisfies SubagentFailedData);
+                  }
+                }
+                break;
+              }
             }
-            case 'tool-error': {
-              const toolCallID = String(part.toolCallId);
-              const toolName = String(part.toolName);
-              const errorStr = part.error instanceof Error ? part.error.message : String(part.error);
-              const pending = pendingToolArgs.get(toolCallID);
-              this.loopDetection.record(runID, toolName, pending?.args ?? {}, errorStr);
-              const block = toolCallBlocks.find((b) => b.toolCallID === toolCallID);
-              if (block) {
-                block.status = 'failed';
-                block.error = errorStr;
-              }
-              await this.stateService.markToolCallFailed(threadID, toolCallID, errorStr);
-              await this.emitEvent(runID, threadID, 'tool_call.error', {
-                toolCallID,
-                toolName,
-                error: errorStr,
-              } satisfies ToolCallErrorData);
-              if (SUBAGENT_TOOL_NAMES.has(toolName)) {
-                const result = (part as unknown as { output?: unknown }).output;
-                const subRunID = (result as Record<string, unknown>)?.runID as string | undefined;
-                if (subRunID) {
-                  await this.emitEvent(runID, threadID, 'subagent.failed', {
-                    toolCallID,
-                    subagentRunID: subRunID,
-                    error: errorStr,
-                  } satisfies SubagentFailedData);
+          }
+
+          if (accumulatedReasoning) {
+            lastReasoningText = accumulatedReasoning;
+          }
+
+          if (accumulatedText) {
+            await this.emitEvent(runID, threadID, 'text.done', {
+              content: accumulatedText,
+            } satisfies TextDoneData);
+            finalText = accumulatedText;
+          }
+
+          const [steps, streamResponse] = await Promise.all([
+            streamResult.steps,
+            streamResult.response,
+          ]);
+
+          for (const step of steps) {
+            totalToolCalls += step.toolCalls.length;
+            if (step.usage) {
+              totalInputTokens += step.usage.inputTokens ?? 0;
+              totalOutputTokens += step.usage.outputTokens ?? 0;
+            }
+          }
+
+          if (streamResponse.messages) {
+            messages.push(
+              ...(streamResponse.messages as unknown as ModelMessage[]),
+            );
+          }
+
+          const loop = this.loopDetection.detect(runID);
+          if (loop) {
+            this.logger.warn(
+              `Loop detected in run ${runID}: [${loop.type}] ${loop.message}`,
+            );
+            if (loop.type === 'circuit_breaker') {
+              messages.push({
+                role: 'user',
+                content: `[SYSTEM] ${loop.message} You must provide a final answer now without calling any more tools.`,
+              });
+              const finalStream = this.modelRouter.stream({
+                messages,
+                system: systemPrompt,
+                options: effectiveModelOptions,
+                abortSignal: abortController.signal,
+              });
+              for await (const p of finalStream.fullStream) {
+                if (p.type === 'text-delta') {
+                  finalText += p.text;
+                  await this.emitEvent(runID, threadID, 'text.delta', {
+                    content: p.text,
+                  } satisfies TextDeltaData);
                 }
               }
+              if (finalText) {
+                await this.emitEvent(runID, threadID, 'text.done', {
+                  content: finalText,
+                } satisfies TextDoneData);
+              }
+              await this.completeRun(
+                goal,
+                finalText,
+                lastReasoningText,
+                lastThinkingDuration,
+                totalToolCalls,
+                toolCallBlocks,
+                {
+                  provider: resolved.provider,
+                  modelID: resolved.modelID,
+                  inputTokens: totalInputTokens,
+                  outputTokens: totalOutputTokens,
+                  durationMs: Date.now() - runStartTime,
+                  iterationCount,
+                },
+              );
               break;
             }
-          }
-        }
-
-        if (accumulatedReasoning) {
-          lastReasoningText = accumulatedReasoning;
-        }
-
-        if (accumulatedText) {
-          await this.emitEvent(runID, threadID, 'text.done', {
-            content: accumulatedText,
-          } satisfies TextDoneData);
-          finalText = accumulatedText;
-        }
-
-        const [steps, streamResponse] = await Promise.all([
-          streamResult.steps,
-          streamResult.response,
-        ]);
-
-        for (const step of steps) {
-          totalToolCalls += step.toolCalls.length;
-          if (step.usage) {
-            totalInputTokens += step.usage.inputTokens ?? 0;
-            totalOutputTokens += step.usage.outputTokens ?? 0;
-          }
-        }
-
-        if (streamResponse.messages) {
-          messages.push(
-            ...(streamResponse.messages as unknown as ModelMessage[]),
-          );
-        }
-
-        const loop = this.loopDetection.detect(runID);
-        if (loop) {
-          this.logger.warn(`Loop detected in run ${runID}: [${loop.type}] ${loop.message}`);
-          if (loop.type === 'circuit_breaker') {
             messages.push({
               role: 'user',
-              content: `[SYSTEM] ${loop.message} You must provide a final answer now without calling any more tools.`,
+              content: `[SYSTEM] Warning: ${loop.message}`,
             });
-            const finalStream = this.modelRouter.stream({
-              messages,
-              system: systemPrompt,
-              options: effectiveModelOptions,
-              abortSignal: abortController.signal,
-            });
-            for await (const p of finalStream.fullStream) {
-              if (p.type === 'text-delta') {
-                finalText += p.text;
-                await this.emitEvent(runID, threadID, 'text.delta', {
-                  content: p.text,
-                } satisfies TextDeltaData);
-              }
-            }
-            if (finalText) {
-              await this.emitEvent(runID, threadID, 'text.done', {
-                content: finalText,
-              } satisfies TextDoneData);
-            }
+          }
+
+          const lastStep = steps[steps.length - 1];
+          const modelFinished = !lastStep || lastStep.toolCalls.length === 0;
+
+          if (modelFinished) {
             await this.completeRun(
               goal,
               finalText,
@@ -428,35 +497,6 @@ export class OrchestratorService {
             );
             break;
           }
-          messages.push({
-            role: 'user',
-            content: `[SYSTEM] Warning: ${loop.message}`,
-          });
-        }
-
-        const lastStep = steps[steps.length - 1];
-        const modelFinished = !lastStep || lastStep.toolCalls.length === 0;
-
-        if (modelFinished) {
-          await this.completeRun(
-            goal,
-            finalText,
-            lastReasoningText,
-            lastThinkingDuration,
-            totalToolCalls,
-            toolCallBlocks,
-            {
-              provider: resolved.provider,
-              modelID: resolved.modelID,
-              inputTokens: totalInputTokens,
-              outputTokens: totalOutputTokens,
-              durationMs: Date.now() - runStartTime,
-              iterationCount,
-            },
-          );
-          break;
-        }
-
         } catch (streamError) {
           const classified = classifyError(streamError);
           if (classified.shouldCompress && iterationCount < cfg.maxIterations) {

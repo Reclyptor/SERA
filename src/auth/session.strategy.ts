@@ -28,7 +28,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
   private readonly cookieName: string;
   private jwks: jose.JWTVerifyGetKey | null = null;
 
-  constructor(private configService: ConfigService) {
+  constructor(configService: ConfigService) {
     super();
 
     const authSecret = configService.get<string>('AUTH_SECRET');

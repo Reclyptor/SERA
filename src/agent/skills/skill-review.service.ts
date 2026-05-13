@@ -18,10 +18,7 @@ export class SkillReviewService {
     private readonly toolsService: ToolsService,
     private readonly configService: ConfigService,
   ) {
-    this.reviewModel = this.configService.get<string>(
-      'SKILL_REVIEW_MODEL',
-      '',
-    );
+    this.reviewModel = this.configService.get<string>('SKILL_REVIEW_MODEL', '');
   }
 
   async review(params: {
@@ -44,9 +41,8 @@ export class SkillReviewService {
       tools: ['skills'],
     });
 
-    const recentHistory = params.conversationHistory.slice(
-      -MAX_HISTORY_MESSAGES,
-    );
+    const recentHistory =
+      params.conversationHistory.slice(-MAX_HISTORY_MESSAGES);
 
     const summaryParts = [
       `Agent "${params.agentID}" completed a run with ${params.toolCallCount} tool call(s).`,

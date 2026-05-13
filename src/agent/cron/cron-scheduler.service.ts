@@ -54,10 +54,7 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
         try {
           await this.executeJob(job);
         } catch (err) {
-          this.logger.error(
-            `Cron job "${job.jobID}" failed:`,
-            err,
-          );
+          this.logger.error(`Cron job "${job.jobID}" failed:`, err);
         }
       }
     } finally {
@@ -102,7 +99,9 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
       const interval = CronExpressionParser.parse(schedule);
       return interval.next().toDate();
     } catch {
-      this.logger.warn(`Invalid cron expression "${schedule}", defaulting to 30min`);
+      this.logger.warn(
+        `Invalid cron expression "${schedule}", defaulting to 30min`,
+      );
       return new Date(Date.now() + 30 * 60_000);
     }
   }

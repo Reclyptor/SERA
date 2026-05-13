@@ -85,7 +85,10 @@ export class StateService {
     return run;
   }
 
-  async completeRun(runID: string, response?: string): Promise<RunState | undefined> {
+  async completeRun(
+    runID: string,
+    response?: string,
+  ): Promise<RunState | undefined> {
     return this.store.updateRun(runID, {
       status: 'completed',
       completedAt: new Date(),
@@ -113,7 +116,11 @@ export class StateService {
   }
 
   async listRuns(
-    filter: { threadID?: string; status?: RunState['status']; runIDs?: string[] },
+    filter: {
+      threadID?: string;
+      status?: RunState['status'];
+      runIDs?: string[];
+    },
     options: { limit?: number; sort?: 'asc' | 'desc' } = {},
   ): Promise<RunState[]> {
     return this.store.listRuns(filter, options);
@@ -124,7 +131,11 @@ export class StateService {
   }
 
   async listThreads(
-    options: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] } = {},
+    options: {
+      limit?: number;
+      sort?: 'asc' | 'desc';
+      threadIDs?: string[];
+    } = {},
   ): Promise<ThreadState[]> {
     return this.store.listThreads(options);
   }

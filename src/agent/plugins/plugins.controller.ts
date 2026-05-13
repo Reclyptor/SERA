@@ -28,12 +28,18 @@ export class PluginsController {
 
   @Post()
   async addPlugin(
-    @Body() body: { name: string; packageName: string; config?: Record<string, unknown> },
+    @Body()
+    body: {
+      name: string;
+      packageName: string;
+      config?: Record<string, unknown>;
+      enabled?: boolean;
+    },
   ) {
     await this.pluginLoader.addPlugin({
       name: body.name,
       packageName: body.packageName,
-      enabled: true,
+      enabled: body.enabled ?? true,
       config: body.config,
     });
     return { success: true };

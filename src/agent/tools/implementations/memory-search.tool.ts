@@ -83,8 +83,7 @@ export class MemorySearchTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'Memory search failed',
+        error: error instanceof Error ? error.message : 'Memory search failed',
       };
     }
   }

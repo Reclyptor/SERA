@@ -8,11 +8,46 @@ import {
   Body,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prompt } from './prompt.schema';
 import { PromptsService } from './prompts.service';
+
+type PromptSummaryResponse = Pick<
+  Prompt,
+  | 'slug'
+  | 'extends'
+  | 'seedHash'
+  | 'description'
+  | 'metadata'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+type PromptResponse = PromptSummaryResponse & Pick<Prompt, 'content'>;
 
 @Controller('prompts')
 export class PromptsController {
   constructor(private readonly promptsService: PromptsService) {}
+
+  private serializePromptSummary(
+    prompt: PromptSummaryResponse,
+  ): PromptSummaryResponse {
+    return {
+      slug: prompt.slug,
+      extends: prompt.extends,
+      seedHash: prompt.seedHash,
+      description: prompt.description,
+      metadata: prompt.metadata,
+      createdAt: prompt.createdAt,
+      updatedAt: prompt.updatedAt,
+    };
+  }
+
+  private serializePrompt(prompt: Prompt): PromptResponse {
+    return {
+      ...this.serializePromptSummary(prompt),
+      content: prompt.content,
+    };
+  }
 
   @Post('sync')
   sync() {
@@ -20,27 +55,22 @@ export class PromptsController {
   }
 
   @Get()
-  list() {
-    return this.promptsService.list();
+  async list(): Promise<PromptSummaryResponse[]> {
+    const prompts = await this.promptsService.list();
+    return prompts.map((prompt) => this.serializePromptSummary(prompt));
   }
 
   @Get(':slug')
-  async get(@Param('slug') slug: string) {
+  async get(@Param('slug') slug: string): Promise<PromptResponse> {
     const prompt = await this.promptsService.getDocument(slug);
     if (!prompt) {
       throw new NotFoundException(`Prompt "${slug}" not found`);
     }
-    return {
-      slug: prompt.slug,
-      extends: prompt.extends,
-      content: prompt.content,
-      description: prompt.description,
-      metadata: prompt.metadata,
-    };
+    return this.serializePrompt(prompt);
   }
 
   @Put(':slug')
-  upsert(
+  async upsert(
     @Param('slug') slug: string,
     @Body()
     body: {
@@ -49,8 +79,9 @@ export class PromptsController {
       description?: string;
       metadata?: Record<string, unknown>;
     },
-  ) {
-    return this.promptsService.upsert(slug, body);
+  ): Promise<PromptResponse> {
+    const prompt = await this.promptsService.upsert(slug, body);
+    return this.serializePrompt(prompt);
   }
 
   @Delete(':slug')

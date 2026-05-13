@@ -6,9 +6,7 @@ import { OrchestrationModule } from '../orchestration/orchestration.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      { name: CronJob.name, schema: CronJobSchema },
-    ]),
+    MongooseModule.forFeature([{ name: CronJob.name, schema: CronJobSchema }]),
     forwardRef(() => OrchestrationModule),
   ],
   providers: [CronSchedulerService],

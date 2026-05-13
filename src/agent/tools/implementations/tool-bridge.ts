@@ -70,7 +70,11 @@ export async function startToolBridge(
       const toolName = match[1];
       if (!BRIDGE_TOOL_WHITELIST.has(toolName)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Tool "${toolName}" not available via bridge` }));
+        res.end(
+          JSON.stringify({
+            error: `Tool "${toolName}" not available via bridge`,
+          }),
+        );
         return;
       }
 
@@ -102,10 +106,13 @@ export async function startToolBridge(
         res.end(JSON.stringify(result));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          success: false,
-          error: err instanceof Error ? err.message : 'Bridge execution failed',
-        }));
+        res.end(
+          JSON.stringify({
+            success: false,
+            error:
+              err instanceof Error ? err.message : 'Bridge execution failed',
+          }),
+        );
       }
     });
 
@@ -124,8 +131,7 @@ export async function startToolBridge(
         port,
         url,
         secret: bridgeSecret,
-        close: () =>
-          new Promise<void>((res) => server.close(() => res())),
+        close: () => new Promise<void>((res) => server.close(() => res())),
       });
     });
 
@@ -213,7 +219,13 @@ export async function writeHelperLibraries(
   bridgeSecret: string,
 ): Promise<void> {
   await Promise.all([
-    fs.writeFile(path.join(tmpDir, 'sera_tools.js'), jsHelper(bridgeUrl, bridgeSecret)),
-    fs.writeFile(path.join(tmpDir, 'sera_tools.py'), pyHelper(bridgeUrl, bridgeSecret)),
+    fs.writeFile(
+      path.join(tmpDir, 'sera_tools.js'),
+      jsHelper(bridgeUrl, bridgeSecret),
+    ),
+    fs.writeFile(
+      path.join(tmpDir, 'sera_tools.py'),
+      pyHelper(bridgeUrl, bridgeSecret),
+    ),
   ]);
 }

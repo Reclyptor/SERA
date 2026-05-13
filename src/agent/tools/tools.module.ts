@@ -11,7 +11,12 @@ import { LoopDetectionService } from './loop-detection.service';
 
 @Module({
   imports: [ConfigModule, MemoryModule, StateModule, ChatsModule, AgentsModule],
-  providers: [ToolsRegistry, ToolsService, ToolsBootstrapService, LoopDetectionService],
+  providers: [
+    ToolsRegistry,
+    ToolsService,
+    ToolsBootstrapService,
+    LoopDetectionService,
+  ],
   exports: [ToolsService, ToolsRegistry, LoopDetectionService],
 })
 export class ToolsModule {}

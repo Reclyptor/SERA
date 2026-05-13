@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -10,8 +10,6 @@ import type { CreateAgentDto, UpdateAgentDto } from './agents.dto';
 
 @Injectable()
 export class AgentsService {
-  private readonly logger = new Logger(AgentsService.name);
-
   constructor(
     @InjectModel(AgentConfig.name)
     private readonly agentModel: Model<AgentConfigDocument>,
@@ -58,10 +56,7 @@ export class AgentsService {
     return agent;
   }
 
-  async update(
-    agentID: string,
-    dto: UpdateAgentDto,
-  ): Promise<AgentConfig> {
+  async update(agentID: string, dto: UpdateAgentDto): Promise<AgentConfig> {
     const agent = await this.agentModel
       .findOneAndUpdate({ agentID }, { $set: dto }, { new: true })
       .exec();

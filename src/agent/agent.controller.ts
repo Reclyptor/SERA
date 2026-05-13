@@ -83,6 +83,7 @@ export class AgentController {
     let chatID: string;
     if (body.chatID) {
       chatID = body.chatID;
+      await this.chatsService.findOne(chatID, userID);
       await this.chatsService.appendMessage(chatID, userMessage);
       if (body.model) {
         await this.chatsService.updateModel(chatID, body.model);
@@ -112,13 +113,12 @@ export class AgentController {
           threadID,
           runID,
           userID,
+          userName: user?.name,
           chatID,
           agentID,
           userMessage: body.message,
           conversationHistory: [],
-          modelOptions: body.model
-            ? { preferredModel: body.model }
-            : undefined,
+          modelOptions: body.model ? { preferredModel: body.model } : undefined,
         },
         body.config,
       )
@@ -134,18 +134,34 @@ export class AgentController {
     @Param('runID') runID: string,
     @Req() req: Request,
   ): Observable<MessageEvent> {
-    const lastEventID = req.headers['last-event-id'] as string | undefined;
+    const headerLastEventID = req.headers['last-event-id'];
+    const queryLastEventID = req.query['last-event-id'];
+    const lastEventID =
+      (Array.isArray(headerLastEventID)
+        ? headerLastEventID[0]
+        : headerLastEventID) ??
+      (Array.isArray(queryLastEventID)
+        ? queryLastEventID[0]
+        : queryLastEventID);
 
     return this.runStream.createReconnectionObservable(
       runID,
-      lastEventID ?? '0',
+      typeof lastEventID === 'string' ? lastEventID : '0',
     ) as Observable<MessageEvent>;
   }
 
   @Get('active-run/:chatID')
   async getActiveRun(
     @Param('chatID') chatID: string,
+    @Req() req: Request,
   ): Promise<{ runID: string; threadID: string }> {
+    const userID = (req as Request & { user?: SessionUser }).user?.sub;
+    if (!userID) {
+      throw new BadRequestException('Authentication required');
+    }
+
+    await this.chatsService.findOne(chatID, userID);
+
     const activeRun = await this.runStream.getActiveRun(chatID);
     if (!activeRun) {
       throw new NotFoundException('No active run for this chat');

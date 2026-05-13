@@ -1,4 +1,10 @@
-import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  OnModuleInit,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import Redis from 'ioredis';
@@ -27,9 +33,12 @@ export class PromptsService implements OnModuleInit {
     private readonly githubSync: GitHubSyncService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit(): void {
     this.syncFromGitHub().catch((err) =>
-      this.logger.error('GitHub sync failed, using existing MongoDB data:', err),
+      this.logger.error(
+        'GitHub sync failed, using existing MongoDB data:',
+        err,
+      ),
     );
   }
 
@@ -37,35 +46,14 @@ export class PromptsService implements OnModuleInit {
     return this.githubSync.syncPrompts(this.promptModel);
   }
 
-  async resolve(slug: string, variables?: PromptVariables): Promise<string | null> {
-    const visited = new Set<string>();
-    let currentSlug: string | undefined = slug;
-
-    const chain: string[] = [];
-    while (currentSlug) {
-      if (visited.has(currentSlug)) {
-        this.logger.warn(`Circular extends detected at "${currentSlug}"`);
-        break;
-      }
-      if (visited.size >= MAX_EXTENDS_DEPTH) {
-        this.logger.warn(`Max extends depth reached at "${currentSlug}"`);
-        break;
-      }
-      visited.add(currentSlug);
-
-      const prompt = await this.getDocument(currentSlug);
-      if (!prompt) {
-        if (chain.length === 0) return null;
-        break;
-      }
-
-      chain.unshift(prompt.content);
-      currentSlug = prompt.extends ?? undefined;
-    }
-
+  async resolve(
+    slug: string,
+    variables?: PromptVariables,
+  ): Promise<string | null> {
+    const chain = await this.loadPromptChain(slug);
     if (chain.length === 0) return null;
 
-    const resolved = chain.join('\n\n');
+    const resolved = chain.map((prompt) => prompt.content).join('\n\n');
     return variables ? this.substituteVariables(resolved, variables) : resolved;
   }
 
@@ -104,12 +92,19 @@ export class PromptsService implements OnModuleInit {
       metadata?: Record<string, unknown>;
     },
   ): Promise<Prompt> {
+    const existing = await this.getDocument(slug);
+    const nextExtends =
+      data.extends !== undefined
+        ? data.extends || null
+        : (existing?.extends ?? null);
+    await this.assertValidExtendsChain(slug, nextExtends);
+
     const update: Record<string, unknown> = { content: data.content };
     if (data.extends !== undefined) update.extends = data.extends || null;
     if (data.description !== undefined) update.description = data.description;
     if (data.metadata) update.metadata = data.metadata;
 
-    const prompt = await this.promptModel
+    await this.promptModel
       .findOneAndUpdate(
         { slug },
         { $set: update },
@@ -122,7 +117,15 @@ export class PromptsService implements OnModuleInit {
 
     const newSha = await this.githubSync.pushPrompt(slug, data);
     if (newSha) {
-      await this.promptModel.updateOne({ slug }, { $set: { seedHash: newSha } });
+      await this.promptModel.updateOne(
+        { slug },
+        { $set: { seedHash: newSha } },
+      );
+    }
+
+    const prompt = await this.getDocument(slug);
+    if (!prompt) {
+      throw new Error(`Prompt "${slug}" could not be reloaded after upsert`);
     }
 
     return prompt;
@@ -133,25 +136,42 @@ export class PromptsService implements OnModuleInit {
     await this.invalidateCache(slug);
 
     if (result.deletedCount > 0) {
-      this.githubSync.deletePromptFile(slug).catch((err) =>
-        this.logger.warn(`Failed to delete prompt "${slug}" from GitHub:`, err),
-      );
+      this.githubSync
+        .deletePromptFile(slug)
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to delete prompt "${slug}" from GitHub:`,
+            err,
+          ),
+        );
     }
 
     return result.deletedCount > 0;
   }
 
   async list(): Promise<
-    Pick<Prompt, 'slug' | 'extends' | 'description' | 'metadata' | 'createdAt' | 'updatedAt'>[]
+    Pick<
+      Prompt,
+      | 'slug'
+      | 'extends'
+      | 'seedHash'
+      | 'description'
+      | 'metadata'
+      | 'createdAt'
+      | 'updatedAt'
+    >[]
   > {
     return this.promptModel
       .find()
-      .select('slug extends description metadata createdAt updatedAt')
+      .select('slug extends seedHash description metadata createdAt updatedAt')
       .sort({ slug: 1 })
       .exec();
   }
 
-  private substituteVariables(content: string, variables: PromptVariables): string {
+  private substituteVariables(
+    content: string,
+    variables: PromptVariables,
+  ): string {
     const now = new Date();
     const allVars: Record<string, string> = {
       agentName: variables.agentName ?? '',
@@ -173,6 +193,69 @@ export class PromptsService implements OnModuleInit {
       await this.redis.del(`${CACHE_PREFIX}${slug}`);
     } catch {
       this.logger.warn('Redis cache invalidation failed');
+    }
+  }
+
+  private async loadPromptChain(slug: string): Promise<Prompt[]> {
+    const visited = new Set<string>();
+    let currentSlug: string | undefined = slug;
+    let depth = 0;
+    const chain: Prompt[] = [];
+
+    while (currentSlug) {
+      depth++;
+      if (depth > MAX_EXTENDS_DEPTH) {
+        throw new BadRequestException(
+          `Prompt inheritance exceeds max depth of ${MAX_EXTENDS_DEPTH}`,
+        );
+      }
+      if (visited.has(currentSlug)) {
+        throw new BadRequestException(
+          `Circular prompt inheritance detected at "${currentSlug}"`,
+        );
+      }
+
+      visited.add(currentSlug);
+
+      const prompt = await this.getDocument(currentSlug);
+      if (!prompt) {
+        if (chain.length === 0) return [];
+        break;
+      }
+
+      chain.unshift(prompt);
+      currentSlug = prompt.extends ?? undefined;
+    }
+
+    return chain;
+  }
+
+  private async assertValidExtendsChain(
+    slug: string,
+    nextExtends?: string | null,
+  ): Promise<void> {
+    if (!nextExtends) return;
+
+    const visited = new Set<string>([slug]);
+    let currentSlug: string | undefined = nextExtends;
+    let depth = 0;
+
+    while (currentSlug) {
+      depth++;
+      if (depth > MAX_EXTENDS_DEPTH) {
+        throw new BadRequestException(
+          `Prompt inheritance exceeds max depth of ${MAX_EXTENDS_DEPTH}`,
+        );
+      }
+      if (visited.has(currentSlug)) {
+        throw new BadRequestException(
+          `Circular prompt inheritance detected at "${currentSlug}"`,
+        );
+      }
+
+      visited.add(currentSlug);
+      const prompt = await this.getDocument(currentSlug);
+      currentSlug = prompt?.extends ?? undefined;
     }
   }
 }

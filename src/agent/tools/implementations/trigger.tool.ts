@@ -52,19 +52,22 @@ const parameters = z.object({
   webhookPath: z
     .string()
     .optional()
-    .describe('Unique URL path for the webhook (required for create). The full URL will be POST /webhooks/{path}'),
+    .describe(
+      'Unique URL path for the webhook (required for create). The full URL will be POST /webhooks/{path}',
+    ),
   command: z
     .string()
     .optional()
-    .describe('Instruction for the agent when the webhook fires (required for create)'),
-  description: z
-    .string()
-    .optional()
-    .describe('Human-readable description'),
+    .describe(
+      'Instruction for the agent when the webhook fires (required for create)',
+    ),
+  description: z.string().optional().describe('Human-readable description'),
   secret: z
     .string()
     .optional()
-    .describe('Shared secret — callers must send this in the X-Webhook-Secret header'),
+    .describe(
+      'Shared secret — callers must send this in the X-Webhook-Secret header',
+    ),
   triggerID: z
     .string()
     .optional()
@@ -101,7 +104,8 @@ export class TriggerTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Trigger operation failed',
+        error:
+          error instanceof Error ? error.message : 'Trigger operation failed',
       };
     }
   }
@@ -173,7 +177,10 @@ export class TriggerTool implements Tool<typeof parameters> {
       return { success: false, error: `Trigger "${args.triggerID}" not found` };
     }
 
-    return { success: true, result: { triggerID: args.triggerID, updated: true } };
+    return {
+      success: true,
+      result: { triggerID: args.triggerID, updated: true },
+    };
   }
 
   private async deleteTrigger(

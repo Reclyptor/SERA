@@ -39,14 +39,12 @@ export class WriteTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const {
-      path: filePath,
-      content,
-      operation,
-      encoding,
-    } = args;
+    const { path: filePath, content, operation, encoding } = args;
 
-    const validation = validatePath(filePath, resolveWorkspace(context, this.workspaceDir));
+    const validation = validatePath(
+      filePath,
+      resolveWorkspace(context, this.workspaceDir),
+    );
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -63,7 +61,7 @@ export class WriteTool implements Tool<typeof parameters> {
             };
           }
           await fs.mkdir(path.dirname(resolved), { recursive: true });
-          await fs.writeFile(resolved, content, encoding as BufferEncoding);
+          await fs.writeFile(resolved, content, encoding);
           return { success: true, result: { written: resolved } };
         }
 
@@ -74,7 +72,7 @@ export class WriteTool implements Tool<typeof parameters> {
               error: 'Content is required for append operations',
             };
           }
-          await fs.appendFile(resolved, content, encoding as BufferEncoding);
+          await fs.appendFile(resolved, content, encoding);
           return { success: true, result: { appended: resolved } };
         }
 

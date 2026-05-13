@@ -55,9 +55,15 @@ export class ToolsService {
     }
 
     try {
-      this.logger.debug(`Executing tool: ${name}`, { agentID: context.agentID, threadID: context.threadID, runID: context.runID });
+      this.logger.debug(`Executing tool: ${name}`, {
+        agentID: context.agentID,
+        threadID: context.threadID,
+        runID: context.runID,
+      });
       const result = await tool.execute(args, context);
-      this.logger.debug(`Tool execution complete: ${name}`, { success: result.success });
+      this.logger.debug(`Tool execution complete: ${name}`, {
+        success: result.success,
+      });
       return result;
     } catch (error) {
       this.logger.error(`Tool execution failed: ${name}`, error);

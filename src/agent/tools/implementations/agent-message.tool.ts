@@ -40,12 +40,8 @@ export interface RunReaderLike {
 }
 
 const parameters = z.object({
-  targetAgentID: z
-    .string()
-    .describe('ID of the agent to send a message to'),
-  message: z
-    .string()
-    .describe('Message content to send to the target agent'),
+  targetAgentID: z.string().describe('ID of the agent to send a message to'),
+  message: z.string().describe('Message content to send to the target agent'),
   maxSteps: z
     .number()
     .optional()
@@ -55,7 +51,9 @@ const parameters = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('If true, block until the target agent completes and return its response. If false, return immediately with the runID.'),
+    .describe(
+      'If true, block until the target agent completes and return its response. If false, return immediately with the runID.',
+    ),
   timeoutMs: z
     .number()
     .optional()

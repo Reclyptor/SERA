@@ -65,7 +65,13 @@ export class TasksService {
     planID: string,
     taskID: string,
     update: {
-      status: 'pending' | 'in_progress' | 'waiting' | 'completed' | 'failed' | 'skipped';
+      status:
+        | 'pending'
+        | 'in_progress'
+        | 'waiting'
+        | 'completed'
+        | 'failed'
+        | 'skipped';
       result?: string;
       runID?: string;
       waitMeta?: Record<string, unknown>;
@@ -96,10 +102,10 @@ export class TasksService {
       setFields['tasks.$.waitMeta'] = null;
     }
 
-    const updateOp: Record<string, unknown> = { $set: setFields };
-    if (expectedRevision !== undefined) {
-      updateOp.$inc = { revision: 1 };
-    }
+    const updateOp: Record<string, unknown> = {
+      $set: setFields,
+      $inc: { revision: 1 },
+    };
 
     const plan = await this.taskPlanModel
       .findOneAndUpdate(filter, updateOp, { returnDocument: 'after' })
@@ -185,10 +191,8 @@ export class TasksService {
 
     const updateOp: Record<string, unknown> = {
       $set: { [`stateJson.${key}`]: value },
+      $inc: { revision: 1 },
     };
-    if (expectedRevision !== undefined) {
-      updateOp.$inc = { revision: 1 };
-    }
 
     const plan = await this.taskPlanModel
       .findOneAndUpdate(filter, updateOp, { returnDocument: 'after' })

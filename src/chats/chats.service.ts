@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { Chat, ChatDocument, Message } from './chat.schema';
 import { CreateChatDto } from './create-chat.dto';
@@ -17,10 +16,7 @@ export class ChatsService {
   private readonly logger = new Logger(ChatsService.name);
   private readonly anthropic: Anthropic;
 
-  constructor(
-    @InjectModel(Chat.name) private chatModel: Model<ChatDocument>,
-    private readonly configService: ConfigService,
-  ) {
+  constructor(@InjectModel(Chat.name) private chatModel: Model<ChatDocument>) {
     this.anthropic = new Anthropic();
   }
 
@@ -193,7 +189,10 @@ export class ChatsService {
         .slice(0, 5)
         .map((m) => ({
           role: m.role,
-          content: m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content,
+          content:
+            m.content.length > 500
+              ? m.content.slice(0, 500) + '...'
+              : m.content,
           createdAt: m.createdAt,
         }));
 

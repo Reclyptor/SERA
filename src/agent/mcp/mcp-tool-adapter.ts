@@ -15,7 +15,10 @@ function jsonSchemaToZod(schema: Record<string, unknown>): z.ZodType {
   const type = schema.type as string | undefined;
 
   if (type === 'object') {
-    const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+    const properties = (schema.properties ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
     const required = new Set((schema.required ?? []) as string[]);
     const shape: Record<string, z.ZodType> = {};
 
@@ -63,16 +66,13 @@ export function adaptMcpTool(
       _context: ToolExecutionContext,
     ): Promise<ToolExecutionResult> {
       try {
-        const result = await client.callTool(
-          def.serverName,
-          mcpToolName,
-          args,
-        );
+        const result = await client.callTool(def.serverName, mcpToolName, args);
         return { success: true, result };
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'MCP tool call failed',
+          error:
+            error instanceof Error ? error.message : 'MCP tool call failed',
         };
       }
     },

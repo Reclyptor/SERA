@@ -1,8 +1,15 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { PluginConfigRecord, PluginConfigDocument } from './plugin-config.schema';
-import type { SeraPlugin, PluginContext, PluginConfig } from './plugin.interface';
+import {
+  PluginConfigRecord,
+  PluginConfigDocument,
+} from './plugin-config.schema';
+import type {
+  SeraPlugin,
+  PluginContext,
+  PluginConfig,
+} from './plugin.interface';
 import { ToolsService } from '../tools/tools.service';
 
 @Injectable()
@@ -32,9 +39,9 @@ export class PluginLoaderService implements OnModuleInit {
     }
 
     try {
-      const mod = await (Function('m', 'return import(m)') as (m: string) => Promise<any>)(
-        config.packageName,
-      );
+      const mod = await (
+        Function('m', 'return import(m)') as (m: string) => Promise<any>
+      )(config.packageName);
 
       const plugin: SeraPlugin = mod.default ?? mod;
 
@@ -87,7 +94,9 @@ export class PluginLoaderService implements OnModuleInit {
     return {
       registerTool: (tool) => {
         this.toolsService.registerTool(tool);
-        this.logger.debug(`Plugin "${config.name}" registered tool "${tool.name}"`);
+        this.logger.debug(
+          `Plugin "${config.name}" registered tool "${tool.name}"`,
+        );
       },
       registerKnowledge: (key, content) => {
         this.knowledgeStore.set(`${config.name}:${key}`, content);
@@ -104,7 +113,11 @@ export class PluginLoaderService implements OnModuleInit {
     };
   }
 
-  getLoadedPlugins(): Array<{ name: string; version: string; description?: string }> {
+  getLoadedPlugins(): Array<{
+    name: string;
+    version: string;
+    description?: string;
+  }> {
     return Array.from(this.loadedPlugins.entries()).map(([, plugin]) => ({
       name: plugin.name,
       version: plugin.version,

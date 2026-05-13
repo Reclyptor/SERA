@@ -18,11 +18,7 @@ const parameters = z.object({
     .optional()
     .default(50)
     .describe('Max messages to return (1-200)'),
-  offset: z
-    .number()
-    .optional()
-    .default(0)
-    .describe('Skip first N messages'),
+  offset: z.number().optional().default(0).describe('Skip first N messages'),
 });
 
 export class SessionsHistoryTool implements Tool<typeof parameters> {
@@ -43,8 +39,7 @@ export class SessionsHistoryTool implements Tool<typeof parameters> {
     const offset = Math.max(0, args.offset);
 
     try {
-      const messages =
-        await this.chatService.loadConversationHistory(chatID);
+      const messages = await this.chatService.loadConversationHistory(chatID);
       const sliced = messages.slice(offset, offset + limit);
 
       return {

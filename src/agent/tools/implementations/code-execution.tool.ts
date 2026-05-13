@@ -88,7 +88,11 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
       if (context.sandbox && this.sandboxRunner) {
         const containerPath = `.tmp/${filename}`;
         const envVars = bridge
-          ? { ...context.sandbox.envVars, SERA_BRIDGE_URL: bridge.url, SERA_BRIDGE_SECRET: bridge.secret }
+          ? {
+              ...context.sandbox.envVars,
+              SERA_BRIDGE_URL: bridge.url,
+              SERA_BRIDGE_SECRET: bridge.secret,
+            }
           : context.sandbox.envVars;
         const result = await this.sandboxRunner.exec({
           command: `${config.runner} ${containerPath}`,
@@ -104,7 +108,9 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
         };
       }
 
-      const bridgeEnv = bridge ? { SERA_BRIDGE_URL: bridge.url, SERA_BRIDGE_SECRET: bridge.secret } : {};
+      const bridgeEnv = bridge
+        ? { SERA_BRIDGE_URL: bridge.url, SERA_BRIDGE_SECRET: bridge.secret }
+        : {};
 
       return await new Promise((resolve) => {
         const child = exec(

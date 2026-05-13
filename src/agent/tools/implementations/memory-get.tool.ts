@@ -6,9 +6,7 @@ import type {
 } from '../tool.interface';
 
 interface MemoryServiceLike {
-  getAll(
-    userID: string,
-  ): Promise<
+  getAll(userID: string): Promise<
     Array<{
       id: string;
       content: string;

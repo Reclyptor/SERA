@@ -39,10 +39,7 @@ export interface TasksServiceLike {
       waitMeta?: Record<string, unknown>;
     }>;
   }>;
-  listPlans(filters: {
-    parentRunID?: string;
-    agentID?: string;
-  }): Promise<
+  listPlans(filters: { parentRunID?: string; agentID?: string }): Promise<
     Array<{
       planID: string;
       goal: string;
@@ -60,7 +57,13 @@ export interface TasksServiceLike {
     planID: string,
     taskID: string,
     update: {
-      status: 'pending' | 'in_progress' | 'waiting' | 'completed' | 'failed' | 'skipped';
+      status:
+        | 'pending'
+        | 'in_progress'
+        | 'waiting'
+        | 'completed'
+        | 'failed'
+        | 'skipped';
       result?: string;
       runID?: string;
       waitMeta?: Record<string, unknown>;
@@ -102,7 +105,9 @@ const parameters = z.object({
   tasks: z
     .array(z.object({ description: z.string() }))
     .optional()
-    .describe('Ordered list of tasks to accomplish the goal (required for create_plan)'),
+    .describe(
+      'Ordered list of tasks to accomplish the goal (required for create_plan)',
+    ),
   planID: z
     .string()
     .optional()
@@ -112,7 +117,14 @@ const parameters = z.object({
     .optional()
     .describe('Task ID within a plan (required for update_task)'),
   status: z
-    .enum(['pending', 'in_progress', 'waiting', 'completed', 'failed', 'skipped'])
+    .enum([
+      'pending',
+      'in_progress',
+      'waiting',
+      'completed',
+      'failed',
+      'skipped',
+    ])
     .optional()
     .describe('New task status (required for update_task)'),
   result: z
@@ -122,15 +134,21 @@ const parameters = z.object({
   runID: z
     .string()
     .optional()
-    .describe('Run ID if this task was delegated to a sub-agent (for update_task)'),
+    .describe(
+      'Run ID if this task was delegated to a sub-agent (for update_task)',
+    ),
   waitMeta: z
     .record(z.unknown())
     .optional()
-    .describe('Metadata for a waiting task — e.g. what event or condition to resume on (for update_task with status=waiting)'),
+    .describe(
+      'Metadata for a waiting task — e.g. what event or condition to resume on (for update_task with status=waiting)',
+    ),
   expectedRevision: z
     .number()
     .optional()
-    .describe('Optimistic concurrency: only apply the mutation if the plan is at this revision (for update_task, set_state)'),
+    .describe(
+      'Optimistic concurrency: only apply the mutation if the plan is at this revision (for update_task, set_state)',
+    ),
   key: z
     .string()
     .optional()
@@ -175,7 +193,8 @@ export class TaskPlanTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Task plan operation failed',
+        error:
+          error instanceof Error ? error.message : 'Task plan operation failed',
       };
     }
   }

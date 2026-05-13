@@ -6,23 +6,29 @@ import type {
 } from '../tool.interface';
 
 export interface SessionsListStateLike {
-  listThreads(
-    options?: { limit?: number; sort?: 'asc' | 'desc'; threadIDs?: string[] },
-  ): Promise<Array<{
-    threadID: string;
-    metadata: Record<string, unknown>;
-    createdAt: Date;
-    updatedAt: Date;
-  }>>;
+  listThreads(options?: {
+    limit?: number;
+    sort?: 'asc' | 'desc';
+    threadIDs?: string[];
+  }): Promise<
+    Array<{
+      threadID: string;
+      metadata: Record<string, unknown>;
+      createdAt: Date;
+      updatedAt: Date;
+    }>
+  >;
   listRuns(
     filter: { threadID?: string; status?: string },
     options?: { limit?: number; sort?: 'asc' | 'desc' },
-  ): Promise<Array<{
-    runID: string;
-    threadID: string;
-    status: string;
-    startedAt: Date;
-  }>>;
+  ): Promise<
+    Array<{
+      runID: string;
+      threadID: string;
+      status: string;
+      startedAt: Date;
+    }>
+  >;
 }
 
 const parameters = z.object({
@@ -64,13 +70,11 @@ export class SessionsListTool implements Tool<typeof parameters> {
 
       if (status !== 'all') {
         const matchingRuns = await this.stateService.listRuns(
-          { status: status as string },
+          { status: status },
           { limit: 500 },
         );
 
-        const threadIDs = [
-          ...new Set(matchingRuns.map((r) => r.threadID)),
-        ];
+        const threadIDs = [...new Set(matchingRuns.map((r) => r.threadID))];
 
         threads = await this.stateService.listThreads({
           threadIDs,

@@ -64,9 +64,15 @@ const parameters = z.object({
   description: z.string().optional().describe('Skill description'),
   content: z.string().optional().describe('Skill content (markdown body)'),
   license: z.string().optional().describe('Skill license'),
-  compatibility: z.string().optional().describe('Skill compatibility requirements'),
+  compatibility: z
+    .string()
+    .optional()
+    .describe('Skill compatibility requirements'),
   allowedTools: z.array(z.string()).optional().describe('Pre-approved tools'),
-  metadata: z.record(z.string()).optional().describe('Arbitrary key-value metadata'),
+  metadata: z
+    .record(z.string())
+    .optional()
+    .describe('Arbitrary key-value metadata'),
   filePath: z.string().optional().describe('File path within a skill'),
   fileContent: z.string().optional().describe('File content'),
 });
@@ -109,7 +115,8 @@ export class SkillsTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Skills operation failed',
+        error:
+          error instanceof Error ? error.message : 'Skills operation failed',
       };
     }
   }
@@ -122,7 +129,9 @@ export class SkillsTool implements Tool<typeof parameters> {
     };
   }
 
-  private async get(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async get(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name) {
       return { success: false, error: 'name is required for get' };
     }
@@ -147,9 +156,14 @@ export class SkillsTool implements Tool<typeof parameters> {
     };
   }
 
-  private async create(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async create(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name || !args.content) {
-      return { success: false, error: 'name and content are required for create' };
+      return {
+        success: false,
+        error: 'name and content are required for create',
+      };
     }
 
     const skill = await this.skills.create({
@@ -165,7 +179,9 @@ export class SkillsTool implements Tool<typeof parameters> {
     return { success: true, result: { name: skill.name } };
   }
 
-  private async update(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async update(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name) {
       return { success: false, error: 'name is required for update' };
     }
@@ -174,15 +190,21 @@ export class SkillsTool implements Tool<typeof parameters> {
     if (args.description !== undefined) dto.description = args.description;
     if (args.content !== undefined) dto.content = args.content;
     if (args.license !== undefined) dto.license = args.license;
-    if (args.compatibility !== undefined) dto.compatibility = args.compatibility;
+    if (args.compatibility !== undefined)
+      dto.compatibility = args.compatibility;
     if (args.allowedTools !== undefined) dto.allowedTools = args.allowedTools;
     if (args.metadata !== undefined) dto.metadata = args.metadata;
 
     await this.skills.update(args.name, dto);
-    return { success: true, result: { name: args.name, updated: Object.keys(dto) } };
+    return {
+      success: true,
+      result: { name: args.name, updated: Object.keys(dto) },
+    };
   }
 
-  private async delete(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async delete(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name) {
       return { success: false, error: 'name is required for delete' };
     }
@@ -194,7 +216,9 @@ export class SkillsTool implements Tool<typeof parameters> {
     return { success: true, result: { deleted: args.name } };
   }
 
-  private async listFiles(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async listFiles(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name) {
       return { success: false, error: 'name is required for list_files' };
     }
@@ -203,42 +227,77 @@ export class SkillsTool implements Tool<typeof parameters> {
     return { success: true, result: { name: args.name, files } };
   }
 
-  private async readFile(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async readFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name || !args.filePath) {
-      return { success: false, error: 'name and filePath are required for read_file' };
+      return {
+        success: false,
+        error: 'name and filePath are required for read_file',
+      };
     }
 
     const content = await this.skills.findFile(args.name, args.filePath);
     if (content === null) {
-      return { success: false, error: `File "${args.filePath}" not found in skill "${args.name}"` };
+      return {
+        success: false,
+        error: `File "${args.filePath}" not found in skill "${args.name}"`,
+      };
     }
-    return { success: true, result: { name: args.name, filePath: args.filePath, content } };
+    return {
+      success: true,
+      result: { name: args.name, filePath: args.filePath, content },
+    };
   }
 
-  private async addFile(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async addFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name || !args.filePath || args.fileContent === undefined) {
-      return { success: false, error: 'name, filePath, and fileContent are required for add_file' };
+      return {
+        success: false,
+        error: 'name, filePath, and fileContent are required for add_file',
+      };
     }
 
     await this.skills.addFile(args.name, args.filePath, args.fileContent);
-    return { success: true, result: { name: args.name, filePath: args.filePath, action: 'added' } };
+    return {
+      success: true,
+      result: { name: args.name, filePath: args.filePath, action: 'added' },
+    };
   }
 
-  private async updateFile(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async updateFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name || !args.filePath || args.fileContent === undefined) {
-      return { success: false, error: 'name, filePath, and fileContent are required for update_file' };
+      return {
+        success: false,
+        error: 'name, filePath, and fileContent are required for update_file',
+      };
     }
 
     await this.skills.updateFile(args.name, args.filePath, args.fileContent);
-    return { success: true, result: { name: args.name, filePath: args.filePath, action: 'updated' } };
+    return {
+      success: true,
+      result: { name: args.name, filePath: args.filePath, action: 'updated' },
+    };
   }
 
-  private async removeFile(args: z.infer<typeof parameters>): Promise<ToolExecutionResult> {
+  private async removeFile(
+    args: z.infer<typeof parameters>,
+  ): Promise<ToolExecutionResult> {
     if (!args.name || !args.filePath) {
-      return { success: false, error: 'name and filePath are required for remove_file' };
+      return {
+        success: false,
+        error: 'name and filePath are required for remove_file',
+      };
     }
 
     await this.skills.removeFile(args.name, args.filePath);
-    return { success: true, result: { name: args.name, filePath: args.filePath, action: 'removed' } };
+    return {
+      success: true,
+      result: { name: args.name, filePath: args.filePath, action: 'removed' },
+    };
   }
 }

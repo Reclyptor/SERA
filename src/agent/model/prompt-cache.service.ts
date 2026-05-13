@@ -61,7 +61,11 @@ export class PromptCacheService {
 
   private applyAnthropicBreakpoints(messages: ModelMessage[]): ModelMessage[] {
     const indices: number[] = [];
-    for (let i = messages.length - 1; i >= 0 && indices.length < MAX_MESSAGE_BREAKPOINTS; i--) {
+    for (
+      let i = messages.length - 1;
+      i >= 0 && indices.length < MAX_MESSAGE_BREAKPOINTS;
+      i--
+    ) {
       if (messages[i].role !== 'tool') {
         indices.push(i);
       }

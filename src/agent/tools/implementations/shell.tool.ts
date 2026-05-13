@@ -12,9 +12,7 @@ import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
 const parameters = z.object({
-  script: z
-    .string()
-    .describe('Shell script to execute (multi-line supported)'),
+  script: z.string().describe('Shell script to execute (multi-line supported)'),
   cwd: z
     .string()
     .optional()

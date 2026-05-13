@@ -13,7 +13,14 @@ export class Task {
 
   @Prop({
     required: true,
-    enum: ['pending', 'in_progress', 'waiting', 'completed', 'failed', 'skipped'],
+    enum: [
+      'pending',
+      'in_progress',
+      'waiting',
+      'completed',
+      'failed',
+      'skipped',
+    ],
     default: 'pending',
   })
   status: string;

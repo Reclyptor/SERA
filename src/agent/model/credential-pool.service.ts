@@ -25,22 +25,33 @@ export class CredentialPoolService {
   private readonly cooldownMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.cooldownMs = parseInt(
-      this.configService.get<string>('CREDENTIAL_COOLDOWN_MS', String(DEFAULT_COOLDOWN_MS)),
-      10,
-    ) || DEFAULT_COOLDOWN_MS;
+    this.cooldownMs =
+      parseInt(
+        this.configService.get<string>(
+          'CREDENTIAL_COOLDOWN_MS',
+          String(DEFAULT_COOLDOWN_MS),
+        ),
+        10,
+      ) || DEFAULT_COOLDOWN_MS;
 
     this.initPool('anthropic', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEYS');
     this.initPool('openai', 'OPENAI_API_KEY', 'OPENAI_API_KEYS');
     this.initPool('google', 'GOOGLE_API_KEY', 'GOOGLE_API_KEYS');
   }
 
-  private initPool(provider: string, singularEnv: string, pluralEnv: string): void {
+  private initPool(
+    provider: string,
+    singularEnv: string,
+    pluralEnv: string,
+  ): void {
     const plural = this.configService.get<string>(pluralEnv, '');
     const singular = this.configService.get<string>(singularEnv, '');
 
     const keys = plural
-      ? plural.split(',').map((k) => k.trim()).filter(Boolean)
+      ? plural
+          .split(',')
+          .map((k) => k.trim())
+          .filter(Boolean)
       : singular
         ? [singular]
         : [];
@@ -48,8 +59,9 @@ export class CredentialPoolService {
     if (keys.length === 0) return;
 
     const strategy: Strategy =
-      (this.configService.get<string>(`${provider.toUpperCase()}_KEY_STRATEGY`) as Strategy) ??
-      'round_robin';
+      (this.configService.get<string>(
+        `${provider.toUpperCase()}_KEY_STRATEGY`,
+      ) as Strategy) ?? 'round_robin';
 
     this.pools.set(provider, {
       keys: keys.map((key) => ({ key, usageCount: 0, cooldownUntil: 0 })),
@@ -141,9 +153,15 @@ export class CredentialPoolService {
     return !!pool && pool.keys.length > 1;
   }
 
-  getStats(): Record<string, { total: number; available: number; strategy: Strategy }> {
+  getStats(): Record<
+    string,
+    { total: number; available: number; strategy: Strategy }
+  > {
     const now = Date.now();
-    const stats: Record<string, { total: number; available: number; strategy: Strategy }> = {};
+    const stats: Record<
+      string,
+      { total: number; available: number; strategy: Strategy }
+    > = {};
     for (const [provider, pool] of this.pools) {
       stats[provider] = {
         total: pool.keys.length,

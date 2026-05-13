@@ -6,10 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import {
-  HeartbeatConfig,
-  HeartbeatConfigDocument,
-} from './heartbeat.schema';
+import { HeartbeatConfig, HeartbeatConfigDocument } from './heartbeat.schema';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
 import { PromptsService } from '../../prompts/prompts.service';
 
@@ -76,10 +73,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private isWithinActiveHours(
-    config: HeartbeatConfig,
-    now: Date,
-  ): boolean {
+  private isWithinActiveHours(config: HeartbeatConfig, now: Date): boolean {
     if (!config.activeHours) return true;
 
     const { start, end, timezone } = config.activeHours;
@@ -96,7 +90,11 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
   private getFormatter(timezone: string): Intl.DateTimeFormat {
     let fmt = this.formatters.get(timezone);
     if (!fmt) {
-      fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: timezone });
+      fmt = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        hour12: false,
+        timeZone: timezone,
+      });
       this.formatters.set(timezone, fmt);
     }
     return fmt;
@@ -118,9 +116,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
       message += `\n\nChecklist:\n${items}`;
     }
 
-    const nextRunAt = new Date(
-      Date.now() + config.intervalMinutes * 60_000,
-    );
+    const nextRunAt = new Date(Date.now() + config.intervalMinutes * 60_000);
 
     await this.heartbeatModel.updateOne(
       { agentID: config.agentID },
@@ -137,6 +133,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
           userMessage: message,
           conversationHistory: [],
           isHeartbeat: true,
+          modelOptions: { maxOutputTokens: config.maxTokens },
         },
         { maxSteps: 10, maxIterations: 2 },
       )
@@ -185,9 +182,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     const update: Record<string, unknown> = { ...data };
 
     if (data.intervalMinutes) {
-      update.nextRunAt = new Date(
-        Date.now() + data.intervalMinutes * 60_000,
-      );
+      update.nextRunAt = new Date(Date.now() + data.intervalMinutes * 60_000);
     }
 
     return this.heartbeatModel
@@ -196,9 +191,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
   }
 
   async remove(agentID: string): Promise<boolean> {
-    const result = await this.heartbeatModel
-      .deleteOne({ agentID })
-      .exec();
+    const result = await this.heartbeatModel.deleteOne({ agentID }).exec();
     return result.deletedCount > 0;
   }
 }

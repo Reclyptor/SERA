@@ -1,4 +1,7 @@
-import type { ToolExecutionContext, ToolExecutionResult } from '../tool.interface';
+import type {
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from '../tool.interface';
 
 export function resolveWorkspace(
   _context: ToolExecutionContext,
@@ -21,4 +24,3 @@ export function disabledError(
     error: `${feature} is disabled. Set ${envVar}=true to enable.`,
   };
 }
-

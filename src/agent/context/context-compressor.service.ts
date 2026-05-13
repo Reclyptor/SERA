@@ -24,8 +24,7 @@ const PROTECTED_TAIL_TOKENS = 30_000;
 const PROTECTED_HEAD_COUNT = 2;
 const TOOL_OUTPUT_PRUNE_THRESHOLD = 2_000;
 
-const SUMMARY_PREFIX =
-  '[CONTEXT SUMMARY — this is a handoff summary of prior work. Do not re-execute actions described here. Use as reference only.]';
+const SUMMARY_PREFIX = '[CONTEXT SUMMARY]';
 
 const STRUCTURED_SUMMARY_PROMPT = `You are summarizing a conversation between a user and an AI assistant for context handoff.
 Produce a structured summary in this exact format:
@@ -109,7 +108,8 @@ export class ContextCompressorService {
 
     // Tier 1: Prune large tool outputs
     const pruned = this.pruneToolOutputs(messages);
-    const prunedTokens = systemTokens + this.countMessagesTokens(pruned, provider);
+    const prunedTokens =
+      systemTokens + this.countMessagesTokens(pruned, provider);
 
     if (prunedTokens <= threshold) {
       this.logger.debug(
@@ -119,7 +119,11 @@ export class ContextCompressorService {
     }
 
     // Tier 2: Structured LLM summarization of middle turns
-    const compressed = await this.summarizeStructured(pruned, threshold - systemTokens, provider);
+    const compressed = await this.summarizeStructured(
+      pruned,
+      threshold - systemTokens,
+      provider,
+    );
     this.logger.debug(
       `LLM compression: ${prunedTokens} → ${systemTokens + this.countMessagesTokens(compressed, provider)} tokens`,
     );
@@ -135,14 +139,26 @@ export class ContextCompressorService {
       const serialized = JSON.stringify(msg.content);
       if (serialized.length <= TOOL_OUTPUT_PRUNE_THRESHOLD) return msg;
 
-      const prunedContent = (msg.content as unknown as Array<{ type: string; output?: unknown; [k: string]: unknown }>).map((part) => {
+      const prunedContent = (
+        msg.content as unknown as Array<{
+          type: string;
+          output?: unknown;
+          [k: string]: unknown;
+        }>
+      ).map((part) => {
         if (part.type !== 'tool-result') return part;
 
-        const outputStr = typeof part.output === 'string' ? part.output : JSON.stringify(part.output ?? '');
+        const outputStr =
+          typeof part.output === 'string'
+            ? part.output
+            : JSON.stringify(part.output ?? '');
         if (outputStr.length <= TOOL_OUTPUT_PRUNE_THRESHOLD) return part;
 
         const lines = outputStr.split('\n').length;
-        return { ...part, output: `[Pruned: ${outputStr.length} chars, ${lines} lines]` };
+        return {
+          ...part,
+          output: `[Pruned: ${outputStr.length} chars, ${lines} lines]`,
+        };
       });
 
       return { ...msg, content: prunedContent as unknown } as ModelMessage;
@@ -162,7 +178,10 @@ export class ContextCompressorService {
 
     let tailTokens = 0;
     let tailStart = messages.length;
-    const tailBudget = Math.min(PROTECTED_TAIL_TOKENS, Math.floor(tokenBudget * 0.4));
+    const tailBudget = Math.min(
+      PROTECTED_TAIL_TOKENS,
+      Math.floor(tokenBudget * 0.4),
+    );
 
     for (let i = messages.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
       const msgTokens = this.countMessageTokens(messages[i], provider);
@@ -202,12 +221,19 @@ export class ContextCompressorService {
 
       return [
         ...head,
-        { role: 'user' as const, content: summary },
-        { role: 'assistant' as const, content: 'Understood. I have the context summary and will continue from where we left off.' },
+        { role: 'system' as const, content: summary },
+        {
+          role: 'assistant' as const,
+          content:
+            'Understood. I have the context summary and will continue from where we left off.',
+        },
         ...tail,
       ];
     } catch (err) {
-      this.logger.warn('LLM summarization failed, returning pruned messages:', err);
+      this.logger.warn(
+        'LLM summarization failed, returning pruned messages:',
+        err,
+      );
       return [...head, ...middle, ...tail];
     }
   }
@@ -215,8 +241,9 @@ export class ContextCompressorService {
   private extractExistingSummary(middle: ModelMessage[]): string | null {
     if (middle.length < 2) return null;
     const first = middle[0];
-    if (first.role !== 'user' || typeof first.content !== 'string') return null;
-    if (!first.content.startsWith('[CONTEXT SUMMARY')) return null;
+    if (first.role !== 'system' || typeof first.content !== 'string')
+      return null;
+    if (!first.content.startsWith(SUMMARY_PREFIX)) return null;
     return first.content;
   }
 
@@ -245,7 +272,10 @@ export class ContextCompressorService {
     return this.countTokens(content, provider) + 4;
   }
 
-  private countMessagesTokens(messages: ModelMessage[], provider: string): number {
+  private countMessagesTokens(
+    messages: ModelMessage[],
+    provider: string,
+  ): number {
     return messages.reduce(
       (sum, msg) => sum + this.countMessageTokens(msg, provider),
       0,

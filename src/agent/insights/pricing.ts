@@ -7,38 +7,38 @@ interface ModelPricing {
 
 const PRICING: Record<string, ModelPricing> = {
   'claude-haiku-4-5': {
-    inputPerMTok: 0.80,
-    outputPerMTok: 4.00,
+    inputPerMTok: 0.8,
+    outputPerMTok: 4.0,
     cacheReadPerMTok: 0.08,
-    cacheWritePerMTok: 1.00,
+    cacheWritePerMTok: 1.0,
   },
   'claude-sonnet-4-6': {
-    inputPerMTok: 3.00,
-    outputPerMTok: 15.00,
-    cacheReadPerMTok: 0.30,
+    inputPerMTok: 3.0,
+    outputPerMTok: 15.0,
+    cacheReadPerMTok: 0.3,
     cacheWritePerMTok: 3.75,
   },
   'claude-opus-4-7': {
-    inputPerMTok: 15.00,
-    outputPerMTok: 75.00,
-    cacheReadPerMTok: 1.50,
+    inputPerMTok: 15.0,
+    outputPerMTok: 75.0,
+    cacheReadPerMTok: 1.5,
     cacheWritePerMTok: 18.75,
   },
   'gpt-4o-mini': {
     inputPerMTok: 0.15,
-    outputPerMTok: 0.60,
+    outputPerMTok: 0.6,
   },
   'gpt-4o': {
-    inputPerMTok: 2.50,
-    outputPerMTok: 10.00,
+    inputPerMTok: 2.5,
+    outputPerMTok: 10.0,
   },
-  'o3': {
-    inputPerMTok: 2.00,
-    outputPerMTok: 8.00,
+  o3: {
+    inputPerMTok: 2.0,
+    outputPerMTok: 8.0,
   },
   'gemini-2.0-flash': {
-    inputPerMTok: 0.10,
-    outputPerMTok: 0.40,
+    inputPerMTok: 0.1,
+    outputPerMTok: 0.4,
   },
 };
 
@@ -66,5 +66,9 @@ export function calculateCost(
     ? ((tokens.cacheWrite ?? 0) / 1_000_000) * pricing.cacheWritePerMTok
     : 0;
 
-  return Math.round((inputCost + outputCost + cacheReadCost + cacheWriteCost) * 100) / 100;
+  return (
+    Math.round(
+      (inputCost + outputCost + cacheReadCost + cacheWriteCost) * 100,
+    ) / 100
+  );
 }

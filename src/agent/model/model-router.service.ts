@@ -7,7 +7,6 @@ import {
   type GenerateTextResult,
   type StreamTextResult,
   type ModelMessage,
-  type SystemModelMessage,
   type ToolSet,
   type LanguageModel,
 } from 'ai';
@@ -272,7 +271,10 @@ export class ModelRouterService {
         resolved.provider,
       );
       const cachedSystem = params.system
-        ? this.promptCache.buildSystemWithCache(params.system, resolved.provider)
+        ? this.promptCache.buildSystemWithCache(
+            params.system,
+            resolved.provider,
+          )
         : undefined;
 
       try {

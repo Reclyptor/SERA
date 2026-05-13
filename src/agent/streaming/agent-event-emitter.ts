@@ -32,7 +32,11 @@ export class AgentEventEmitter {
     });
   }
 
-  async initRun(runID: string, threadID: string, chatID: string): Promise<void> {
+  async initRun(
+    runID: string,
+    threadID: string,
+    chatID: string,
+  ): Promise<void> {
     try {
       await this.runStream.initRun(runID, threadID, chatID);
     } catch (err) {

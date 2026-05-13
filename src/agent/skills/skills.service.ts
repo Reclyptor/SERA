@@ -1,7 +1,13 @@
-import { Inject, Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import * as yaml from 'js-yaml';
 import Redis from 'ioredis';
 import { Skill, SkillDocument } from './skill.schema';
 import type { CreateSkillDto, UpdateSkillDto } from './skills.dto';
@@ -24,9 +30,12 @@ export class SkillsService implements OnModuleInit {
     @Optional() private readonly contentScanner?: ContentScannerService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit(): void {
     this.syncFromGitHub().catch((err) =>
-      this.logger.error('GitHub sync failed, using existing MongoDB data:', err),
+      this.logger.error(
+        'GitHub sync failed, using existing MongoDB data:',
+        err,
+      ),
     );
   }
 
@@ -37,7 +46,10 @@ export class SkillsService implements OnModuleInit {
   async create(dto: CreateSkillDto): Promise<Skill> {
     this.contentScanner?.assertSafe(dto.content, 'skill create');
     if (dto.description) {
-      this.contentScanner?.assertSafe(dto.description, 'skill create description');
+      this.contentScanner?.assertSafe(
+        dto.description,
+        'skill create description',
+      );
     }
 
     if (dto.files) {
@@ -58,15 +70,19 @@ export class SkillsService implements OnModuleInit {
     const saved = await skill.save();
     await this.invalidateCache(dto.name);
 
-    this.githubSync.pushSkill(dto.name, {
-      content: dto.content,
-      description: dto.description,
-      license: dto.license,
-      compatibility: dto.compatibility,
-      allowedTools: dto.allowedTools,
-      metadata: dto.metadata,
-      files: dto.files,
-    }).catch((err) => this.logger.warn(`Failed to push skill "${dto.name}" to GitHub:`, err));
+    this.githubSync
+      .pushSkill(dto.name, {
+        content: dto.content,
+        description: dto.description,
+        license: dto.license,
+        compatibility: dto.compatibility,
+        allowedTools: dto.allowedTools,
+        metadata: dto.metadata,
+        files: dto.files,
+      })
+      .catch((err) =>
+        this.logger.warn(`Failed to push skill "${dto.name}" to GitHub:`, err),
+      );
 
     return saved;
   }
@@ -80,7 +96,7 @@ export class SkillsService implements OnModuleInit {
 
     try {
       const cached = await this.redis.get(cacheKey);
-      if (cached !== null) return JSON.parse(cached);
+      if (cached !== null) return JSON.parse(cached) as Skill;
     } catch {
       this.logger.warn('Redis read failed, falling back to MongoDB');
     }
@@ -89,7 +105,12 @@ export class SkillsService implements OnModuleInit {
     if (!skill) return null;
 
     try {
-      await this.redis.set(cacheKey, JSON.stringify(skill.toObject()), 'EX', CACHE_TTL);
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(skill.toObject()),
+        'EX',
+        CACHE_TTL,
+      );
     } catch {
       this.logger.warn('Redis write failed');
     }
@@ -102,7 +123,10 @@ export class SkillsService implements OnModuleInit {
       this.contentScanner?.assertSafe(dto.content, 'skill update');
     }
     if (dto.description) {
-      this.contentScanner?.assertSafe(dto.description, 'skill update description');
+      this.contentScanner?.assertSafe(
+        dto.description,
+        'skill update description',
+      );
     }
 
     const skill = await this.skillModel
@@ -113,15 +137,19 @@ export class SkillsService implements OnModuleInit {
     }
     await this.invalidateCache(name);
 
-    this.githubSync.pushSkill(name, {
-      content: skill.content,
-      description: skill.description,
-      license: skill.license,
-      compatibility: skill.compatibility,
-      allowedTools: skill.allowedTools,
-      metadata: skill.metadata as Record<string, string>,
-      files: skill.files,
-    }).catch((err) => this.logger.warn(`Failed to push skill "${name}" to GitHub:`, err));
+    this.githubSync
+      .pushSkill(name, {
+        content: skill.content,
+        description: skill.description,
+        license: skill.license,
+        compatibility: skill.compatibility,
+        allowedTools: skill.allowedTools,
+        metadata: skill.metadata,
+        files: skill.files,
+      })
+      .catch((err) =>
+        this.logger.warn(`Failed to push skill "${name}" to GitHub:`, err),
+      );
 
     return skill;
   }
@@ -130,9 +158,14 @@ export class SkillsService implements OnModuleInit {
     const result = await this.skillModel.deleteOne({ name }).exec();
     if (result.deletedCount > 0) {
       await this.invalidateCache(name);
-      this.githubSync.deleteSkillFiles(name).catch((err) =>
-        this.logger.warn(`Failed to delete skill "${name}" from GitHub:`, err),
-      );
+      this.githubSync
+        .deleteSkillFiles(name)
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to delete skill "${name}" from GitHub:`,
+            err,
+          ),
+        );
     }
     return result.deletedCount > 0;
   }
@@ -169,25 +202,38 @@ export class SkillsService implements OnModuleInit {
     return content;
   }
 
-  async addFile(name: string, filePath: string, content: string): Promise<void> {
+  async addFile(
+    name: string,
+    filePath: string,
+    content: string,
+  ): Promise<void> {
     this.validateFilePath(filePath);
     const skill = await this.skillModel.findOne({ name }).exec();
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
     if (skill.files.some((f) => f.path === filePath)) {
       throw new Error(`File "${filePath}" already exists in skill "${name}"`);
     }
-    await this.skillModel.updateOne({ name }, { $push: { files: { path: filePath, content } } });
+    await this.skillModel.updateOne(
+      { name },
+      { $push: { files: { path: filePath, content } } },
+    );
     await this.invalidateCache(name);
   }
 
-  async updateFile(name: string, filePath: string, content: string): Promise<void> {
+  async updateFile(
+    name: string,
+    filePath: string,
+    content: string,
+  ): Promise<void> {
     this.validateFilePath(filePath);
     const result = await this.skillModel.updateOne(
       { name, 'files.path': filePath },
       { $set: { 'files.$.content': content } },
     );
     if (result.matchedCount === 0) {
-      throw new NotFoundException(`File "${filePath}" not found in skill "${name}"`);
+      throw new NotFoundException(
+        `File "${filePath}" not found in skill "${name}"`,
+      );
     }
     await this.invalidateCache(name);
   }
@@ -227,10 +273,11 @@ export class SkillsService implements OnModuleInit {
 
   async findRelevant(
     query: string,
-    _agentID?: string,
     availableTools?: string[],
   ): Promise<Skill[]> {
-    const skills = await this.skillModel.find({ status: { $ne: 'archived' } }).exec();
+    const skills = await this.skillModel
+      .find({ status: { $ne: 'archived' } })
+      .exec();
 
     const queryWords = query
       .toLowerCase()
@@ -264,10 +311,7 @@ export class SkillsService implements OnModuleInit {
       .map((entry) => entry.skill);
   }
 
-  formatForPrompt(
-    skills: Skill[],
-    _variables?: Record<string, string>,
-  ): string {
+  formatForPrompt(skills: Skill[]): string {
     if (skills.length === 0) return '';
 
     const sections = skills.map((s) => {
@@ -280,7 +324,10 @@ export class SkillsService implements OnModuleInit {
     return `## Skills\n\n${sections.join('\n\n')}`;
   }
 
-  private substituteMetadata(content: string, metadata: Record<string, string>): string {
+  private substituteMetadata(
+    content: string,
+    metadata: Record<string, string>,
+  ): string {
     return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
       return key in metadata ? metadata[key] : match;
     });

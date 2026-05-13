@@ -9,14 +9,16 @@ export interface SubagentsStateLike {
   listRuns(
     filter: { threadID?: string; runIDs?: string[] },
     options?: { limit?: number; sort?: 'asc' | 'desc' },
-  ): Promise<Array<{
-    runID: string;
-    threadID: string;
-    status: string;
-    startedAt: Date;
-    completedAt?: Date;
-    response?: string;
-  }>>;
+  ): Promise<
+    Array<{
+      runID: string;
+      threadID: string;
+      status: string;
+      startedAt: Date;
+      completedAt?: Date;
+      response?: string;
+    }>
+  >;
   cancelRuns(runIDs: string[]): Promise<number>;
 }
 
@@ -113,9 +115,7 @@ export class SubagentsTool implements Tool<typeof parameters> {
       return {
         success: false,
         error:
-          error instanceof Error
-            ? error.message
-            : 'Sub-agent operation failed',
+          error instanceof Error ? error.message : 'Sub-agent operation failed',
       };
     }
   }

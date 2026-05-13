@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -38,10 +43,14 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
     private readonly modelRouter: ModelRouterService,
     private readonly toolsService: ToolsService,
   ) {
-    this.intervalMs = parseInt(
-      this.configService.get<string>('SKILL_CURATOR_INTERVAL_MS', String(DEFAULT_INTERVAL_MS)),
-      10,
-    ) || DEFAULT_INTERVAL_MS;
+    this.intervalMs =
+      parseInt(
+        this.configService.get<string>(
+          'SKILL_CURATOR_INTERVAL_MS',
+          String(DEFAULT_INTERVAL_MS),
+        ),
+        10,
+      ) || DEFAULT_INTERVAL_MS;
 
     this.curatorModel = this.configService.get<string>(
       'SKILL_CURATOR_MODEL',
@@ -98,7 +107,9 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
   }> {
     const now = new Date();
     const staleThreshold = new Date(now.getTime() - STALE_DAYS * 86_400_000);
-    const archiveThreshold = new Date(now.getTime() - ARCHIVE_DAYS * 86_400_000);
+    const archiveThreshold = new Date(
+      now.getTime() - ARCHIVE_DAYS * 86_400_000,
+    );
 
     const protectedFilter = {
       seedHash: { $exists: false },
@@ -112,7 +123,10 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
         ...protectedFilter,
         $or: [
           { lastUsedAt: { $lt: staleThreshold } },
-          { lastUsedAt: { $exists: false }, createdAt: { $lt: staleThreshold } },
+          {
+            lastUsedAt: { $exists: false },
+            createdAt: { $lt: staleThreshold },
+          },
         ],
       },
       {
@@ -130,7 +144,10 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
         ...protectedFilter,
         $or: [
           { lastUsedAt: { $lt: archiveThreshold } },
-          { lastUsedAt: { $exists: false }, createdAt: { $lt: archiveThreshold } },
+          {
+            lastUsedAt: { $exists: false },
+            createdAt: { $lt: archiveThreshold },
+          },
         ],
       },
       {

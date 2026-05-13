@@ -83,8 +83,7 @@ export class SessionSearchTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'Session search failed',
+        error: error instanceof Error ? error.message : 'Session search failed',
       };
     }
   }

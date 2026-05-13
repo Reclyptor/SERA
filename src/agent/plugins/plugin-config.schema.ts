@@ -27,4 +27,5 @@ export class PluginConfigRecord {
   updatedAt: Date;
 }
 
-export const PluginConfigSchema = SchemaFactory.createForClass(PluginConfigRecord);
+export const PluginConfigSchema =
+  SchemaFactory.createForClass(PluginConfigRecord);

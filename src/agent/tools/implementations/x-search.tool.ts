@@ -61,8 +61,7 @@ export class XSearchTool implements Tool<typeof parameters> {
     if (!this.bearerToken) {
       return {
         success: false,
-        error:
-          'X search not configured. Set X_API_BEARER_TOKEN to enable.',
+        error: 'X search not configured. Set X_API_BEARER_TOKEN to enable.',
       };
     }
 

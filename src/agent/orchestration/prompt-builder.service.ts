@@ -33,10 +33,12 @@ export class PromptBuilderService {
     query: string,
     agentConfig: AgentConfig,
     frozenMemoryContext?: string,
+    userName?: string,
   ): Promise<string> {
     const variables: PromptVariables = {
       agentName: agentConfig.name,
       agentID: agentConfig.agentID,
+      userName,
       userID,
     };
 
@@ -44,7 +46,10 @@ export class PromptBuilderService {
 
     // Load well-known prompts in priority order
     const loadOrder = agentConfig.promptSlug
-      ? [agentConfig.promptSlug, ...PROMPT_LOAD_ORDER.filter((s) => s !== agentConfig.promptSlug)]
+      ? [
+          agentConfig.promptSlug,
+          ...PROMPT_LOAD_ORDER.filter((s) => s !== agentConfig.promptSlug),
+        ]
       : PROMPT_LOAD_ORDER;
 
     for (const slug of loadOrder) {
@@ -53,7 +58,9 @@ export class PromptBuilderService {
     }
 
     if (parts.length === 0) {
-      this.logger.error('No prompts found in database. Ensure prompts have been synced.');
+      this.logger.error(
+        'No prompts found in database. Ensure prompts have been synced.',
+      );
       throw new Error('No prompts found');
     }
 
@@ -82,14 +89,9 @@ export class PromptBuilderService {
       const availableTools = this.toolsService.getAllToolNames();
       const skills = await this.skillsService.findRelevant(
         query,
-        agentConfig.agentID,
         availableTools,
       );
-      const skillsPrompt = this.skillsService.formatForPrompt(skills, {
-        agentName: agentConfig.name,
-        agentID: agentConfig.agentID,
-        userID,
-      });
+      const skillsPrompt = this.skillsService.formatForPrompt(skills);
       if (skillsPrompt) parts.push(skillsPrompt);
     } catch {
       // Supplementary context — safe to skip

@@ -6,6 +6,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { IS_WEBHOOK_PROTECTED_KEY } from './webhook-protected.decorator';
 
 @Injectable()
 export class SessionAuthGuard extends AuthGuard('session') {
@@ -23,10 +24,18 @@ export class SessionAuthGuard extends AuthGuard('session') {
       return true;
     }
 
+    const isWebhookProtected = this.reflector.getAllAndOverride<boolean>(
+      IS_WEBHOOK_PROTECTED_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (isWebhookProtected) {
+      return true;
+    }
+
     return super.canActivate(context);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handleRequest(err: any, user: any, _info: any) {
     if (err || !user) {
       throw err || new UnauthorizedException('Session authentication failed');

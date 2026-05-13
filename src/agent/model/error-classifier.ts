@@ -41,7 +41,10 @@ const STATUS_MAP: Record<number, FailoverReason> = {
 const MESSAGE_PATTERNS: [RegExp, FailoverReason][] = [
   [/rate.?limit|too many requests|throttl/i, FailoverReason.RateLimit],
   [/quota|billing|insufficient.?funds/i, FailoverReason.QuotaExhausted],
-  [/context.?length|token.?limit|too.?long|maximum.?context/i, FailoverReason.ContextLengthExceeded],
+  [
+    /context.?length|token.?limit|too.?long|maximum.?context/i,
+    FailoverReason.ContextLengthExceeded,
+  ],
   [/content.?filter|safety|moderation|blocked/i, FailoverReason.ContentFilter],
   [/ECONNREFUSED/i, FailoverReason.ConnectionRefused],
   [/ECONNRESET|socket hang up/i, FailoverReason.ConnectionReset],
@@ -95,7 +98,10 @@ export function classifyError(error: unknown): ClassifiedError {
   }
 
   // 400 with context length message is a special case
-  if (status === 400 && /context.?length|token.?limit|too.?long/i.test(message)) {
+  if (
+    status === 400 &&
+    /context.?length|token.?limit|too.?long/i.test(message)
+  ) {
     reason = FailoverReason.ContextLengthExceeded;
   }
 

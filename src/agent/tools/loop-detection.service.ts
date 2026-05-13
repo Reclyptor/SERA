@@ -1,9 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import type {
   ToolCallRecord,
   LoopDetection,
-  LoopType,
 } from './loop-detection.interfaces';
 
 const WINDOW_SIZE = 30;
@@ -15,7 +14,6 @@ const CIRCUIT_BREAKER_LIMIT = 25;
 
 @Injectable()
 export class LoopDetectionService {
-  private readonly logger = new Logger(LoopDetectionService.name);
   private readonly history = new Map<string, ToolCallRecord[]>();
 
   record(

@@ -43,8 +43,14 @@ export class GitHubSyncService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.pat = this.configService.get<string>('GITHUB_PAT') ?? null;
-    this.promptsRepo = this.configService.get<string>('GITHUB_PROMPTS_REPO', 'Reclyptor/Prompts');
-    this.skillsRepo = this.configService.get<string>('GITHUB_SKILLS_REPO', 'Reclyptor/Skills');
+    this.promptsRepo = this.configService.get<string>(
+      'GITHUB_PROMPTS_REPO',
+      'Reclyptor/Prompts',
+    );
+    this.skillsRepo = this.configService.get<string>(
+      'GITHUB_SKILLS_REPO',
+      'Reclyptor/Skills',
+    );
 
     if (!this.pat) {
       this.logger.warn('GITHUB_PAT not set — GitHub sync disabled');
@@ -66,20 +72,30 @@ export class GitHubSyncService {
   // ── Tree & File Operations ──────────────────────────────────────────
 
   async fetchTree(repo: string, branch = 'master'): Promise<TreeEntry[]> {
-    const res = await fetch(`${API_BASE}/repos/${repo}/git/trees/${branch}?recursive=1`, {
-      headers: this.headers,
-    });
-    if (!res.ok) throw new Error(`GitHub tree fetch failed: ${res.status} ${res.statusText}`);
+    const res = await fetch(
+      `${API_BASE}/repos/${repo}/git/trees/${branch}?recursive=1`,
+      {
+        headers: this.headers,
+      },
+    );
+    if (!res.ok)
+      throw new Error(
+        `GitHub tree fetch failed: ${res.status} ${res.statusText}`,
+      );
 
     const data = await res.json();
     return (data.tree as TreeEntry[]).filter((e) => e.type === 'blob');
   }
 
   async fetchFile(repo: string, path: string): Promise<GitHubFile> {
-    const res = await fetch(`${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`, {
-      headers: this.headers,
-    });
-    if (!res.ok) throw new Error(`GitHub file fetch failed (${path}): ${res.status}`);
+    const res = await fetch(
+      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
+      {
+        headers: this.headers,
+      },
+    );
+    if (!res.ok)
+      throw new Error(`GitHub file fetch failed (${path}): ${res.status}`);
 
     const data = await res.json();
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
@@ -99,11 +115,14 @@ export class GitHubSyncService {
     };
     if (sha) body.sha = sha;
 
-    const res = await fetch(`${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`, {
-      method: 'PUT',
-      headers: { ...this.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(
+      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
+      {
+        method: 'PUT',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
 
     if (res.status === 409 && sha) {
       // SHA conflict — refetch and retry once
@@ -111,21 +130,30 @@ export class GitHubSyncService {
       return this.putFile(repo, path, content, current.sha, message);
     }
 
-    if (!res.ok) throw new Error(`GitHub putFile failed (${path}): ${res.status}`);
+    if (!res.ok)
+      throw new Error(`GitHub putFile failed (${path}): ${res.status}`);
 
     const data = await res.json();
     return data.content.sha;
   }
 
-  async deleteFile(repo: string, path: string, sha: string, message?: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`, {
-      method: 'DELETE',
-      headers: { ...this.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: message ?? `Delete ${path}`,
-        sha,
-      }),
-    });
+  async deleteFile(
+    repo: string,
+    path: string,
+    sha: string,
+    message?: string,
+  ): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
+      {
+        method: 'DELETE',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: message ?? `Delete ${path}`,
+          sha,
+        }),
+      },
+    );
     if (!res.ok && res.status !== 404) {
       throw new Error(`GitHub deleteFile failed (${path}): ${res.status}`);
     }
@@ -161,9 +189,15 @@ export class GitHubSyncService {
   // ── Prompt Sync ─────────────────────────────────────────────────────
 
   async syncPrompts(promptModel: Model<PromptDocument>): Promise<SyncResult> {
-    if (!this.enabled) return { created: 0, updated: 0, unchanged: 0, errors: [] };
+    if (!this.enabled)
+      return { created: 0, updated: 0, unchanged: 0, errors: [] };
 
-    const result: SyncResult = { created: 0, updated: 0, unchanged: 0, errors: [] };
+    const result: SyncResult = {
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      errors: [],
+    };
 
     try {
       const headSha = await this.getHeadSha(this.promptsRepo);
@@ -175,7 +209,9 @@ export class GitHubSyncService {
       }
 
       const tree = await this.fetchTree(this.promptsRepo);
-      const mdFiles = tree.filter((e) => e.path.endsWith('.md') && !e.path.includes('/'));
+      const mdFiles = tree.filter(
+        (e) => e.path.endsWith('.md') && !e.path.includes('/'),
+      );
 
       for (const entry of mdFiles) {
         const slug = entry.path.replace(/\.md$/, '');
@@ -231,9 +267,15 @@ export class GitHubSyncService {
   // ── Skill Sync ──────────────────────────────────────────────────────
 
   async syncSkills(skillModel: Model<SkillDocument>): Promise<SyncResult> {
-    if (!this.enabled) return { created: 0, updated: 0, unchanged: 0, errors: [] };
+    if (!this.enabled)
+      return { created: 0, updated: 0, unchanged: 0, errors: [] };
 
-    const result: SyncResult = { created: 0, updated: 0, unchanged: 0, errors: [] };
+    const result: SyncResult = {
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      errors: [],
+    };
 
     try {
       const headSha = await this.getHeadSha(this.skillsRepo);
@@ -326,13 +368,21 @@ export class GitHubSyncService {
 
   async pushPrompt(
     slug: string,
-    data: { content: string; extends?: string; description?: string; metadata?: Record<string, unknown> },
+    data: {
+      content: string;
+      extends?: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<string | null> {
     if (!this.enabled) return null;
 
     try {
       const fileContent = this.serializePromptFile(data);
-      const existing = await this.fetchFile(this.promptsRepo, `${slug}.md`).catch(() => null);
+      const existing = await this.fetchFile(
+        this.promptsRepo,
+        `${slug}.md`,
+      ).catch(() => null);
       const newSha = await this.putFile(
         this.promptsRepo,
         `${slug}.md`,
@@ -363,7 +413,10 @@ export class GitHubSyncService {
 
     try {
       const skillMdContent = this.serializeSkillFile(data);
-      const existing = await this.fetchFile(this.skillsRepo, `${name}/SKILL.md`).catch(() => null);
+      const existing = await this.fetchFile(
+        this.skillsRepo,
+        `${name}/SKILL.md`,
+      ).catch(() => null);
       await this.putFile(
         this.skillsRepo,
         `${name}/SKILL.md`,
@@ -375,7 +428,10 @@ export class GitHubSyncService {
       if (data.files) {
         for (const file of data.files) {
           const filePath = `${name}/${file.path}`;
-          const existingFile = await this.fetchFile(this.skillsRepo, filePath).catch(() => null);
+          const existingFile = await this.fetchFile(
+            this.skillsRepo,
+            filePath,
+          ).catch(() => null);
           await this.putFile(
             this.skillsRepo,
             filePath,
@@ -395,7 +451,12 @@ export class GitHubSyncService {
 
     try {
       const existing = await this.fetchFile(this.promptsRepo, `${slug}.md`);
-      await this.deleteFile(this.promptsRepo, `${slug}.md`, existing.sha, `Delete prompt: ${slug}`);
+      await this.deleteFile(
+        this.promptsRepo,
+        `${slug}.md`,
+        existing.sha,
+        `Delete prompt: ${slug}`,
+      );
     } catch (err) {
       this.logger.warn(`Failed to delete prompt "${slug}" from GitHub:`, err);
     }
@@ -409,7 +470,12 @@ export class GitHubSyncService {
       const skillFiles = tree.filter((e) => e.path.startsWith(`${name}/`));
 
       for (const entry of skillFiles) {
-        await this.deleteFile(this.skillsRepo, entry.path, entry.sha, `Delete skill: ${name}`);
+        await this.deleteFile(
+          this.skillsRepo,
+          entry.path,
+          entry.sha,
+          `Delete skill: ${name}`,
+        );
       }
     } catch (err) {
       this.logger.warn(`Failed to delete skill "${name}" from GitHub:`, err);
@@ -427,7 +493,8 @@ export class GitHubSyncService {
     const fm: Record<string, unknown> = {};
     if (data.description) fm.description = data.description;
     if (data.extends) fm.extends = data.extends;
-    if (data.metadata && Object.keys(data.metadata).length > 0) fm.metadata = data.metadata;
+    if (data.metadata && Object.keys(data.metadata).length > 0)
+      fm.metadata = data.metadata;
 
     if (Object.keys(fm).length === 0) return data.content;
 
@@ -447,8 +514,10 @@ export class GitHubSyncService {
     if (data.description) fm.description = data.description;
     if (data.license) fm.license = data.license;
     if (data.compatibility) fm.compatibility = data.compatibility;
-    if (data.allowedTools?.length) fm['allowed-tools'] = data.allowedTools.join(' ');
-    if (data.metadata && Object.keys(data.metadata).length > 0) fm.metadata = data.metadata;
+    if (data.allowedTools?.length)
+      fm['allowed-tools'] = data.allowedTools.join(' ');
+    if (data.metadata && Object.keys(data.metadata).length > 0)
+      fm.metadata = data.metadata;
 
     const fmStr = yaml.dump(fm, { lineWidth: -1 }).trimEnd();
     return `---\n${fmStr}\n---\n\n${data.content}`;
@@ -456,7 +525,10 @@ export class GitHubSyncService {
 
   // ── Frontmatter Parsing ─────────────────────────────────────────────
 
-  private parseFrontmatter(raw: string): { meta: Record<string, any>; content: string } {
+  private parseFrontmatter(raw: string): {
+    meta: Record<string, any>;
+    content: string;
+  } {
     if (!raw.startsWith('---')) return { meta: {}, content: raw };
 
     const endIndex = raw.indexOf('---', 3);
@@ -474,7 +546,10 @@ export class GitHubSyncService {
     }
   }
 
-  private parseSkillFrontmatter(raw: string): { meta: Record<string, any>; content: string } {
+  private parseSkillFrontmatter(raw: string): {
+    meta: Record<string, any>;
+    content: string;
+  } {
     const { meta, content } = this.parseFrontmatter(raw);
 
     if (meta['allowed-tools']) {

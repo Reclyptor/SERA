@@ -40,10 +40,7 @@ export class AgentsController {
   }
 
   @Put(':agentID')
-  async update(
-    @Param('agentID') agentID: string,
-    @Body() dto: UpdateAgentDto,
-  ) {
+  async update(@Param('agentID') agentID: string, @Body() dto: UpdateAgentDto) {
     return this.agentsService.update(agentID, dto);
   }
 

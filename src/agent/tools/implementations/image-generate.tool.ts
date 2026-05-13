@@ -35,8 +35,7 @@ export class ImageGenerateTool implements Tool<typeof parameters> {
     if (!this.apiKey) {
       return {
         success: false,
-        error:
-          'Image generation not configured. Set OPENAI_API_KEY to enable.',
+        error: 'Image generation not configured. Set OPENAI_API_KEY to enable.',
       };
     }
 
@@ -84,9 +83,7 @@ export class ImageGenerateTool implements Tool<typeof parameters> {
       return {
         success: false,
         error:
-          error instanceof Error
-            ? error.message
-            : 'Image generation failed',
+          error instanceof Error ? error.message : 'Image generation failed',
       };
     }
   }

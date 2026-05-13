@@ -66,7 +66,9 @@ export class MemoryService {
 
   private toEntry(item: MemoryItem): MemoryEntry {
     const metadata = item.metadata ?? {};
-    const tags = Array.isArray(metadata.tags) ? (metadata.tags as string[]) : [];
+    const tags = Array.isArray(metadata.tags)
+      ? (metadata.tags as string[])
+      : [];
     return {
       id: item.id,
       content: item.memory,
@@ -132,40 +134,17 @@ export class MemoryService {
 
   async getByTags(userID: string, tags: string[]): Promise<MemoryEntry[]> {
     const all = await this.getAll(userID);
-    return all.filter((entry) =>
-      tags.every((tag) => entry.tags.includes(tag)),
-    );
-  }
-
-  async update(
-    userID: string,
-    memoryID: string,
-    content: string,
-  ): Promise<MemoryEntry | null> {
-    const existing = await this.mem0.get(memoryID);
-    if (!existing) return null;
-
-    await this.mem0.update(memoryID, content);
-
-    const updated = await this.mem0.get(memoryID);
-    return updated ? this.toEntry(updated) : null;
+    return all.filter((entry) => tags.every((tag) => entry.tags.includes(tag)));
   }
 
   async delete(userID: string, memoryID: string): Promise<boolean> {
-    const existing = await this.mem0.get(memoryID);
-    if (!existing) return false;
+    const ownedMemory = (await this.getAll(userID)).find(
+      (entry) => entry.id === memoryID,
+    );
+    if (!ownedMemory) return false;
 
     await this.mem0.delete(memoryID);
     return true;
-  }
-
-  async deleteAll(userID: string): Promise<number> {
-    const all = await this.getAll(userID);
-    const count = all.length;
-    if (count === 0) return 0;
-
-    await this.mem0.deleteAll({ userId: userID });
-    return count;
   }
 
   async extractAndStore(
@@ -176,7 +155,10 @@ export class MemoryService {
       const result = await this.mem0.add(conversation, {
         userId: userID,
         infer: true,
-        metadata: { source: 'conversation_extraction', tags: ['auto-extracted'] },
+        metadata: {
+          source: 'conversation_extraction',
+          tags: ['auto-extracted'],
+        },
       });
 
       const entries = result.results.map((item) => this.toEntry(item));

@@ -5,6 +5,7 @@ export interface AgentGoal {
   threadID: string;
   runID: string;
   userID: string;
+  userName?: string;
   chatID?: string;
   agentID: string;
   userMessage: string;

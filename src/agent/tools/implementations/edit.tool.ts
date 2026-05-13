@@ -33,7 +33,10 @@ export class EditTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     const { path: filePath, old_text, new_text, all } = args;
 
-    const validation = validatePath(filePath, resolveWorkspace(context, this.workspaceDir));
+    const validation = validatePath(
+      filePath,
+      resolveWorkspace(context, this.workspaceDir),
+    );
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }

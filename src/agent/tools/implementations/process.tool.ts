@@ -64,7 +64,10 @@ export class ProcessTool implements Tool<typeof parameters> {
     }
   }
 
-  private async start(command: string | undefined, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+  private async start(
+    command: string | undefined,
+    context: ToolExecutionContext,
+  ): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
@@ -111,7 +114,10 @@ export class ProcessTool implements Tool<typeof parameters> {
     child.on('exit', (code) => {
       tracked.exitCode = code;
       // Auto-remove dead processes after 5 minutes to prevent unbounded Map growth
-      setTimeout(() => ProcessTool.processes.delete(processID), 5 * 60_000).unref();
+      setTimeout(
+        () => ProcessTool.processes.delete(processID),
+        5 * 60_000,
+      ).unref();
     });
 
     ProcessTool.processes.set(processID, tracked);

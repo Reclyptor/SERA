@@ -48,8 +48,7 @@ export class ImageTool implements Tool<typeof parameters> {
     if (!this.apiKey) {
       return {
         success: false,
-        error:
-          'Image analysis not configured. Set OPENAI_API_KEY to enable.',
+        error: 'Image analysis not configured. Set OPENAI_API_KEY to enable.',
       };
     }
 
@@ -102,13 +101,15 @@ export class ImageTool implements Tool<typeof parameters> {
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'Image analysis failed',
+        error: error instanceof Error ? error.message : 'Image analysis failed',
       };
     }
   }
 
-  private async resolveImageUrl(source: string, context: ToolExecutionContext): Promise<string> {
+  private async resolveImageUrl(
+    source: string,
+    context: ToolExecutionContext,
+  ): Promise<string> {
     if (source.startsWith('http://') || source.startsWith('https://')) {
       return source;
     }

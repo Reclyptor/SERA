@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { TriggersService } from './triggers.service';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
-import { Public } from '../../auth/public.decorator';
+import { WebhookProtected } from '../../auth/webhook-protected.decorator';
 import { WebhookAuthGuard } from './webhook-auth.guard';
 import { WebhookTrigger } from './webhook-trigger.decorator';
 import type { Trigger } from './trigger.schema';
@@ -22,14 +22,14 @@ export class TriggersController {
     private readonly orchestrator: OrchestratorService,
   ) {}
 
-  @Public()
+  @WebhookProtected()
   @UseGuards(WebhookAuthGuard)
   @Post(':path')
   @HttpCode(202)
-  async handleWebhook(
+  handleWebhook(
     @WebhookTrigger() trigger: Trigger,
     @Body() payload: unknown,
-  ): Promise<{ runID: string; triggerID: string }> {
+  ): { runID: string; triggerID: string } {
     const threadID = crypto.randomUUID();
     const runID = crypto.randomUUID();
 
@@ -51,7 +51,7 @@ export class TriggersController {
       `Webhook "${trigger.webhookPath}" triggered for agent "${trigger.agentID}" (run: ${runID})`,
     );
 
-    this.orchestrator
+    void this.orchestrator
       .executeGoal(
         {
           threadID,
@@ -68,7 +68,9 @@ export class TriggersController {
         this.logger.error(`Webhook run ${runID} failed:`, err);
       });
 
-    this.triggersService.recordExecution(trigger.triggerID).catch(() => {});
+    void this.triggersService
+      .recordExecution(trigger.triggerID)
+      .catch(() => {});
 
     return { runID, triggerID: trigger.triggerID };
   }

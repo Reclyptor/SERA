@@ -8,9 +8,7 @@ import { OrchestrationModule } from '../orchestration/orchestration.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      { name: Trigger.name, schema: TriggerSchema },
-    ]),
+    MongooseModule.forFeature([{ name: Trigger.name, schema: TriggerSchema }]),
     forwardRef(() => OrchestrationModule),
   ],
   controllers: [TriggersController],
