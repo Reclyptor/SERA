@@ -111,12 +111,19 @@ export class StateStore {
 
   // Run operations
 
-  async createRun(runID: string, threadID: string): Promise<RunState> {
+  async createRun(
+    runID: string,
+    threadID: string,
+    userMessage?: string,
+    agentID?: string,
+  ): Promise<RunState> {
     const run = await this.runModel.create({
       runID,
       threadID,
       status: 'pending',
       startedAt: new Date(),
+      userMessage: userMessage ?? '',
+      agentID: agentID ?? '',
     });
     this.logger.debug(`Created run: ${runID} for thread: ${threadID}`);
     return this.toRunState(run);
@@ -350,6 +357,8 @@ export class StateStore {
       completedAt: doc.completedAt,
       error: doc.error,
       response: doc.response,
+      userMessage: doc.userMessage ?? '',
+      agentID: doc.agentID ?? '',
     };
   }
 

@@ -1,7 +1,7 @@
 # SERA Application Specification
 
 > **Version:** 1.0
-> **Last Updated:** 2026-05-12
+> **Last Updated:** 2026-05-14
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -35,6 +35,10 @@
 25. [Prompt Management](#25-prompt-management)
 26. [GitHub Sync](#26-github-sync)
 27. [Storage](#27-storage)
+28. [Autonomy Features](#28-autonomy-features)
+29. [Appendix A: Deployment](#appendix-a-deployment)
+30. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
+31. [Appendix C: SyncResult](#appendix-c-syncresult)
 
 ---
 
@@ -88,6 +92,7 @@ AppModule
         |     +-- SkillsModule
         |     +-- SandboxModule
         |     +-- InsightsModule
+        |     +-- CommitmentsModule
         +-- HeartbeatModule
         +-- CronModule
         +-- TasksModule
@@ -119,42 +124,46 @@ AppModule
 
 ### Optional Variables
 
-| Variable                      | Default                                       | Description                                                                   |
-| ----------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
-| `PORT`                        | `3001`                                        | Server listen port                                                            |
-| `FALLBACK_MODELS`             | _(none)_                                      | Comma-separated fallback models in `provider/model` format                    |
-| `ANTHROPIC_API_KEYS`          | _(none)_                                      | Comma-separated key pool                                                      |
-| `OPENAI_API_KEYS`             | _(none)_                                      | Comma-separated key pool                                                      |
-| `GOOGLE_API_KEY`              | _(none)_                                      | Google AI API key                                                             |
-| `GOOGLE_API_KEYS`             | _(none)_                                      | Comma-separated key pool                                                      |
-| `ANTHROPIC_KEY_STRATEGY`      | `round_robin`                                 | Key rotation: `round_robin`, `least_used`, `random`                           |
-| `OPENAI_KEY_STRATEGY`         | `round_robin`                                 | Key rotation strategy                                                         |
-| `GOOGLE_KEY_STRATEGY`         | `round_robin`                                 | Key rotation strategy                                                         |
-| `ANTHROPIC_THINKING_ENABLED`  | `true`                                        | Enable extended thinking                                                      |
-| `ANTHROPIC_THINKING_BUDGET`   | `10000`                                       | Max thinking tokens                                                           |
-| `VLLM_URL`                    | _(none)_                                      | vLLM-compatible endpoint base URL (trailing slashes stripped, `/v1` appended) |
-| `ANTHROPIC_CONTEXT_WINDOW`    | `200000`                                      | Anthropic context window size                                                 |
-| `OPENAI_CONTEXT_WINDOW`       | `128000`                                      | OpenAI context window size                                                    |
-| `GOOGLE_CONTEXT_WINDOW`       | `1000000`                                     | Google context window size                                                    |
-| `VLLM_CONTEXT_WINDOW`         | `131072`                                      | vLLM context window size                                                      |
-| `BRAVE_SEARCH_API_KEY`        | _(none)_                                      | Brave Search API key                                                          |
-| `X_API_BEARER_TOKEN`          | _(none)_                                      | X/Twitter API bearer token                                                    |
-| `QDRANT_URL`                  | `http://qdrant.qdrant.svc.cluster.local:6333` | Qdrant vector DB URL                                                          |
-| `QDRANT_API_KEY`              | _(none)_                                      | Qdrant authentication key                                                     |
-| `OPENAI_EMBEDDING_MODEL`      | `text-embedding-3-small`                      | Embedding model for knowledge/memory                                          |
-| `KNOWLEDGE_CHUNK_SIZE`        | `1000`                                        | Document chunk size in chars                                                  |
-| `KNOWLEDGE_CHUNK_OVERLAP`     | `200`                                         | Chunk overlap in chars                                                        |
-| `GITHUB_PAT`                  | _(none)_                                      | GitHub Personal Access Token                                                  |
-| `GITHUB_PROMPTS_REPO`         | `Reclyptor/Prompts`                           | GitHub repo for prompts                                                       |
-| `GITHUB_SKILLS_REPO`          | `Reclyptor/Skills`                            | GitHub repo for skills                                                        |
-| `SKILL_CURATOR_INTERVAL_MS`   | `21600000` (6h)                               | Skill curation cycle interval                                                 |
-| `SKILL_CURATOR_MODEL`         | `anthropic/claude-sonnet-4-6`                 | Model for skill curation                                                      |
-| `SKILL_REVIEW_MODEL`          | _(none)_                                      | Model for skill review (optional override)                                    |
-| `SKILL_REVIEW_TURN_THRESHOLD` | `3`                                           | Turns before triggering skill review                                          |
-| `SKILL_REVIEW_TOOL_THRESHOLD` | `5`                                           | Tool calls before triggering skill review                                     |
-| `CREDENTIAL_COOLDOWN_MS`      | `60000`                                       | Cooldown applied to a provider key after a rotate-required error              |
-| `WORKSPACE_DIR`               | `process.cwd()`                               | Workspace root exposed to file/runtime tools                                  |
-| `ENABLE_SHELL_TOOL`           | `false`                                       | Enables `exec`, `shell`, `process`, and `code_execution` runtime tools        |
+| Variable                           | Default                                       | Description                                                                   |
+| ---------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `PORT`                             | `3001`                                        | Server listen port                                                            |
+| `FALLBACK_MODELS`                  | _(none)_                                      | Comma-separated fallback models in `provider/model` format                    |
+| `ANTHROPIC_API_KEYS`               | _(none)_                                      | Comma-separated key pool                                                      |
+| `OPENAI_API_KEYS`                  | _(none)_                                      | Comma-separated key pool                                                      |
+| `GOOGLE_API_KEY`                   | _(none)_                                      | Google AI API key                                                             |
+| `GOOGLE_API_KEYS`                  | _(none)_                                      | Comma-separated key pool                                                      |
+| `ANTHROPIC_KEY_STRATEGY`           | `round_robin`                                 | Key rotation: `round_robin`, `least_used`, `random`                           |
+| `OPENAI_KEY_STRATEGY`              | `round_robin`                                 | Key rotation strategy                                                         |
+| `GOOGLE_KEY_STRATEGY`              | `round_robin`                                 | Key rotation strategy                                                         |
+| `ANTHROPIC_THINKING_ENABLED`       | `true`                                        | Enable extended thinking                                                      |
+| `ANTHROPIC_THINKING_BUDGET`        | `10000`                                       | Max thinking tokens                                                           |
+| `VLLM_URL`                         | _(none)_                                      | vLLM-compatible endpoint base URL (trailing slashes stripped, `/v1` appended) |
+| `ANTHROPIC_CONTEXT_WINDOW`         | `200000`                                      | Anthropic context window size                                                 |
+| `OPENAI_CONTEXT_WINDOW`            | `128000`                                      | OpenAI context window size                                                    |
+| `GOOGLE_CONTEXT_WINDOW`            | `1000000`                                     | Google context window size                                                    |
+| `VLLM_CONTEXT_WINDOW`              | `131072`                                      | vLLM context window size                                                      |
+| `BRAVE_SEARCH_API_KEY`             | _(none)_                                      | Brave Search API key                                                          |
+| `X_API_BEARER_TOKEN`               | _(none)_                                      | X/Twitter API bearer token                                                    |
+| `QDRANT_URL`                       | `http://qdrant.qdrant.svc.cluster.local:6333` | Qdrant vector DB URL                                                          |
+| `QDRANT_API_KEY`                   | _(none)_                                      | Qdrant authentication key                                                     |
+| `OPENAI_EMBEDDING_MODEL`           | `text-embedding-3-small`                      | Embedding model for knowledge/memory                                          |
+| `KNOWLEDGE_CHUNK_SIZE`             | `1000`                                        | Document chunk size in chars                                                  |
+| `KNOWLEDGE_CHUNK_OVERLAP`          | `200`                                         | Chunk overlap in chars                                                        |
+| `GITHUB_PAT`                       | _(none)_                                      | GitHub Personal Access Token                                                  |
+| `GITHUB_PROMPTS_REPO`              | `Reclyptor/Prompts`                           | GitHub repo for prompts                                                       |
+| `GITHUB_SKILLS_REPO`               | `Reclyptor/Skills`                            | GitHub repo for skills                                                        |
+| `SKILL_CURATOR_INTERVAL_MS`        | `21600000` (6h)                               | Skill curation cycle interval                                                 |
+| `SKILL_CURATOR_MODEL`              | `anthropic/claude-sonnet-4-6`                 | Model for skill curation                                                      |
+| `SKILL_REVIEW_MODEL`               | _(none)_                                      | Model for skill review (optional override)                                    |
+| `SKILL_REVIEW_TURN_THRESHOLD`      | `3`                                           | Turns before triggering skill review                                          |
+| `SKILL_REVIEW_TOOL_THRESHOLD`      | `5`                                           | Tool calls before triggering skill review                                     |
+| `CREDENTIAL_COOLDOWN_MS`           | `60000`                                       | Cooldown applied to a provider key after a rotate-required error              |
+| `WORKSPACE_DIR`                    | `process.cwd()`                               | Workspace root exposed to file/runtime tools                                  |
+| `ENABLE_SHELL_TOOL`                | `false`                                       | Enables `exec`, `shell`, `process`, and `code_execution` runtime tools        |
+| `AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS` | `180000`                                      | Wall-clock timeout (ms) for autonomous runs (cron/heartbeat/webhook)          |
+| `MEMORY_NUDGE_INTERVAL`            | `10`                                          | Tool calls between memory-save nudge injections (0 = disabled)                |
+| `CRON_SCRIPT_TIMEOUT_MS`           | `10000`                                       | Max execution time (ms) for cron job pre-processing scripts                   |
+| `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 
 ### Redis Key Namespace
 
@@ -347,13 +356,6 @@ When `mode` is `allow`, only listed tools are available. When `deny`, listed too
 | `networkEnabled` | Boolean | `false`        |
 | `envVars`        | Mixed   | `{}`           |
 
-**HeartbeatConfig** (embedded, on AgentConfig):
-
-| Field             | Type    | Default |
-| ----------------- | ------- | ------- |
-| `enabled`         | Boolean | `false` |
-| `intervalMinutes` | Number  | `30`    |
-
 ### 4.4 AgentBinding
 
 **Collection:** `bindings`
@@ -405,6 +407,10 @@ When `mode` is `allow`, only listed tools are available. When `deny`, listed too
 | `completedAt` | Date                                                           | No       |            |        |
 | `error`       | String                                                         | No       |            |        |
 | `response`    | String                                                         | No       |            |        |
+| `userMessage` | String                                                         | No       | `''`       |        |
+| `agentID`     | String                                                         | No       | `''`       |        |
+
+Goal persistence: `userMessage` and `agentID` are stored on every run so failed runs can be retried or resumed without the original caller.
 
 ### 4.7 AgentState
 
@@ -519,18 +525,21 @@ Allowed file path prefixes: `references/`, `templates/`, `scripts/`.
 
 **Collection:** `crons`
 
-| Field         | Type    | Required | Default | Index  |
-| ------------- | ------- | -------- | ------- | ------ |
-| `jobID`       | String  | Yes      |         | Unique |
-| `agentID`     | String  | Yes      |         | Yes    |
-| `schedule`    | String  | Yes      |         |        |
-| `command`     | String  | Yes      |         |        |
-| `description` | String  | No       | `''`    |        |
-| `enabled`     | Boolean | No       | `true`  |        |
-| `lastRunAt`   | Date    | No       |         |        |
-| `nextRunAt`   | Date    | No       |         |        |
-| `createdAt`   | Date    | (auto)   |         |        |
-| `updatedAt`   | Date    | (auto)   |         |        |
+| Field              | Type    | Required | Default | Index  |
+| ------------------ | ------- | -------- | ------- | ------ |
+| `jobID`            | String  | Yes      |         | Unique |
+| `agentID`          | String  | Yes      |         | Yes    |
+| `schedule`         | String  | Yes      |         |        |
+| `command`          | String  | Yes      |         |        |
+| `description`      | String  | No       | `''`    |        |
+| `enabled`          | Boolean | No       | `true`  |        |
+| `lastRunAt`        | Date    | No       |         |        |
+| `nextRunAt`        | Date    | No       |         |        |
+| `script`           | String  | No       | `''`    |        |
+| `contextFromJobID` | String  | No       | `''`    |        |
+| `lastRunID`        | String  | No       | `''`    |        |
+| `createdAt`        | Date    | (auto)   |         |        |
+| `updatedAt`        | Date    | (auto)   |         |        |
 
 ### 4.12 HeartbeatConfig
 
@@ -616,6 +625,27 @@ Allowed file path prefixes: `references/`, `templates/`, `scripts/`.
 | `createdAt` | Date                 | (auto)   |         |        |
 | `updatedAt` | Date                 | (auto)   |         |        |
 
+### 4.16 Commitment
+
+**Collection:** `commitments`
+
+| Field             | Type                                                 | Required | Default   | Index  |
+| ----------------- | ---------------------------------------------------- | -------- | --------- | ------ |
+| `commitmentID`    | String                                               | Yes      |           | Unique |
+| `agentID`         | String                                               | Yes      |           | Yes    |
+| `userID`          | String                                               | Yes      |           | Yes    |
+| `description`     | String                                               | Yes      |           |        |
+| `status`          | Enum: `pending`, `completed`, `expired`, `cancelled` | No       | `pending` |        |
+| `dueAt`           | Date                                                 | No       |           |        |
+| `reminderAt`      | Date                                                 | No       |           |        |
+| `sourceRunID`     | String                                               | No       | `''`      |        |
+| `sourceThreadID`  | String                                               | No       | `''`      |        |
+| `completionRunID` | String                                               | No       | `''`      |        |
+| `tags`            | String[]                                             | No       | `[]`      |        |
+| `metadata`        | Mixed                                                | No       | `{}`      |        |
+| `createdAt`       | Date                                                 | (auto)   |           |        |
+| `updatedAt`       | Date                                                 | (auto)   |           |        |
+
 ---
 
 ## 5. API Surface
@@ -694,8 +724,8 @@ Ownership enforced: users can only access their own chats.
 
 ### 5.6 Prompts
 
-| Method | Path             | Auth | Body / Params                                    | Response                    |
-| ------ | ---------------- | ---- | ------------------------------------------------ | --------------------------- |
+| Method | Path             | Auth | Body / Params                                    | Response            |
+| ------ | ---------------- | ---- | ------------------------------------------------ | ------------------- |
 | POST   | `/prompts/sync`  | Yes  |                                                  | SyncResult          |
 | GET    | `/prompts`       | Yes  |                                                  | PromptSummary[]     |
 | GET    | `/prompts/:slug` | Yes  |                                                  | PromptResponse      |
@@ -820,8 +850,11 @@ interface AgentGoal {
 interface OrchestratorConfig {
   maxSteps: number; // Max tool calls per stream call (default: 15)
   maxIterations: number; // Max outer loop iterations (default: 5)
+  wallClockTimeoutMs: number; // Wall-clock timeout in ms, 0 = no limit (default: 0)
 }
 ```
+
+A shared `AUTONOMOUS_RUN_CONFIG` constant provides the standard config for autonomous runs (cron, heartbeat, webhook): `{ maxSteps: 10, maxIterations: 2, wallClockTimeoutMs: 180000 }`. The timeout can be overridden via `AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS`.
 
 ### Context Length Recovery
 
@@ -832,7 +865,7 @@ If the model returns a context length error during streaming, the orchestrator f
 - Cancellation is coordinated via Redis pub/sub on channel `cancel:{runID}`.
 - `POST /agent/cancel/:runID` publishes to this channel.
 - The orchestrator subscribes on run start and aborts via `AbortController`.
-- Throws `AbortedError` which marks the run as `cancelled`.
+- Throws `AbortedError` which marks the run as `cancelled` and emits a terminal `run.cancelled` event.
 
 ### Prompt Building
 
@@ -850,7 +883,7 @@ Tool calls to `sessions_spawn` or `agent_message` are detected as subagent opera
 
 ### Skill Review Trigger
 
-After run completion, the orchestrator increments per-thread turn and tool-call counters stored in `AgentState.custom`. When either counter exceeds its threshold, both counters reset to zero and `SkillReviewService.review()` is triggered asynchronously.
+After run completion, the orchestrator increments per-thread turn and tool-call counters stored in `AgentState.custom`. When either counter meets or exceeds its threshold, both counters reset to zero and `SkillReviewService.review()` is triggered asynchronously.
 
 | Counter    | State Key              | Threshold Env Var             | Default |
 | ---------- | ---------------------- | ----------------------------- | ------- |
@@ -888,8 +921,8 @@ All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel`
 
 - 3 attempts with exponential backoff (capped at 30s) plus jitter
 - On context length errors: thrown immediately (triggers compression)
-- On retryable errors (rate limit, 5xx, timeout): retry with backoff
-- On rotate-required errors (quota, invalid auth, model not found): exclude provider, try next
+- On retryable non-rotate errors (500, 504, request timeout, connection reset): retry with backoff
+- On rotate-required errors (rate limit, quota, invalid auth, model not found, service unavailable): cooldown the provider key, exclude provider, try next
 - Throws after all providers exhausted
 
 **`stream()` method:**
@@ -906,9 +939,16 @@ All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel`
 | Server Error        | 500                     | Yes       | No              | No       |
 | Service Unavailable | 502, 503                | Yes       | Yes             | No       |
 | Gateway Timeout     | 504                     | Yes       | No              | No       |
+| Request Timeout     | timeout/ETIMEDOUT       | Yes       | No              | No       |
+| Connection Reset    | ECONNRESET/socket hang  | Yes       | No              | No       |
+| Connection Refused  | ECONNREFUSED            | No        | No              | No       |
+| DNS Failure         | ENOTFOUND/getaddrinfo   | No        | No              | No       |
+| TLS Error           | TLS/SSL/certificate     | No        | No              | No       |
+| Content Filter      | safety/moderation       | No        | No              | No       |
 | Context Length      | 400 + "context" message | No        | No              | Yes      |
 | Invalid Auth        | 401, 403                | No        | Yes             | No       |
 | Model Not Found     | 404                     | No        | Yes             | No       |
+| Aborted             | abort message           | No        | No              | No       |
 
 ### Credential Pool
 
@@ -945,7 +985,7 @@ Events flow through a Redis Stream (`run:{runID}:stream`) and are delivered to c
 
 - Supports reconnection via `last-event-id` header or query param
 - On connect: replays all events from stream, emits `replay.done` boundary, then tails with `XREAD BLOCK`
-- Completes on `run.completed` or `run.failed` events
+- Completes on `run.completed`, `run.failed`, or `run.cancelled` events
 - Stream TTL: 1800s during execution, reduced to 300s after completion
 
 ### Event Types
@@ -955,6 +995,7 @@ type AgentEventType =
   | 'run.started' // { provider, modelID, chatID? }
   | 'run.completed' // { response }
   | 'run.failed' // { error }
+  | 'run.cancelled' // { reason }
   | 'thinking.delta' // { content }
   | 'thinking.done' // { content }
   | 'text.delta' // { content }
@@ -1111,12 +1152,12 @@ Args are hashed with SHA-256 for comparison. Detection data is cleared on run co
 
 All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (default), they return a descriptive error without executing.
 
-| Tool             | Parameters                                                            | Parallel | Description                                                                              |
-| ---------------- | --------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
-| `exec`           | `command`, `cwd?`, `timeoutMs?` (30s)                                 | No       | Execute shell command. Max output 64KB. Sandbox-aware.                                   |
-| `shell`          | `script`, `cwd?`, `timeoutMs?` (30s)                                  | No       | Execute multi-line shell script via `/bin/sh`. Sandbox-aware.                            |
-| `process`        | `operation` (start/list/output/kill), `command?`, `processID?`        | No       | Background process management. Auto-cleanup after 5 min. Max 64KB output per stream.     |
-| `code_execution` | `language` (javascript/typescript/python), `code`, `timeoutMs?` (15s) | No       | Run code with tool bridge. Generates helper libraries (`sera_tools.js`/`sera_tools.py`). |
+| Tool             | Parameters                                                                          | Parallel | Description                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `exec`           | `command`, `cwd?`, `timeoutMs?` (30s)                                               | No       | Execute shell command. Max output 64KB. Sandbox-aware.                                   |
+| `shell`          | `script`, `cwd?`, `timeoutMs?` (30s)                                                | No       | Execute multi-line shell script via `/bin/sh`. Sandbox-aware.                            |
+| `process`        | `operation` (start/list/output/kill), `command?`, `processID?`, `notifyOnComplete?` | No       | Background process management. Auto-cleanup after 5 min. Max 64KB output per stream.     |
+| `code_execution` | `language` (javascript/typescript/python), `code`, `timeoutMs?` (15s)               | No       | Run code with tool bridge. Generates helper libraries (`sera_tools.js`/`sera_tools.py`). |
 
 **Code Execution Tool Bridge:**
 
@@ -1159,23 +1200,24 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 
 #### Messaging & Communication
 
-| Tool            | Parameters                                                                         | Parallel | Description                                                                 |
-| --------------- | ---------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
-| `message`       | `chatID`, `content`, `role?` (assistant/system)                                    | No       | Append message to a chat.                                                   |
-| `agent_message` | `targetAgentID`, `message`, `maxSteps?`, `waitForResult?`, `timeoutMs?`            | No       | Inter-agent messaging. Max delegation depth: 2. Validates messaging policy. |
-| `cron`          | `operation` (create/list/delete/enable/disable), `schedule?`, `command?`, `jobID?` | No       | Manage cron jobs. Schedule format: `minute hour day month weekday`.         |
+| Tool            | Parameters                                                                                                                         | Parallel | Description                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
+| `message`       | `chatID`, `content`, `role?` (assistant/system)                                                                                    | No       | Append message to a chat.                                                   |
+| `agent_message` | `targetAgentID`, `message`, `maxSteps?`, `waitForResult?`, `timeoutMs?`                                                            | No       | Inter-agent messaging. Max delegation depth: 2. Validates messaging policy. |
+| `cron`          | `operation` (create/list/delete/enable/disable), `schedule?`, `command?`, `description?`, `script?`, `contextFromJobID?`, `jobID?` | No       | Manage cron jobs. Schedule format: `minute hour day month weekday`.         |
 
 #### Session & Agent Management
 
-| Tool               | Parameters                                                                        | Parallel | Description                             |
-| ------------------ | --------------------------------------------------------------------------------- | -------- | --------------------------------------- |
-| `sessions_list`    | `limit?` (20), `status?`                                                          | Yes      | List threads with latest run status.    |
-| `sessions_history` | `chatID`, `limit?` (50), `offset?`                                                | Yes      | Load conversation messages from a chat. |
-| `sessions_send`    | `targetChatID`, `content`, `role?`                                                | No       | Append message to target chat.          |
-| `sessions_spawn`   | `goal`, `agentID?`, `maxSteps?`, `maxIterations?`, `waitForResult?`, `timeoutMs?` | No       | Spawn autonomous agent session.         |
-| `session_status`   | `threadID`, `runID?`                                                              | Yes      | Get thread/run/agent state snapshot.    |
-| `subagents`        | `operation` (list/status/cancel), `runIDs?`, `threadID?`                          | No       | Manage sub-agent runs.                  |
-| `agents_list`      | `includeTools?`, `enabledOnly?`                                                   | Yes      | List configured agents.                 |
+| Tool               | Parameters                                                                                                   | Parallel | Description                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ | -------- | ----------------------------------------------------- |
+| `sessions_list`    | `limit?` (20), `status?`                                                                                     | Yes      | List threads with latest run status.                  |
+| `sessions_history` | `chatID`, `limit?` (50), `offset?`                                                                           | Yes      | Load conversation messages from a chat.               |
+| `sessions_send`    | `targetChatID`, `content`, `role?`                                                                           | No       | Append message to target chat.                        |
+| `sessions_spawn`   | `goal?`, `agentID?`, `maxSteps?`, `maxIterations?`, `waitForResult?`, `timeoutMs?`, `tasks?`, `concurrency?` | No       | Spawn one or more autonomous agent sessions.          |
+| `sessions_yield`   | `message?`                                                                                                   | No       | Yield the current turn until subagent results arrive. |
+| `session_status`   | `threadID`, `runID?`                                                                                         | Yes      | Get thread/run/agent state snapshot.                  |
+| `subagents`        | `operation` (list/status/cancel), `runIDs?`, `threadID?`                                                     | No       | Manage sub-agent runs.                                |
+| `agents_list`      | `includeTools?`, `enabledOnly?`                                                                              | Yes      | List configured agents.                               |
 
 #### Task Planning
 
@@ -1330,7 +1372,7 @@ interface KnowledgeProvider {
 ### Document Provider
 
 - **Collection:** `knowledge_chunks` (Qdrant)
-- **Embedding:** OpenAI `text-embedding-3-small` (1536 dimensions)
+- **Embedding:** OpenAI `text-embedding-3-small` by default (1536 dimensions; 3072 for `text-embedding-3-large`)
 - **Chunk size:** 1000 chars (configurable)
 - **Chunk overlap:** 200 chars (configurable)
 - **Chunking strategy:** Paragraph breaks > sentence breaks > word breaks
@@ -1338,7 +1380,7 @@ interface KnowledgeProvider {
 
 ### Context Building
 
-`KnowledgeService.buildContext(query)` searches all providers in parallel, sorts results by score, and returns `ContextItem[]`. These are formatted into markdown sections by `formatContextForPrompt()` and appended to the system prompt by `PromptBuilderService`.
+`KnowledgeService.buildContext(query, options?)` searches all registered providers plus any per-query `extraProviders`, sorts results by score, and returns `ContextItem[]`. `PromptBuilderService` passes a per-query `MemoryKnowledgeProvider` for the current user rather than registering user-specific memory globally. Context items are formatted into markdown sections by `formatContextForPrompt()` and appended to the system prompt.
 
 ---
 
@@ -1433,6 +1475,12 @@ interface PluginContext {
   registerTool(tool: Tool): void;
   registerKnowledge(key: string, content: string): void;
   getConfig<T>(key: string): T | undefined;
+  onPreToolCall(fn): void;
+  onPostToolCall(fn): void;
+  onPreLLMCall(fn): void;
+  onPostLLMCall(fn): void;
+  onSessionStart(fn): void;
+  onSessionEnd(fn): void;
   logger: { log; warn; error; debug };
 }
 ```
@@ -1842,6 +1890,81 @@ Used by the image upload endpoint (`POST /agent/upload-image`) for passing image
 
 ---
 
+## 28. Autonomy Features
+
+### 28.1 Wall-Clock Timeout
+
+Autonomous runs (cron, heartbeat, webhook) enforce a wall-clock timeout in addition to iteration limits. The orchestrator checks elapsed time at the start of each iteration and aborts if `wallClockTimeoutMs > 0` and `Date.now() - runStartTime >= wallClockTimeoutMs`. The run is marked `cancelled`. Interactive runs default to `wallClockTimeoutMs: 0` (no limit).
+
+### 28.2 Memory Nudges
+
+Every N tool calls (configured by `MEMORY_NUDGE_INTERVAL`, default 10), the orchestrator injects a user-role message nudging the agent to consider saving important facts via memory tools. Nudges are skipped for heartbeat runs (`isHeartbeat: true`). The counter resets each run and is not persisted.
+
+### 28.3 Sessions Yield
+
+The `sessions_yield` tool allows an agent to explicitly end its turn and receive subagent results as the next message, eliminating polling loops.
+
+**Flow:**
+
+1. Agent spawns subagents via `sessions_spawn` with `waitForResult: false`
+2. Agent calls `sessions_yield` with an optional message
+3. Tool sets `custom.yielding = true` on the thread along with `yieldAgentID`, `yieldUserID`, `yieldChatID`
+4. Orchestrator detects the yield and completes the run normally
+5. When a subagent completes, `completeRun()` checks if the subagent's thread has `custom.parentThreadID`
+6. If the parent thread has `custom.yielding = true`, a new run is started on the parent with the subagent results as the message
+
+The `sessions_spawn` tool sets `custom.parentThreadID` on the subagent's thread to enable this linkage.
+
+### 28.4 Background Process Notifications
+
+The `process` tool's `start` operation accepts a `notifyOnComplete: boolean` parameter. When set, the process exit handler starts a new agent run with the process output (stdout, stderr, exit code) as the message. The run uses `isHeartbeat: true` and the stored `agentID` from the original context.
+
+### 28.5 Batch Parallel Delegation
+
+The `sessions_spawn` tool supports a `tasks` array for parallel subagent execution:
+
+```typescript
+tasks?: Array<{ goal: string; agentID?: string }>
+concurrency?: number  // Default: 3
+```
+
+When `tasks` is provided, subagents are spawned in parallel with a semaphore-based concurrency limiter. All tasks use `waitForResult: true`. Results are aggregated and returned as an array with per-task `threadID`, `runID`, `status`, and `response`.
+
+### 28.6 Cron Script Pre-Processing
+
+Cron jobs support a `script` field containing a shell command that runs before the agent. Its stdout is injected into the agent's message as a `## Script Output` section.
+
+Cron jobs also support `contextFromJobID` for chaining: the referenced job's last run response is injected as a `## Context from job {jobID}` section. The `lastRunID` field tracks each job's most recent run for this purpose.
+
+Script execution is bounded by `CRON_SCRIPT_TIMEOUT_MS` (default 10s). Failures log a warning and proceed without script output.
+
+### 28.7 Plugin Lifecycle Hooks
+
+Plugins can register lifecycle hooks via `PluginContext`:
+
+| Hook             | Called When                | Args                                                                                           |
+| ---------------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `onPreToolCall`  | Before each tool execution | `{ toolName, args, threadID, runID }`                                                          |
+| `onPostToolCall` | After each tool execution  | `{ toolName, args, result, success, durationMs, threadID, runID }`                             |
+| `onPreLLMCall`   | Before each model stream   | `{ threadID, runID, provider, modelID, messageCount }`                                         |
+| `onPostLLMCall`  | After each model stream    | `{ threadID, runID, provider, modelID, inputTokens, outputTokens, toolCallCount, durationMs }` |
+| `onSessionStart` | At run start               | `{ threadID, runID, agentID, userID }`                                                         |
+| `onSessionEnd`   | At run end (in finally)    | `{ threadID, runID, agentID, userID }`                                                         |
+
+Hook errors are caught and logged — they never fail the run.
+
+### 28.8 Commitments System
+
+After each non-heartbeat run, the `CommitmentExtractorService` uses an LLM call to identify promises, deadlines, and follow-ups the agent made. Extracted commitments are stored in MongoDB.
+
+The commitment data model is defined in [4.16 Commitment](#416-commitment).
+
+**Delivery:** The heartbeat service queries `CommitmentsService.findDue(agentID)` for pending commitments past their `dueAt` or `reminderAt` and appends them to the heartbeat message as a `## Pending Commitments` section.
+
+**Extraction toggle:** Controlled by `COMMITMENT_EXTRACTION_ENABLED` (default `true`).
+
+---
+
 ## Appendix A: Deployment
 
 ### Dockerfile
@@ -1890,6 +2013,8 @@ interface StateSnapshot {
     completedAt?: Date;
     error?: string;
     response?: string;
+    userMessage: string;
+    agentID: string;
   };
   agent: {
     custom: Record<string, unknown>;

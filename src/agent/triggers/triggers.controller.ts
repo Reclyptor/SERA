@@ -6,8 +6,10 @@ import {
   HttpCode,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TriggersService } from './triggers.service';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
+import { AUTONOMOUS_RUN_CONFIG } from '../orchestration/orchestration.interfaces';
 import { WebhookProtected } from '../../auth/webhook-protected.decorator';
 import { WebhookAuthGuard } from './webhook-auth.guard';
 import { WebhookTrigger } from './webhook-trigger.decorator';
@@ -20,6 +22,7 @@ export class TriggersController {
   constructor(
     private readonly triggersService: TriggersService,
     private readonly orchestrator: OrchestratorService,
+    private readonly configService: ConfigService,
   ) {}
 
   @WebhookProtected()
@@ -62,7 +65,16 @@ export class TriggersController {
           conversationHistory: [],
           isHeartbeat: true,
         },
-        { maxSteps: 10, maxIterations: 2 },
+        {
+          ...AUTONOMOUS_RUN_CONFIG,
+          wallClockTimeoutMs: parseInt(
+            this.configService.get<string>(
+              'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+              String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+            ),
+            10,
+          ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+        },
       )
       .catch((err) => {
         this.logger.error(`Webhook run ${runID} failed:`, err);

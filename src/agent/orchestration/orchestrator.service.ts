@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
@@ -15,11 +16,15 @@ import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';
 import type { ToolCallBlock } from '../../chats/chat.schema';
 import type { AgentGoal, OrchestratorConfig } from './orchestration.interfaces';
-import { DEFAULT_ORCHESTRATOR_CONFIG } from './orchestration.interfaces';
+import {
+  AUTONOMOUS_RUN_CONFIG,
+  DEFAULT_ORCHESTRATOR_CONFIG,
+} from './orchestration.interfaces';
 import type {
   RunStartedData,
   RunCompletedData,
   RunFailedData,
+  RunCancelledData,
   ThinkingDeltaData,
   ThinkingDoneData,
   TextDeltaData,
@@ -38,6 +43,8 @@ import { AbortedError } from './aborted.error';
 import { LoopDetectionService } from '../tools/loop-detection.service';
 import { classifyError } from '../model/error-classifier';
 import { InsightsService } from '../insights/insights.service';
+import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
+import type { PluginLoaderService } from '../plugins/plugin-loader.service';
 
 const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
 const MAX_EVENT_RESULT_LENGTH = 5000;
@@ -71,7 +78,9 @@ export class OrchestratorService {
     private readonly promptBuilder: PromptBuilderService,
     private readonly loopDetection: LoopDetectionService,
     private readonly insightsService: InsightsService,
+    private readonly commitmentExtractor: CommitmentExtractorService,
     private readonly configService: ConfigService,
+    private readonly moduleRef: ModuleRef,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -83,8 +92,32 @@ export class OrchestratorService {
     });
   }
 
+  private _pluginLoader: PluginLoaderService | null = null;
+
+  private get pluginLoader(): PluginLoaderService | null {
+    if (!this._pluginLoader) {
+      try {
+        const {
+          PluginLoaderService: PLS,
+        } = require('../plugins/plugin-loader.service');
+        this._pluginLoader = this.moduleRef.get(PLS, { strict: false }) ?? null;
+      } catch {
+        this._pluginLoader = null;
+      }
+    }
+    return this._pluginLoader;
+  }
+
   private cancelChannel(runID: string): string {
     return `cancel:${runID}`;
+  }
+
+  private async runPluginHooks<T>(type: string, args: T): Promise<void> {
+    try {
+      await this.pluginLoader?.runHooks(type, args);
+    } catch {
+      // Plugin hooks must never fail the run
+    }
   }
 
   async executeGoal(
@@ -100,7 +133,12 @@ export class OrchestratorService {
 
     try {
       await this.stateService.getOrCreateThread(threadID);
-      await this.stateService.startRun(threadID, runID);
+      await this.stateService.startRun(
+        threadID,
+        runID,
+        goal.userMessage,
+        goal.agentID,
+      );
 
       if (goal.chatID) {
         await this.eventEmitter.initRun(runID, threadID, goal.chatID);
@@ -120,6 +158,13 @@ export class OrchestratorService {
         modelID: resolved.modelID,
         chatID: goal.chatID,
       } satisfies RunStartedData);
+
+      await this.runPluginHooks('onSessionStart', {
+        threadID,
+        runID,
+        agentID: goal.agentID,
+        userID: goal.userID,
+      });
 
       // Capture memory context once per session — mid-session memory writes
       // update the store but don't mutate the prompt, preserving prefix cache.
@@ -158,6 +203,9 @@ export class OrchestratorService {
         agentID: goal.agentID,
         sandbox,
         delegationDepth: goal.delegationDepth ?? 0,
+        metadata: {
+          chatID: goal.chatID,
+        },
       };
       const agentTools =
         agentConfig.toolPolicy.tools.length > 0
@@ -190,13 +238,26 @@ export class OrchestratorService {
       let finalText = '';
       const toolCallBlocks: ToolCallBlock[] = [];
       let forceCompress = false;
+      let yieldRequested = false;
       const runStartTime = Date.now();
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
 
+      const memoryNudgeInterval =
+        parseInt(
+          this.configService.get<string>('MEMORY_NUDGE_INTERVAL', '10'),
+          10,
+        ) || 0;
+      let toolCallsSinceNudge = 0;
+
       while (iterationCount < cfg.maxIterations) {
         iterationCount++;
         this.checkAborted(abortController);
+        this.checkTimeout(
+          runStartTime,
+          cfg.wallClockTimeoutMs,
+          abortController,
+        );
 
         const lastMessage = messages[messages.length - 1];
         if (lastMessage && lastMessage.role !== 'user') {
@@ -220,11 +281,20 @@ export class OrchestratorService {
         let thinkingStartTime: number | null = null;
         const pendingToolArgs = new Map<
           string,
-          { toolName: string; args: Record<string, unknown> }
+          { toolName: string; args: Record<string, unknown>; startedAt: number }
         >();
 
         let streamResult: ReturnType<typeof this.modelRouter.stream>;
         try {
+          const llmCallStart = Date.now();
+          await this.runPluginHooks('onPreLLMCall', {
+            threadID,
+            runID,
+            provider: resolved.provider,
+            modelID: resolved.modelID,
+            messageCount: messages.length,
+          });
+
           streamResult = this.modelRouter.stream({
             messages,
             tools,
@@ -266,7 +336,11 @@ export class OrchestratorService {
                 const toolCallID = String(part.toolCallId);
                 const toolName = String(part.toolName);
                 const args = (part.input ?? {}) as Record<string, unknown>;
-                pendingToolArgs.set(toolCallID, { toolName, args });
+                pendingToolArgs.set(toolCallID, {
+                  toolName,
+                  args,
+                  startedAt: Date.now(),
+                });
                 toolCallBlocks.push({
                   toolCallID,
                   toolName,
@@ -278,6 +352,12 @@ export class OrchestratorService {
                   toolName,
                   args,
                 } satisfies ToolCallStartedData);
+                await this.runPluginHooks('onPreToolCall', {
+                  toolName,
+                  args,
+                  threadID,
+                  runID,
+                });
                 await this.stateService.recordToolCall(
                   threadID,
                   toolName,
@@ -318,6 +398,15 @@ export class OrchestratorService {
                   result: truncateResult(output),
                   success: true,
                 } satisfies ToolCallResultData);
+                await this.runPluginHooks('onPostToolCall', {
+                  toolName,
+                  args: pending?.args ?? {},
+                  threadID,
+                  runID,
+                  result: output,
+                  success: true,
+                  durationMs: pending ? Date.now() - pending.startedAt : 0,
+                });
                 if (SUBAGENT_TOOL_NAMES.has(toolName)) {
                   await this.emitSubagentEvents(
                     runID,
@@ -340,6 +429,9 @@ export class OrchestratorService {
                       };
                     }
                   }
+                }
+                if (toolName === 'sessions_yield') {
+                  yieldRequested = true;
                 }
                 break;
               }
@@ -374,6 +466,15 @@ export class OrchestratorService {
                   toolName,
                   error: errorStr,
                 } satisfies ToolCallErrorData);
+                await this.runPluginHooks('onPostToolCall', {
+                  toolName,
+                  args: pending?.args ?? {},
+                  threadID,
+                  runID,
+                  result: null,
+                  success: false,
+                  durationMs: pending ? Date.now() - pending.startedAt : 0,
+                });
                 if (SUBAGENT_TOOL_NAMES.has(toolName)) {
                   const result = (part as unknown as { output?: unknown })
                     .output;
@@ -410,11 +511,35 @@ export class OrchestratorService {
 
           for (const step of steps) {
             totalToolCalls += step.toolCalls.length;
+            if (memoryNudgeInterval > 0) {
+              toolCallsSinceNudge += step.toolCalls.length;
+            }
             if (step.usage) {
               totalInputTokens += step.usage.inputTokens ?? 0;
               totalOutputTokens += step.usage.outputTokens ?? 0;
             }
           }
+
+          await this.runPluginHooks('onPostLLMCall', {
+            threadID,
+            runID,
+            provider: resolved.provider,
+            modelID: resolved.modelID,
+            messageCount: messages.length,
+            inputTokens: steps.reduce(
+              (sum, s) => sum + (s.usage?.inputTokens ?? 0),
+              0,
+            ),
+            outputTokens: steps.reduce(
+              (sum, s) => sum + (s.usage?.outputTokens ?? 0),
+              0,
+            ),
+            toolCallCount: steps.reduce(
+              (sum, s) => sum + s.toolCalls.length,
+              0,
+            ),
+            durationMs: Date.now() - llmCallStart,
+          });
 
           if (streamResponse.messages) {
             messages.push(
@@ -475,6 +600,39 @@ export class OrchestratorService {
             });
           }
 
+          if (
+            !goal.isHeartbeat &&
+            memoryNudgeInterval > 0 &&
+            toolCallsSinceNudge >= memoryNudgeInterval
+          ) {
+            messages.push({
+              role: 'user',
+              content:
+                '[SYSTEM] Reminder: If important facts, user preferences, or commitments emerged during this conversation, consider saving them with memory tools before continuing.',
+            });
+            toolCallsSinceNudge = 0;
+          }
+
+          if (yieldRequested) {
+            await this.completeRun(
+              goal,
+              finalText || 'Yielded.',
+              lastReasoningText,
+              lastThinkingDuration,
+              totalToolCalls,
+              toolCallBlocks,
+              {
+                provider: resolved.provider,
+                modelID: resolved.modelID,
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens,
+                durationMs: Date.now() - runStartTime,
+                iterationCount,
+              },
+            );
+            break;
+          }
+
           const lastStep = steps[steps.length - 1];
           const modelFinished = !lastStep || lastStep.toolCalls.length === 0;
 
@@ -533,6 +691,9 @@ export class OrchestratorService {
       if (error instanceof AbortedError) {
         this.logger.debug(`Run ${runID} was cancelled`);
         await this.stateService.cancelRun(runID);
+        await this.emitEvent(runID, threadID, 'run.cancelled', {
+          reason: 'Run cancelled',
+        } satisfies RunCancelledData);
       } else {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
@@ -543,6 +704,12 @@ export class OrchestratorService {
         } satisfies RunFailedData);
       }
     } finally {
+      await this.runPluginHooks('onSessionEnd', {
+        threadID,
+        runID,
+        agentID: goal.agentID,
+        userID: goal.userID,
+      });
       this.loopDetection.clear(runID);
       this.abortControllers.delete(runID);
       await this.subscriber.unsubscribe(this.cancelChannel(runID));
@@ -629,6 +796,18 @@ export class OrchestratorService {
           .catch((err) => {
             this.logger.warn('Memory extraction failed:', err);
           });
+
+        this.commitmentExtractor
+          .extract(
+            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
+            goal.agentID,
+            userID,
+            threadID,
+            runID,
+          )
+          .catch((err) => {
+            this.logger.warn('Commitment extraction failed:', err);
+          });
       }
 
       this.maybeRunSkillReview(goal, response, totalToolCalls ?? 0).catch(
@@ -636,6 +815,62 @@ export class OrchestratorService {
           this.logger.warn('Skill review trigger failed:', err);
         },
       );
+    }
+
+    try {
+      const parentThreadID = await this.stateService.getCustomState<string>(
+        goal.threadID ?? threadID,
+        'parentThreadID',
+      );
+      if (parentThreadID) {
+        const yielding = await this.stateService.getCustomState<boolean>(
+          parentThreadID,
+          'yielding',
+        );
+        if (yielding) {
+          const yieldAgentID =
+            (await this.stateService.getCustomState<string>(
+              parentThreadID,
+              'yieldAgentID',
+            )) ?? goal.agentID;
+          const yieldUserID =
+            (await this.stateService.getCustomState<string>(
+              parentThreadID,
+              'yieldUserID',
+            )) ?? userID;
+          const yieldChatID = await this.stateService.getCustomState<string>(
+            parentThreadID,
+            'yieldChatID',
+          );
+          await this.stateService.setCustomState(
+            parentThreadID,
+            'yielding',
+            false,
+          );
+          const resumeRunID = randomUUID();
+          const resumeMessage = `[Subagent completed]\nThread: ${threadID}\nRun: ${runID}\n\n${response || '(no response)'}`;
+          this.executeGoal(
+            {
+              threadID: parentThreadID,
+              runID: resumeRunID,
+              userID: yieldUserID,
+              agentID: yieldAgentID,
+              chatID: yieldChatID || undefined,
+              userMessage: resumeMessage,
+              conversationHistory: [],
+              isHeartbeat: true,
+            },
+            this.getAutonomousRunConfig(),
+          ).catch((err) => {
+            this.logger.warn(
+              `Failed to resume yielded parent ${parentThreadID}:`,
+              err,
+            );
+          });
+        }
+      }
+    } catch {
+      // Non-critical — ignore
     }
   }
 
@@ -751,6 +986,32 @@ export class OrchestratorService {
     if (controller.signal.aborted) {
       throw new AbortedError();
     }
+  }
+
+  private checkTimeout(
+    runStartTime: number,
+    timeoutMs: number,
+    controller: AbortController,
+  ): void {
+    if (timeoutMs > 0 && Date.now() - runStartTime >= timeoutMs) {
+      this.logger.warn(`Run exceeded wall-clock timeout of ${timeoutMs}ms`);
+      controller.abort();
+      throw new AbortedError();
+    }
+  }
+
+  private getAutonomousRunConfig(): OrchestratorConfig {
+    return {
+      ...AUTONOMOUS_RUN_CONFIG,
+      wallClockTimeoutMs:
+        parseInt(
+          this.configService.get<string>(
+            'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+            String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+          ),
+          10,
+        ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+    };
   }
 
   private async emitEvent(

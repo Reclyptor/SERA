@@ -69,13 +69,11 @@ export class PromptBuilderService {
     }
 
     try {
-      const memoryProvider = new MemoryKnowledgeProvider(
-        this.memoryService,
-        userID,
-      );
-      this.knowledgeService.registerProvider(memoryProvider);
-
-      const knowledgeContext = await this.knowledgeService.buildContext(query);
+      const knowledgeContext = await this.knowledgeService.buildContext(query, {
+        extraProviders: [
+          new MemoryKnowledgeProvider(this.memoryService, userID),
+        ],
+      });
       if (knowledgeContext.length > 0) {
         parts.push(
           this.knowledgeService.formatContextForPrompt(knowledgeContext),

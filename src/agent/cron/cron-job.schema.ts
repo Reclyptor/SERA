@@ -23,6 +23,15 @@ export class CronJob {
   @Prop({ default: true })
   enabled: boolean;
 
+  @Prop({ default: '' })
+  script: string;
+
+  @Prop({ default: '' })
+  contextFromJobID: string;
+
+  @Prop({ default: '' })
+  lastRunID: string;
+
   @Prop()
   lastRunAt?: Date;
 

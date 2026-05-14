@@ -102,16 +102,33 @@ export class KnowledgeService {
     query: string,
     options?: {
       maxKnowledgeResults?: number;
+      extraProviders?: KnowledgeProvider[];
     },
   ): Promise<ContextItem[]> {
     const context: ContextItem[] = [];
-    const { maxKnowledgeResults = 5 } = options ?? {};
+    const { maxKnowledgeResults = 5, extraProviders = [] } = options ?? {};
 
     if (query && maxKnowledgeResults > 0) {
-      const results = await this.search({
+      const knowledgeQuery = {
         query,
         limit: maxKnowledgeResults,
-      });
+      };
+      const results = await this.search(knowledgeQuery);
+
+      await Promise.all(
+        extraProviders.map(async (provider) => {
+          try {
+            results.push(...(await provider.search(knowledgeQuery)));
+          } catch (error) {
+            this.logger.error(
+              `Knowledge search failed for provider ${provider.name}:`,
+              error,
+            );
+          }
+        }),
+      );
+
+      results.sort((a, b) => b.score - a.score);
 
       for (const result of results) {
         context.push({

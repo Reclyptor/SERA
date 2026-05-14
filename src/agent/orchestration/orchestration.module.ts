@@ -15,6 +15,7 @@ import { SkillsModule } from '../skills/skills.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
 import { ContextModule } from '../context/context.module';
 import { InsightsModule } from '../insights/insights.module';
+import { CommitmentsModule } from '../commitments/commitments.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { InsightsModule } from '../insights/insights.module';
     SandboxModule,
     ContextModule,
     InsightsModule,
+    CommitmentsModule,
   ],
   providers: [OrchestratorService, PromptBuilderService],
   exports: [OrchestratorService, StreamingModule],

@@ -9,6 +9,21 @@ import type {
 } from '../tool.interface';
 import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
 
+export interface ProcessOrchestratorLike {
+  executeGoal(
+    goal: {
+      threadID: string;
+      runID: string;
+      userID: string;
+      agentID: string;
+      userMessage: string;
+      conversationHistory: unknown[];
+      isHeartbeat?: boolean;
+    },
+    config?: { maxSteps?: number; maxIterations?: number; wallClockTimeoutMs?: number },
+  ): Promise<void>;
+}
+
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
 interface TrackedProcess {
@@ -18,6 +33,10 @@ interface TrackedProcess {
   exitCode: number | null;
   startedAt: Date;
   command: string;
+  notifyOnComplete: boolean;
+  agentID: string;
+  threadID: string;
+  userID: string;
 }
 
 const parameters = z.object({
@@ -32,6 +51,11 @@ const parameters = z.object({
     .string()
     .optional()
     .describe('Process ID (required for output/kill)'),
+  notifyOnComplete: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('If true, starts a new agent run with the process output when the process exits'),
 });
 
 export class ProcessTool implements Tool<typeof parameters> {
@@ -46,6 +70,7 @@ export class ProcessTool implements Tool<typeof parameters> {
   constructor(
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
+    private readonly orchestratorResolver?: () => ProcessOrchestratorLike,
   ) {}
 
   async execute(
@@ -54,7 +79,7 @@ export class ProcessTool implements Tool<typeof parameters> {
   ): Promise<ToolExecutionResult> {
     switch (args.operation) {
       case 'start':
-        return this.start(args.command, context);
+        return this.start(args, context);
       case 'list':
         return this.list();
       case 'output':
@@ -65,13 +90,14 @@ export class ProcessTool implements Tool<typeof parameters> {
   }
 
   private async start(
-    command: string | undefined,
+    args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     if (!this.enabled) {
       return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
 
+    const command = args.command;
     if (!command) {
       return { success: false, error: 'Command is required for start' };
     }
@@ -95,6 +121,10 @@ export class ProcessTool implements Tool<typeof parameters> {
       exitCode: null,
       startedAt: new Date(),
       command,
+      notifyOnComplete: args.notifyOnComplete ?? false,
+      agentID: context.agentID,
+      threadID: context.threadID,
+      userID: context.userID ?? '',
     };
 
     child.stdout?.on('data', (data: Buffer) => {
@@ -113,11 +143,33 @@ export class ProcessTool implements Tool<typeof parameters> {
 
     child.on('exit', (code) => {
       tracked.exitCode = code;
-      // Auto-remove dead processes after 5 minutes to prevent unbounded Map growth
       setTimeout(
         () => ProcessTool.processes.delete(processID),
         5 * 60_000,
       ).unref();
+
+      if (tracked.notifyOnComplete && this.orchestratorResolver) {
+        const output = [
+          `Process ${processID} exited with code ${code}`,
+          tracked.stdout ? `\n## stdout\n\`\`\`\n${tracked.stdout}\n\`\`\`` : '',
+          tracked.stderr ? `\n## stderr\n\`\`\`\n${tracked.stderr}\n\`\`\`` : '',
+        ].join('');
+
+        this.orchestratorResolver()
+          .executeGoal(
+            {
+              threadID: randomUUID(),
+              runID: randomUUID(),
+              userID: tracked.userID,
+              agentID: tracked.agentID,
+              userMessage: `[Background process completed]\n${output}`,
+              conversationHistory: [],
+              isHeartbeat: true,
+            },
+            { maxSteps: 10, maxIterations: 2, wallClockTimeoutMs: 180_000 },
+          )
+          .catch(() => {});
+      }
     });
 
     ProcessTool.processes.set(processID, tracked);

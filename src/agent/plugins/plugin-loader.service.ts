@@ -9,6 +9,7 @@ import type {
   SeraPlugin,
   PluginContext,
   PluginConfig,
+  PluginHookFn,
 } from './plugin.interface';
 import { ToolsService } from '../tools/tools.service';
 
@@ -17,6 +18,7 @@ export class PluginLoaderService implements OnModuleInit {
   private readonly logger = new Logger(PluginLoaderService.name);
   private readonly loadedPlugins = new Map<string, SeraPlugin>();
   private readonly knowledgeStore = new Map<string, string>();
+  private readonly hooks = new Map<string, PluginHookFn<any>[]>();
 
   constructor(
     @InjectModel(PluginConfigRecord.name)
@@ -104,6 +106,12 @@ export class PluginLoaderService implements OnModuleInit {
       getConfig: <T = unknown>(key: string) => {
         return (config.config?.[key] as T) ?? undefined;
       },
+      onPreToolCall: (fn) => this.addHook('onPreToolCall', fn),
+      onPostToolCall: (fn) => this.addHook('onPostToolCall', fn),
+      onPreLLMCall: (fn) => this.addHook('onPreLLMCall', fn),
+      onPostLLMCall: (fn) => this.addHook('onPostLLMCall', fn),
+      onSessionStart: (fn) => this.addHook('onSessionStart', fn),
+      onSessionEnd: (fn) => this.addHook('onSessionEnd', fn),
       logger: {
         log: (msg) => pluginLogger.log(msg),
         warn: (msg) => pluginLogger.warn(msg),
@@ -111,6 +119,26 @@ export class PluginLoaderService implements OnModuleInit {
         debug: (msg) => pluginLogger.debug(msg),
       },
     };
+  }
+
+  async runHooks<T>(type: string, args: T): Promise<void> {
+    const fns = this.hooks.get(type);
+    if (!fns?.length) return;
+    for (const fn of fns) {
+      try {
+        await fn(args);
+      } catch (err) {
+        this.logger.warn(
+          `Plugin hook "${type}" failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  }
+
+  private addHook(type: string, fn: PluginHookFn<any>): void {
+    const list = this.hooks.get(type) ?? [];
+    list.push(fn);
+    this.hooks.set(type, list);
   }
 
   getLoadedPlugins(): Array<{

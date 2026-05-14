@@ -78,9 +78,14 @@ export class StateService {
 
   // Run management
 
-  async startRun(threadID: string, runID?: string): Promise<RunState> {
+  async startRun(
+    threadID: string,
+    runID?: string,
+    userMessage?: string,
+    agentID?: string,
+  ): Promise<RunState> {
     const id = runID ?? crypto.randomUUID();
-    const run = await this.store.createRun(id, threadID);
+    const run = await this.store.createRun(id, threadID, userMessage, agentID);
     await this.store.updateRun(id, { status: 'running' });
     return run;
   }

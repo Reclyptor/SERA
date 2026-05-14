@@ -23,6 +23,8 @@ export interface RunState {
   completedAt?: Date;
   error?: string;
   response?: string;
+  userMessage: string;
+  agentID: string;
 }
 
 export interface AgentState {

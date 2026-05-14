@@ -146,7 +146,8 @@ export class RunStreamService {
 
           if (
             entry.event.type === 'run.completed' ||
-            entry.event.type === 'run.failed'
+            entry.event.type === 'run.failed' ||
+            entry.event.type === 'run.cancelled'
           ) {
             replayedTerminal = true;
           }
@@ -198,7 +199,8 @@ export class RunStreamService {
 
             if (
               entry.event.type === 'run.completed' ||
-              entry.event.type === 'run.failed'
+              entry.event.type === 'run.failed' ||
+              entry.event.type === 'run.cancelled'
             ) {
               subscriber.complete();
               return;

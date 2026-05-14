@@ -12,6 +12,8 @@ export interface CronSchedulerLike {
     command: string;
     description?: string;
     enabled?: boolean;
+    script?: string;
+    contextFromJobID?: string;
   }): Promise<{
     jobID: string;
     schedule: string;
@@ -28,6 +30,8 @@ export interface CronSchedulerLike {
       command: string;
       description: string;
       enabled: boolean;
+      script?: string;
+      contextFromJobID?: string;
       lastRunAt?: Date;
       nextRunAt?: Date;
     }>
@@ -56,6 +60,14 @@ const parameters = z.object({
       'Instruction or goal for the agent to execute on schedule (required for create)',
     ),
   description: z.string().optional().describe('Human-readable description'),
+  script: z
+    .string()
+    .optional()
+    .describe('Shell command to run before the agent. Its stdout is injected into the prompt as data context.'),
+  contextFromJobID: z
+    .string()
+    .optional()
+    .describe('Job ID whose last run response is injected as context for this job.'),
   jobID: z
     .string()
     .optional()
@@ -112,6 +124,8 @@ export class CronTool implements Tool<typeof parameters> {
         schedule: args.schedule,
         command: args.command,
         description: args.description,
+        script: args.script,
+        contextFromJobID: args.contextFromJobID,
       });
 
       return {

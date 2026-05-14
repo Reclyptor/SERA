@@ -29,6 +29,12 @@ export class Run {
 
   @Prop()
   response?: string;
+
+  @Prop({ default: '' })
+  userMessage: string;
+
+  @Prop({ default: '' })
+  agentID: string;
 }
 
 export const RunSchema = SchemaFactory.createForClass(Run);

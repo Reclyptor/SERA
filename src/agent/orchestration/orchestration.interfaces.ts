@@ -16,13 +16,19 @@ export interface AgentGoal {
 }
 
 export interface OrchestratorConfig {
-  /** Max tool-calling steps per streaming session (default: 15) */
   maxSteps: number;
-  /** Max outer loop iterations — each iteration is a full streaming session (default: 5) */
   maxIterations: number;
+  wallClockTimeoutMs: number;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxSteps: 15,
   maxIterations: 5,
+  wallClockTimeoutMs: 0,
+};
+
+export const AUTONOMOUS_RUN_CONFIG: OrchestratorConfig = {
+  maxSteps: 10,
+  maxIterations: 2,
+  wallClockTimeoutMs: 180_000,
 };

@@ -2,6 +2,7 @@ export type AgentEventType =
   | 'run.started'
   | 'run.completed'
   | 'run.failed'
+  | 'run.cancelled'
   | 'thinking.delta'
   | 'thinking.done'
   | 'text.delta'
@@ -39,6 +40,10 @@ export interface RunCompletedData {
 
 export interface RunFailedData {
   error: string;
+}
+
+export interface RunCancelledData {
+  reason: string;
 }
 
 export interface ThinkingDeltaData {

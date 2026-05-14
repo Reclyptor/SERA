@@ -54,6 +54,10 @@ export class ToolsRegistry {
     context: ToolExecutionContext,
     policy: ToolPolicyFilter,
   ): ToolSet {
+    if (policy.tools.length === 0) {
+      return this.toAISDKToolSet(context);
+    }
+
     const toolSet: ToolSet = {};
 
     for (const [name, t] of this.tools) {

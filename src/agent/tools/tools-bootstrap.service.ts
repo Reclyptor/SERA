@@ -33,6 +33,7 @@ import {
   SessionsHistoryTool,
   SessionsSendTool,
   SessionsSpawnTool,
+  SessionsYieldTool,
   SessionStatusTool,
   SubagentsTool,
   AgentsListTool,
@@ -89,7 +90,11 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(
       new ShellTool(workspace, shellEnabled, lazySandboxRunner),
     );
-    this.toolsService.registerTool(new ProcessTool(workspace, shellEnabled));
+    this.toolsService.registerTool(
+      new ProcessTool(workspace, shellEnabled, () =>
+        this.resolveOrchestrator(),
+      ),
+    );
     this.toolsService.registerTool(
       new CodeExecutionTool(
         workspace,
@@ -156,12 +161,23 @@ export class ToolsBootstrapService implements OnModuleInit {
     );
 
     // Sessions & agents
+    const lazyStateService = {
+      setCustomState: (threadID: string, key: string, value: unknown) =>
+        this.stateService.setCustomState(threadID, key, value),
+    };
+
     this.toolsService.registerTool(new SessionsListTool(this.stateService));
     this.toolsService.registerTool(new SessionsHistoryTool(this.chatsService));
     this.toolsService.registerTool(new SessionsSendTool(this.chatsService));
     this.toolsService.registerTool(
-      new SessionsSpawnTool(lazyOrchestrator, this.agentRouter, runReader),
+      new SessionsSpawnTool(
+        lazyOrchestrator,
+        this.agentRouter,
+        runReader,
+        lazyStateService,
+      ),
     );
+    this.toolsService.registerTool(new SessionsYieldTool(lazyStateService));
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
     this.toolsService.registerTool(new SubagentsTool(this.stateService));
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));

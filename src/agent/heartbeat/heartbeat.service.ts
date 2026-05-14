@@ -6,9 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { HeartbeatConfig, HeartbeatConfigDocument } from './heartbeat.schema';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
+import { AUTONOMOUS_RUN_CONFIG } from '../orchestration/orchestration.interfaces';
 import { PromptsService } from '../../prompts/prompts.service';
+import { CommitmentsService } from '../commitments/commitments.service';
 
 @Injectable()
 export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
@@ -22,6 +25,8 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     private readonly heartbeatModel: Model<HeartbeatConfigDocument>,
     private readonly orchestrator: OrchestratorService,
     private readonly promptsService: PromptsService,
+    private readonly commitmentsService: CommitmentsService,
+    private readonly configService: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -116,6 +121,19 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
       message += `\n\nChecklist:\n${items}`;
     }
 
+    try {
+      const dueCommitments = await this.commitmentsService.findDue(config.agentID);
+      if (dueCommitments.length > 0) {
+        const lines = dueCommitments.map(
+          (c) =>
+            `- ${c.description}${c.dueAt ? ` (due: ${c.dueAt.toISOString()})` : ''}`,
+        );
+        message += `\n\n## Pending Commitments\n${lines.join('\n')}`;
+      }
+    } catch {
+      // Non-critical
+    }
+
     const nextRunAt = new Date(Date.now() + config.intervalMinutes * 60_000);
 
     await this.heartbeatModel.updateOne(
@@ -135,7 +153,16 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
           isHeartbeat: true,
           modelOptions: { maxOutputTokens: config.maxTokens },
         },
-        { maxSteps: 10, maxIterations: 2 },
+        {
+          ...AUTONOMOUS_RUN_CONFIG,
+          wallClockTimeoutMs: parseInt(
+            this.configService.get<string>(
+              'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+              String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+            ),
+            10,
+          ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+        },
       )
       .catch((err) => {
         this.logger.error(`Heartbeat run ${runID} failed:`, err);

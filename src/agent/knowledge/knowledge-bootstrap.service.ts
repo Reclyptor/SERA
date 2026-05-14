@@ -22,6 +22,8 @@ export class KnowledgeBootstrapService implements OnModuleInit {
       'OPENAI_EMBEDDING_MODEL',
       'text-embedding-3-small',
     );
+    const embeddingDimension =
+      embeddingModel === 'text-embedding-3-large' ? 3072 : 1536;
 
     const chunkSize = parseInt(
       this.configService.get<string>('KNOWLEDGE_CHUNK_SIZE', '1000'),
@@ -41,6 +43,7 @@ export class KnowledgeBootstrapService implements OnModuleInit {
         qdrantApiKey,
         openaiApiKey: this.configService.get<string>('OPENAI_API_KEY'),
         embeddingModel,
+        embeddingDimension,
         chunkSize,
         chunkOverlap,
       }),
