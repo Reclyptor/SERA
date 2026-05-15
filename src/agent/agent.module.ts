@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
-import { ImageStorage } from './storage/image.storage';
+import { ImageStorageModule } from './storage/image-storage.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { StateModule } from './state/state.module';
 import { ChatsModule } from '../chats/chats.module';
@@ -29,9 +29,10 @@ import { PluginsModule } from './plugins/plugins.module';
     InsightsModule,
     McpModule,
     PluginsModule,
+    ImageStorageModule,
   ],
   controllers: [AgentController],
-  providers: [AgentService, ImageStorage],
-  exports: [AgentService, ImageStorage, OrchestrationModule],
+  providers: [AgentService],
+  exports: [AgentService, ImageStorageModule, OrchestrationModule],
 })
 export class AgentModule {}

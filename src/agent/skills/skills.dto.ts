@@ -5,7 +5,7 @@ export class CreateSkillDto {
   license?: string;
   compatibility?: string;
   allowedTools?: string[];
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
   files?: { path: string; content: string }[];
   origin?: 'seed' | 'agent' | 'user';
 }
@@ -16,6 +16,6 @@ export class UpdateSkillDto {
   license?: string;
   compatibility?: string;
   allowedTools?: string[];
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
   files?: { path: string; content: string }[];
 }

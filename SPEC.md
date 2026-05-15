@@ -238,6 +238,8 @@ Endpoints decorated with `@Public()` bypass authentication. Current public route
 
 All schemas use Mongoose with `timestamps: true` unless noted. Fields marked `(auto)` are managed by Mongoose.
 
+API responses are JSON-serialized Mongoose documents. Mongo `_id` values are exposed as strings, and `Date` values are exposed as ISO strings; embedded chat messages created optimistically by clients may still use local `Date` objects before persistence.
+
 ### 4.1 Chat
 
 **Collection:** `chats`
@@ -685,6 +687,8 @@ All endpoints are prefixed with `/api/v1` unless noted. Authentication is requir
   };
 }
 ```
+
+`message` may include uploaded image markers in the form `[IMG:<imageID>]`, where `imageID` is returned by `POST /agent/upload-image`. The orchestrator resolves markers in user messages immediately before each model call, replacing available images with AI SDK image content parts (`{ type: 'image', image: <base64>, mediaType }`) and leaving persisted chat text unchanged for replay. Missing or expired image IDs are converted to a text part of `[Image unavailable: <imageID>]` so the model receives an explicit failure signal.
 
 ### 5.3 Chats
 
@@ -1880,6 +1884,8 @@ The `allowed-tools` field is stored as a space-separated string in frontmatter a
 | Format     | JSON: `{ id, data, mimeType, uploadedAt }` |
 
 Used by the image upload endpoint (`POST /agent/upload-image`) for passing images to the agent within context.
+
+Uploaded images are referenced from chat messages with `[IMG:<imageID>]` markers. The markers are not rewritten in MongoDB chat history; they are resolved at the orchestration/provider boundary so clients can render their own cached previews and backend replay remains deterministic. Resolution is scoped to user-role string messages. Non-user messages and already structured model content are passed through unchanged.
 
 ### Upload Constraints
 

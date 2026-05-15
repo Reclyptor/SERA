@@ -35,7 +35,7 @@ export class Skill {
   allowedTools: string[];
 
   @Prop({ type: MongooseSchema.Types.Mixed })
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 
   @Prop({ type: [SkillFileSchema], default: [] })
   files: SkillFile[];

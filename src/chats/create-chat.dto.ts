@@ -23,7 +23,7 @@ export class MessageDto {
   thinking?: string;
   thinkingDuration?: number;
   toolCalls?: ToolCallBlockDto[];
-  createdAt?: Date;
+  createdAt?: string | Date;
 }
 
 export class CreateChatDto {

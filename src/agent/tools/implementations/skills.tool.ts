@@ -14,7 +14,7 @@ export interface SkillsServiceLike {
     license?: string;
     compatibility?: string;
     allowedTools: string[];
-    metadata?: Record<string, string>;
+    metadata?: Record<string, unknown>;
     files: { path: string }[];
   } | null>;
   create(dto: {
@@ -24,7 +24,7 @@ export interface SkillsServiceLike {
     license?: string;
     compatibility?: string;
     allowedTools?: string[];
-    metadata?: Record<string, string>;
+    metadata?: Record<string, unknown>;
   }): Promise<{ name: string }>;
   update(
     name: string,
@@ -34,7 +34,7 @@ export interface SkillsServiceLike {
       license?: string;
       compatibility?: string;
       allowedTools?: string[];
-      metadata?: Record<string, string>;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<unknown>;
   remove(name: string): Promise<boolean>;

@@ -326,10 +326,11 @@ export class SkillsService implements OnModuleInit {
 
   private substituteMetadata(
     content: string,
-    metadata: Record<string, string>,
+    metadata: Record<string, unknown>,
   ): string {
     return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
-      return key in metadata ? metadata[key] : match;
+      const value = metadata[key];
+      return value == null ? match : String(value);
     });
   }
 

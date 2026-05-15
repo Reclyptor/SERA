@@ -405,7 +405,7 @@ export class GitHubSyncService {
       license?: string;
       compatibility?: string;
       allowedTools?: string[];
-      metadata?: Record<string, string>;
+      metadata?: Record<string, unknown>;
       files?: { path: string; content: string }[];
     },
   ): Promise<void> {
@@ -508,7 +508,7 @@ export class GitHubSyncService {
     license?: string;
     compatibility?: string;
     allowedTools?: string[];
-    metadata?: Record<string, string>;
+    metadata?: Record<string, unknown>;
   }): string {
     const fm: Record<string, unknown> = {};
     if (data.description) fm.description = data.description;

@@ -8,7 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import Anthropic from '@anthropic-ai/sdk';
 import { Chat, ChatDocument, Message } from './chat.schema';
-import { CreateChatDto } from './create-chat.dto';
+import { CreateChatDto, MessageDto } from './create-chat.dto';
 import { UpdateChatDto } from './update-chat.dto';
 
 @Injectable()
@@ -49,9 +49,10 @@ export class ChatsService {
   }
 
   async create(userID: string, createChatDto: CreateChatDto): Promise<Chat> {
-    const firstUserMessage = createChatDto.messages.find(
-      (m) => m.role === 'user',
+    const messages = createChatDto.messages.map((m) =>
+      this.normalizeMessage(m),
     );
+    const firstUserMessage = messages.find((m) => m.role === 'user');
     const title = firstUserMessage
       ? await this.generateTitle(firstUserMessage.content)
       : 'New Chat';
@@ -59,7 +60,7 @@ export class ChatsService {
     const chat = new this.chatModel({
       userID,
       title,
-      messages: createChatDto.messages,
+      messages,
     });
 
     return chat.save();
@@ -102,16 +103,26 @@ export class ChatsService {
       throw new ForbiddenException('You do not have access to this chat');
     }
 
-    chat.messages = updateChatDto.messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      thinking: m.thinking,
-      thinkingDuration: m.thinkingDuration,
-      toolCalls: m.toolCalls,
-      createdAt: m.createdAt ?? new Date(),
-    }));
+    chat.messages = updateChatDto.messages.map((m) => this.normalizeMessage(m));
     return chat.save();
+  }
+
+  private normalizeMessage(message: MessageDto): Message {
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      thinking: message.thinking,
+      thinkingDuration: message.thinkingDuration,
+      toolCalls: message.toolCalls,
+      createdAt: this.normalizeCreatedAt(message.createdAt),
+    };
+  }
+
+  private normalizeCreatedAt(createdAt?: string | Date): Date {
+    if (!createdAt) return new Date();
+    const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+    return Number.isNaN(date.getTime()) ? new Date() : date;
   }
 
   async updateModel(chatID: string, model: string): Promise<void> {
