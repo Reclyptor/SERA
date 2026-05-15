@@ -109,18 +109,19 @@ AppModule
 
 ### Required Variables
 
-| Variable              | Description                                                                    |
-| --------------------- | ------------------------------------------------------------------------------ |
-| `AUTH_SECRET`         | Secret for decrypting Auth.js session cookies                                  |
-| `ANTHROPIC_API_KEY`   | Anthropic API key (or first key in pool)                                       |
-| `PRIMARY_MODEL`       | Default model in `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`) |
-| `CORS_ORIGIN`         | Allowed CORS origin                                                            |
-| `AUTHENTIK_ISSUER`    | OIDC issuer URL for token validation                                           |
-| `AUTHENTIK_CLIENT_ID` | OIDC client ID for audience validation                                         |
-| `MONGODB_URI`         | MongoDB connection string                                                      |
-| `OPENAI_API_KEY`      | OpenAI API key (or first key in pool)                                          |
-| `REDIS_URL`           | Redis connection URL                                                           |
-| `WEBHOOK_API_KEY`     | Shared API key required by webhook ingress                                     |
+| Variable                | Description                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `AUTH_SECRET`           | Secret for decrypting Auth.js session cookies                                  |
+| `ANTHROPIC_API_KEY`     | Anthropic API key (or first key in pool)                                       |
+| `PRIMARY_MODEL`         | Default model in `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`) |
+| `CORS_ORIGIN`           | Allowed CORS origin                                                            |
+| `AUTHENTIK_ISSUER`      | OIDC issuer URL for token validation                                           |
+| `AUTHENTIK_CLIENT_ID`   | OIDC client ID for audience validation                                         |
+| `MONGODB_URI`           | MongoDB connection string                                                      |
+| `OPENAI_API_KEY`        | OpenAI API key (or first key in pool)                                          |
+| `OBJECT_STORAGE_BUCKET` | S3-compatible bucket for durable attachments                                   |
+| `REDIS_URL`             | Redis connection URL                                                           |
+| `WEBHOOK_API_KEY`       | Shared API key required by webhook ingress                                     |
 
 ### Optional Variables
 
@@ -128,6 +129,13 @@ AppModule
 | ---------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
 | `PORT`                             | `3001`                                        | Server listen port                                                            |
 | `FALLBACK_MODELS`                  | _(none)_                                      | Comma-separated fallback models in `provider/model` format                    |
+| `OBJECT_STORAGE_ENDPOINT`          | _(AWS SDK default)_                           | S3-compatible endpoint; set for MinIO, omit for AWS S3                        |
+| `OBJECT_STORAGE_REGION`            | `us-east-1`                                   | S3-compatible region                                                          |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`     | _(AWS SDK default)_                           | Explicit object storage access key; omit to use the SDK credential chain      |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | _(AWS SDK default)_                           | Explicit object storage secret key; omit to use the SDK credential chain      |
+| `OBJECT_STORAGE_FORCE_PATH_STYLE`  | `false`                                       | Set `true` for MinIO/path-style S3 endpoints                                  |
+| `OBJECT_STORAGE_PREFIX`            | `attachments`                                 | Object key prefix for uploaded attachments                                    |
+| `OBJECT_STORAGE_MAX_UPLOAD_BYTES`  | `26214400`                                    | Max multipart attachment size, default 25 MiB                                 |
 | `ANTHROPIC_API_KEYS`               | _(none)_                                      | Comma-separated key pool                                                      |
 | `OPENAI_API_KEYS`                  | _(none)_                                      | Comma-separated key pool                                                      |
 | `GOOGLE_API_KEY`                   | _(none)_                                      | Google AI API key                                                             |
@@ -263,6 +271,7 @@ API responses are JSON-serialized Mongoose documents. Mongo `_id` values are exp
 | `thinking`         | String                              | No       |            |
 | `thinkingDuration` | Number                              | No       |            |
 | `toolCalls`        | ToolCallBlock[]                     | No       |            |
+| `attachments`      | MessageAttachment[]                 | No       | `[]`       |
 | `createdAt`        | Date                                | No       | `Date.now` |
 
 **ToolCallBlock** (embedded, `_id: false`):
@@ -286,6 +295,17 @@ API responses are JSON-serialized Mongoose documents. Mongo `_id` values are exp
 | `threadID` | String | Yes      |
 | `agentID`  | String | Yes      |
 | `goal`     | String | Yes      |
+
+**MessageAttachment** (embedded, `_id: false`):
+
+| Field       | Type                  | Required |
+| ----------- | --------------------- | -------- |
+| `id`        | String                | Yes      |
+| `kind`      | Enum: `image`, `file` | Yes      |
+| `mimeType`  | String                | Yes      |
+| `size`      | Number                | Yes      |
+| `filename`  | String                | No       |
+| `createdAt` | Date                  | No       |
 
 ### 4.2 Prompt
 
@@ -475,7 +495,29 @@ Goal persistence: `userMessage` and `agentID` are stored on every run so failed 
 
 Allowed file path prefixes: `references/`, `templates/`, `scripts/`.
 
-### 4.9 TaskPlan
+### 4.9 Attachment
+
+**Collection:** `attachments`
+
+Attachment bytes are stored in S3-compatible object storage. MongoDB stores ownership and lookup metadata only.
+
+| Field          | Type                  | Required | Default | Index                       |
+| -------------- | --------------------- | -------- | ------- | --------------------------- |
+| `attachmentID` | String                | Yes      |         | Unique                      |
+| `userID`       | String                | Yes      |         | `{ userID, createdAt: -1 }` |
+| `chatID`       | String                | No       |         | `{ userID, chatID }`        |
+| `messageID`    | String                | No       |         | Yes                         |
+| `kind`         | Enum: `image`, `file` | Yes      |         |                             |
+| `mimeType`     | String                | Yes      |         |                             |
+| `size`         | Number                | Yes      |         |                             |
+| `sha256`       | String                | Yes      |         |                             |
+| `objectKey`    | String                | Yes      |         |                             |
+| `filename`     | String                | No       |         |                             |
+| `deletedAt`    | Date                  | No       |         |                             |
+| `createdAt`    | Date                  | (auto)   |         |                             |
+| `updatedAt`    | Date                  | (auto)   |         |                             |
+
+### 4.10 TaskPlan
 
 **Collection:** `tasks`
 
@@ -662,21 +704,23 @@ All endpoints are prefixed with `/api/v1` unless noted. Authentication is requir
 
 ### 5.2 Agent (Core)
 
-| Method | Path                                       | Auth | Body / Params                                       | Response                      |
-| ------ | ------------------------------------------ | ---- | --------------------------------------------------- | ----------------------------- |
-| POST   | `/agent/chat`                              | Yes  | `ChatRequestBody`                                   | `{ runID, threadID, chatID }` |
-| SSE    | `/agent/stream/:runID`                     | Yes  | Query/Header: `last-event-id`                       | `Observable<MessageEvent>`    |
-| GET    | `/agent/active-run/:chatID`                | Yes  |                                                     | `{ runID, threadID }`         |
-| POST   | `/agent/cancel/:runID`                     | Yes  |                                                     | `{ cancelled: boolean }`      |
-| POST   | `/agent/confirm/:threadID/:confirmationID` | Yes  | `{ approved: boolean, feedback?: string }`          | `{ resolved: boolean }`       |
-| GET    | `/agent/state/:threadID`                   | Yes  |                                                     | `StateSnapshot`               |
-| POST   | `/agent/upload-image`                      | Yes  | Multipart `image` file (JPEG/PNG/GIF/WebP, max 5MB) | `{ imageID, mimeType }`       |
+| Method | Path                                       | Auth | Body / Params                              | Response                      |
+| ------ | ------------------------------------------ | ---- | ------------------------------------------ | ----------------------------- |
+| POST   | `/agent/chat`                              | Yes  | `ChatRequestBody`                          | `{ runID, threadID, chatID }` |
+| SSE    | `/agent/stream/:runID`                     | Yes  | Query/Header: `last-event-id`              | `Observable<MessageEvent>`    |
+| GET    | `/agent/active-run/:chatID`                | Yes  |                                            | `{ runID, threadID }`         |
+| POST   | `/agent/cancel/:runID`                     | Yes  |                                            | `{ cancelled: boolean }`      |
+| POST   | `/agent/confirm/:threadID/:confirmationID` | Yes  | `{ approved: boolean, feedback?: string }` | `{ resolved: boolean }`       |
+| GET    | `/agent/state/:threadID`                   | Yes  |                                            | `StateSnapshot`               |
+| POST   | `/agent/attachments`                       | Yes  | Multipart `file` field                     | `Attachment`                  |
+| GET    | `/agent/attachments/:id/content`           | Yes  |                                            | Raw attachment bytes          |
 
 **ChatRequestBody:**
 
 ```typescript
 {
   message: string;
+  attachmentIDs?: string[];
   chatID?: string;
   threadID?: string;
   agentID?: string;
@@ -688,7 +732,20 @@ All endpoints are prefixed with `/api/v1` unless noted. Authentication is requir
 }
 ```
 
-`message` may include uploaded image markers in the form `[IMG:<imageID>]`, where `imageID` is returned by `POST /agent/upload-image`. The orchestrator resolves markers in user messages immediately before each model call, replacing available images with AI SDK image content parts (`{ type: 'image', image: <base64>, mediaType }`) and leaving persisted chat text unchanged for replay. Missing or expired image IDs are converted to a text part of `[Image unavailable: <imageID>]` so the model receives an explicit failure signal.
+`message` may be empty only when `attachmentIDs` is non-empty. `attachmentIDs` must reference attachments owned by the authenticated user. The chat message stores attachment summaries separately from text, and the orchestrator resolves those attachments immediately before each model call into AI SDK image/file content parts.
+
+**Attachment:**
+
+```typescript
+{
+  id: string;
+  kind: 'image' | 'file';
+  mimeType: string;
+  size: number;
+  filename?: string;
+  createdAt: string;
+}
+```
 
 ### 5.3 Chats
 
@@ -1871,28 +1928,30 @@ The `allowed-tools` field is stored as a space-separated string in frontmatter a
 
 ## 27. Storage
 
-### Image Storage
+### Attachment Object Storage
 
-`ImageStorage` provides temporary image storage via Redis.
+`AttachmentsService` stores durable attachment bytes in S3-compatible object storage and stores attachment metadata in MongoDB.
 
-| Property   | Value                                      |
-| ---------- | ------------------------------------------ |
-| Backend    | Redis                                      |
-| Key format | `image:{id}`                               |
-| TTL        | 3600 seconds (1 hour)                      |
-| Encoding   | Base64                                     |
-| Format     | JSON: `{ id, data, mimeType, uploadedAt }` |
+| Property       | Value                                                                  |
+| -------------- | ---------------------------------------------------------------------- |
+| Backend        | S3-compatible object storage (MinIO or AWS S3)                         |
+| Bucket         | `OBJECT_STORAGE_BUCKET`                                                |
+| Key format     | `{OBJECT_STORAGE_PREFIX}/{safeUserID}/{attachmentID}`                  |
+| Metadata store | MongoDB `attachments` collection                                       |
+| Access         | Private bucket; clients access bytes through authenticated SERA routes |
 
-Used by the image upload endpoint (`POST /agent/upload-image`) for passing images to the agent within context.
+The upload endpoint (`POST /agent/attachments`) accepts a multipart `file` field. SERA detects `kind` from the MIME type (`image/*` => `image`, otherwise `file`) and returns an `Attachment` summary. Chat requests send `attachmentIDs` separately from `message`; text is never overloaded with attachment markers.
 
-Uploaded images are referenced from chat messages with `[IMG:<imageID>]` markers. The markers are not rewritten in MongoDB chat history; they are resolved at the orchestration/provider boundary so clients can render their own cached previews and backend replay remains deterministic. Resolution is scoped to user-role string messages. Non-user messages and already structured model content are passed through unchanged.
+During orchestration, `AttachmentMessageResolverService` fetches object bytes from storage and converts message attachments into AI SDK content parts:
+
+- `image` attachments become `{ type: 'image', image: Buffer, mediaType }`.
+- `file` attachments become `{ type: 'file', data: Buffer, mediaType, filename }`.
 
 ### Upload Constraints
 
-- Accepted formats: JPEG, PNG, GIF, WebP
-- Max file size: 5 MB
-- File field name: `image`
-- Returns: `{ imageID, mimeType }`
+- Max file size: `OBJECT_STORAGE_MAX_UPLOAD_BYTES` (default 25 MiB)
+- File field name: `file`
+- Returns: `Attachment`
 
 ---
 

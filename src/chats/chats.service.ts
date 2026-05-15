@@ -115,6 +115,10 @@ export class ChatsService {
       thinking: message.thinking,
       thinkingDuration: message.thinkingDuration,
       toolCalls: message.toolCalls,
+      attachments: message.attachments?.map((attachment) => ({
+        ...attachment,
+        createdAt: this.normalizeCreatedAt(attachment.createdAt),
+      })),
       createdAt: this.normalizeCreatedAt(message.createdAt),
     };
   }
@@ -161,10 +165,15 @@ export class ChatsService {
 
   async loadConversationHistory(
     chatID: string,
-  ): Promise<{ role: string; content: string }[]> {
+  ): Promise<{ role: string; content: string; attachments?: unknown[] }[]> {
     const chat = await this.chatModel.findById(chatID).exec();
     if (!chat) return [];
-    return chat.messages.map((m) => ({ role: m.role, content: m.content }));
+    return chat.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...(m.attachments &&
+        m.attachments.length > 0 && { attachments: m.attachments }),
+    }));
   }
 
   async searchMessages(

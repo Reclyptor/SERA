@@ -9,6 +9,7 @@ export interface AgentGoal {
   chatID?: string;
   agentID: string;
   userMessage: string;
+  attachmentIDs?: string[];
   conversationHistory: ModelMessage[];
   modelOptions?: ModelRequestOptions;
   isHeartbeat?: boolean;

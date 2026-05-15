@@ -16,8 +16,8 @@ import { SandboxModule } from '../sandbox/sandbox.module';
 import { ContextModule } from '../context/context.module';
 import { InsightsModule } from '../insights/insights.module';
 import { CommitmentsModule } from '../commitments/commitments.module';
-import { ImageStorageModule } from '../storage/image-storage.module';
-import { ImageMessageResolverService } from './image-message-resolver.service';
+import { AttachmentsModule } from '../attachments/attachments.module';
+import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 
 @Module({
   imports: [
@@ -36,12 +36,12 @@ import { ImageMessageResolverService } from './image-message-resolver.service';
     ContextModule,
     InsightsModule,
     CommitmentsModule,
-    ImageStorageModule,
+    AttachmentsModule,
   ],
   providers: [
     OrchestratorService,
     PromptBuilderService,
-    ImageMessageResolverService,
+    AttachmentMessageResolverService,
   ],
   exports: [OrchestratorService, StreamingModule],
 })

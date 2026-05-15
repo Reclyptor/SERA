@@ -5,29 +5,35 @@ import {
   Param,
   Body,
   Req,
+  Res,
   Sse,
   BadRequestException,
   NotFoundException,
   UploadedFile,
   UseInterceptors,
   Logger,
+  StreamableFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Observable } from 'rxjs';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
 import { RunStreamService } from './streaming/run-stream.service';
 import { StateService } from './state/state.service';
 import { AgentRouterService } from '../agents/agent-router.service';
-import { ImageStorage } from './storage/image.storage';
+import { AttachmentsService } from './attachments/attachments.service';
+import {
+  serializeAttachment,
+  type AttachmentResponseDto,
+} from './attachments/attachment.dto';
 import { ChatsService } from '../chats/chats.service';
-import type { UploadImageResponseDto } from './upload-image.dto';
 import type { SessionUser } from '../auth/session.strategy';
 import type { OrchestratorConfig } from './orchestration/orchestration.interfaces';
 
 interface ChatRequestBody {
   message: string;
+  attachmentIDs?: string[];
   chatID?: string;
   threadID?: string;
   agentID?: string;
@@ -51,7 +57,7 @@ export class AgentController {
     private readonly runStream: RunStreamService,
     private readonly stateService: StateService,
     private readonly agentRouter: AgentRouterService,
-    private readonly imageStorage: ImageStorage,
+    private readonly attachmentsService: AttachmentsService,
     private readonly chatsService: ChatsService,
   ) {}
 
@@ -66,17 +72,34 @@ export class AgentController {
       throw new BadRequestException('Authentication required');
     }
 
-    if (!body.message?.trim()) {
-      throw new BadRequestException('Message is required');
+    const attachmentIDs = body.attachmentIDs ?? [];
+    const messageText = body.message?.trim() || '';
+
+    if (!messageText && attachmentIDs.length === 0) {
+      throw new BadRequestException('Message or attachment is required');
     }
+
+    const attachments = await this.attachmentsService.findManyByIDsForUser(
+      attachmentIDs,
+      userID,
+    );
 
     const threadID = body.threadID ?? crypto.randomUUID();
     const runID = crypto.randomUUID();
+    const messageID = crypto.randomUUID();
 
     const userMessage = {
-      id: crypto.randomUUID(),
+      id: messageID,
       role: 'user' as const,
-      content: body.message,
+      content: messageText,
+      attachments: attachments.map((attachment) => ({
+        id: attachment.attachmentID,
+        kind: attachment.kind,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        filename: attachment.filename,
+        createdAt: attachment.createdAt,
+      })),
       createdAt: new Date(),
     };
 
@@ -97,6 +120,13 @@ export class AgentController {
       chatID = String(chat._id);
     }
 
+    await this.attachmentsService.bindToMessage({
+      attachmentIDs,
+      userID,
+      chatID,
+      messageID,
+    });
+
     const agentID =
       body.agentID ??
       (await this.agentRouter.resolve({ userID, chatID, threadID }));
@@ -116,7 +146,8 @@ export class AgentController {
           userName: user?.name,
           chatID,
           agentID,
-          userMessage: body.message,
+          userMessage: messageText,
+          attachmentIDs,
           conversationHistory: [],
           modelOptions: body.model ? { preferredModel: body.model } : undefined,
         },
@@ -231,35 +262,46 @@ export class AgentController {
     return this.stateService.getSnapshot(threadID);
   }
 
-  @Post('upload-image')
-  @UseInterceptors(FileInterceptor('image'))
-  async uploadImage(
+  @Post('attachments')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAttachment(
+    @Req() req: Request,
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<UploadImageResponseDto> {
-    if (!file) {
-      throw new BadRequestException('No image file provided');
+  ): Promise<AttachmentResponseDto> {
+    const userID = (req as Request & { user?: SessionUser }).user?.sub;
+    if (!userID) {
+      throw new BadRequestException('Authentication required');
     }
 
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Invalid image type. Allowed: JPEG, PNG, GIF, WebP',
-      );
+    const attachment = await this.attachmentsService.createFromUpload(
+      file,
+      userID,
+    );
+
+    return serializeAttachment(attachment);
+  }
+
+  @Get('attachments/:attachmentID/content')
+  async getAttachmentContent(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param('attachmentID') attachmentID: string,
+  ): Promise<StreamableFile> {
+    const userID = (req as Request & { user?: SessionUser }).user?.sub;
+    if (!userID) {
+      throw new BadRequestException('Authentication required');
     }
 
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      throw new BadRequestException('Image too large. Maximum size: 5MB');
-    }
+    const { attachment, data } =
+      await this.attachmentsService.getContentForUser(attachmentID, userID);
 
-    const imageID = crypto.randomUUID();
-    const base64Data = file.buffer.toString('base64');
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Content-Length', String(data.length));
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${(attachment.filename ?? attachment.attachmentID).replace(/"/g, '')}"`,
+    );
 
-    await this.imageStorage.store(imageID, base64Data, file.mimetype);
-
-    return {
-      imageID,
-      mimeType: file.mimetype,
-    };
+    return new StreamableFile(data);
   }
 }

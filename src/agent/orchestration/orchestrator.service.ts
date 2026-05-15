@@ -45,7 +45,7 @@ import { classifyError } from '../model/error-classifier';
 import { InsightsService } from '../insights/insights.service';
 import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
 import type { PluginLoaderService } from '../plugins/plugin-loader.service';
-import { ImageMessageResolverService } from './image-message-resolver.service';
+import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 
 const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
 const MAX_EVENT_RESULT_LENGTH = 5000;
@@ -82,7 +82,7 @@ export class OrchestratorService {
     private readonly commitmentExtractor: CommitmentExtractorService,
     private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
-    private readonly imageMessageResolver: ImageMessageResolverService,
+    private readonly attachmentMessageResolver: AttachmentMessageResolverService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -297,8 +297,10 @@ export class OrchestratorService {
             messageCount: messages.length,
           });
 
-          const messagesForModel =
-            await this.imageMessageResolver.resolve(messages);
+          const messagesForModel = await this.attachmentMessageResolver.resolve(
+            messages,
+            userID,
+          );
           streamResult = this.modelRouter.stream({
             messages: messagesForModel,
             tools,
@@ -562,7 +564,7 @@ export class OrchestratorService {
                 content: `[SYSTEM] ${loop.message} You must provide a final answer now without calling any more tools.`,
               });
               const finalMessagesForModel =
-                await this.imageMessageResolver.resolve(messages);
+                await this.attachmentMessageResolver.resolve(messages, userID);
               const finalStream = this.modelRouter.stream({
                 messages: finalMessagesForModel,
                 system: systemPrompt,

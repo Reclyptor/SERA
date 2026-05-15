@@ -16,6 +16,15 @@ export class ToolCallBlockDto {
   subagentMeta?: SubagentMetaDto;
 }
 
+export class MessageAttachmentDto {
+  id: string;
+  kind: 'image' | 'file';
+  mimeType: string;
+  size: number;
+  filename?: string;
+  createdAt?: string | Date;
+}
+
 export class MessageDto {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -23,6 +32,7 @@ export class MessageDto {
   thinking?: string;
   thinkingDuration?: number;
   toolCalls?: ToolCallBlockDto[];
+  attachments?: MessageAttachmentDto[];
   createdAt?: string | Date;
 }
 

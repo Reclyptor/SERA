@@ -53,6 +53,30 @@ export class ToolCallBlock {
 
 export const ToolCallBlockSchema = SchemaFactory.createForClass(ToolCallBlock);
 
+@Schema({ _id: false })
+export class MessageAttachment {
+  @Prop({ required: true })
+  id: string;
+
+  @Prop({ required: true, enum: ['image', 'file'] })
+  kind: string;
+
+  @Prop({ required: true })
+  mimeType: string;
+
+  @Prop({ required: true })
+  size: number;
+
+  @Prop()
+  filename?: string;
+
+  @Prop()
+  createdAt?: Date;
+}
+
+export const MessageAttachmentSchema =
+  SchemaFactory.createForClass(MessageAttachment);
+
 @Schema()
 export class Message {
   @Prop({ required: true })
@@ -72,6 +96,9 @@ export class Message {
 
   @Prop({ type: [ToolCallBlockSchema] })
   toolCalls?: ToolCallBlock[];
+
+  @Prop({ type: [MessageAttachmentSchema], default: [] })
+  attachments?: MessageAttachment[];
 
   @Prop({ default: Date.now })
   createdAt: Date;
