@@ -129,13 +129,7 @@ AppModule
 | ---------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
 | `PORT`                             | `3001`                                        | Server listen port                                                            |
 | `FALLBACK_MODELS`                  | _(none)_                                      | Comma-separated fallback models in `provider/model` format                    |
-| `OBJECT_STORAGE_ENDPOINT`          | _(AWS SDK default)_                           | S3-compatible endpoint; set for MinIO, omit for AWS S3                        |
-| `OBJECT_STORAGE_REGION`            | `us-east-1`                                   | S3-compatible region                                                          |
-| `OBJECT_STORAGE_ACCESS_KEY_ID`     | _(AWS SDK default)_                           | Explicit object storage access key; omit to use the SDK credential chain      |
-| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | _(AWS SDK default)_                           | Explicit object storage secret key; omit to use the SDK credential chain      |
-| `OBJECT_STORAGE_FORCE_PATH_STYLE`  | `false`                                       | Set `true` for MinIO/path-style S3 endpoints                                  |
-| `OBJECT_STORAGE_PREFIX`            | `attachments`                                 | Object key prefix for uploaded attachments                                    |
-| `OBJECT_STORAGE_MAX_UPLOAD_BYTES`  | `26214400`                                    | Max multipart attachment size, default 25 MiB                                 |
+| `OBJECT_STORAGE_ENDPOINT`          | _(unset)_                                     | S3-compatible endpoint; set for MinIO, omit for AWS S3                        |
 | `ANTHROPIC_API_KEYS`               | _(none)_                                      | Comma-separated key pool                                                      |
 | `OPENAI_API_KEYS`                  | _(none)_                                      | Comma-separated key pool                                                      |
 | `GOOGLE_API_KEY`                   | _(none)_                                      | Google AI API key                                                             |
@@ -173,6 +167,8 @@ AppModule
 | `CRON_SCRIPT_TIMEOUT_MS`           | `10000`                                       | Max execution time (ms) for cron job pre-processing scripts                   |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 
+Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
+
 ### Redis Key Namespace
 
 | Pattern                    | Type    | TTL                         | Purpose                    |
@@ -183,7 +179,6 @@ AppModule
 | `github:sync:{repo}`       | String  | None                        | Last synced commit SHA     |
 | `run:{runID}:stream`       | Stream  | 1800s (300s after complete) | SSE event stream           |
 | `chat:{chatID}:activeRun`  | String  | 1800s                       | Active run tracking (JSON) |
-| `image:{id}`               | String  | 3600s                       | Temporary image storage    |
 | `cancel:{runID}`           | Pub/Sub | N/A                         | Run cancellation channel   |
 
 ---
@@ -1936,7 +1931,7 @@ The `allowed-tools` field is stored as a space-separated string in frontmatter a
 | -------------- | ---------------------------------------------------------------------- |
 | Backend        | S3-compatible object storage (MinIO or AWS S3)                         |
 | Bucket         | `OBJECT_STORAGE_BUCKET`                                                |
-| Key format     | `{OBJECT_STORAGE_PREFIX}/{safeUserID}/{attachmentID}`                  |
+| Key format     | `attachments/{safeUserID}/{attachmentID}`                              |
 | Metadata store | MongoDB `attachments` collection                                       |
 | Access         | Private bucket; clients access bytes through authenticated SERA routes |
 
@@ -1949,7 +1944,7 @@ During orchestration, `AttachmentMessageResolverService` fetches object bytes fr
 
 ### Upload Constraints
 
-- Max file size: `OBJECT_STORAGE_MAX_UPLOAD_BYTES` (default 25 MiB)
+- Max file size: 25 MiB
 - File field name: `file`
 - Returns: `Attachment`
 

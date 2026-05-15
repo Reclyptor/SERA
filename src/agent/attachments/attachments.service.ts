@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomUUID, createHash } from 'crypto';
 import { Model } from 'mongoose';
@@ -14,25 +13,15 @@ import {
 } from './attachment.schema';
 import { ObjectStorageService } from './object-storage.service';
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
 @Injectable()
 export class AttachmentsService {
-  private readonly maxUploadBytes: number;
-
   constructor(
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<AttachmentDocument>,
     private readonly objectStorage: ObjectStorageService,
-    configService: ConfigService,
-  ) {
-    this.maxUploadBytes =
-      parseInt(
-        configService.get<string>(
-          'OBJECT_STORAGE_MAX_UPLOAD_BYTES',
-          String(25 * 1024 * 1024),
-        ),
-        10,
-      ) || 25 * 1024 * 1024;
-  }
+  ) {}
 
   async createFromUpload(
     file: Express.Multer.File,
@@ -41,9 +30,9 @@ export class AttachmentsService {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
-    if (file.size > this.maxUploadBytes) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       throw new BadRequestException(
-        `File too large. Maximum size: ${this.maxUploadBytes} bytes`,
+        `File too large. Maximum size: ${MAX_UPLOAD_BYTES} bytes`,
       );
     }
 

@@ -10,49 +10,23 @@ import {
 export class ObjectStorageService {
   private readonly client: S3Client;
   private readonly bucket: string;
-  private readonly prefix: string;
 
   constructor(private readonly configService: ConfigService) {
     this.bucket = this.configService.getOrThrow<string>(
       'OBJECT_STORAGE_BUCKET',
     );
-    this.prefix = this.configService.get<string>(
-      'OBJECT_STORAGE_PREFIX',
-      'attachments',
-    );
-
-    const accessKeyID = this.configService.get<string>(
-      'OBJECT_STORAGE_ACCESS_KEY_ID',
-    );
-    const secretAccessKey = this.configService.get<string>(
-      'OBJECT_STORAGE_SECRET_ACCESS_KEY',
-    );
     const endpoint = this.configService.get<string>('OBJECT_STORAGE_ENDPOINT');
 
     this.client = new S3Client({
-      region: this.configService.get<string>(
-        'OBJECT_STORAGE_REGION',
-        'us-east-1',
-      ),
+      region: this.configService.get<string>('AWS_REGION', 'us-east-1'),
       endpoint: endpoint || undefined,
-      forcePathStyle:
-        this.configService.get<string>(
-          'OBJECT_STORAGE_FORCE_PATH_STYLE',
-          'false',
-        ) === 'true',
-      credentials:
-        accessKeyID && secretAccessKey
-          ? {
-              accessKeyId: accessKeyID,
-              secretAccessKey,
-            }
-          : undefined,
+      forcePathStyle: Boolean(endpoint),
     });
   }
 
   buildObjectKey(userID: string, attachmentID: string): string {
     const safeUserID = userID.replace(/[^a-zA-Z0-9._-]/g, '_');
-    return `${this.prefix}/${safeUserID}/${attachmentID}`;
+    return `attachments/${safeUserID}/${attachmentID}`;
   }
 
   async put(params: {
