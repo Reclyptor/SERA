@@ -1438,6 +1438,17 @@ User memories are stored via the **Mem0 OSS** library (`mem0ai/oss`) with:
 
 After each completed run (unless it's a heartbeat run), the orchestrator calls `extractAndStore()` with the conversation, allowing Mem0 to automatically identify and store important facts.
 
+### HTTP Endpoints
+
+`MemoryController` (mounted at `/api/v1/memories` via `MemoryModule`, discoverable through `AgentModule → OrchestrationModule → MemoryModule` — not re-imported into `AppModule`). Routes are scoped to the authenticated user via `@CurrentUser()`; a user can only list and delete their own entries.
+
+| Method | Path              | Description                                                                                                        |
+| ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/memories`       | List all memories for the current user, sorted by `createdAt` desc                                                 |
+| DELETE | `/memories/:id`   | Delete a single memory. `memoryService.delete()` first checks ownership via `getAll()`; returns 404 if not present |
+
+Response shape (`MemoryResponse`): `{ id, content, tags, metadata, createdAt }` where `createdAt` is an ISO-8601 string. The list endpoint is the source of truth for the Manage → Memories tab in SERAUI.
+
 ---
 
 ## 14. Knowledge System
