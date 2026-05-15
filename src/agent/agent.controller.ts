@@ -6,7 +6,6 @@ import {
   Body,
   Req,
   Res,
-  Sse,
   BadRequestException,
   NotFoundException,
   UploadedFile,
@@ -15,7 +14,6 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Observable } from 'rxjs';
 import type { Request, Response } from 'express';
 import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
@@ -160,25 +158,57 @@ export class AgentController {
     return { runID, threadID, chatID };
   }
 
-  @Sse('stream/:runID')
+  @Get('stream/:runID')
   streamRun(
     @Param('runID') runID: string,
     @Req() req: Request,
-  ): Observable<MessageEvent> {
-    const headerLastEventID = req.headers['last-event-id'];
+    @Res() res: Response,
+  ): void {
     const queryLastEventID = req.query['last-event-id'];
+    const headerLastEventID = req.headers['last-event-id'];
+    // Query param wins when both present — explicit client retry should
+    // override the browser's auto-replayed Last-Event-ID header.
     const lastEventID =
-      (Array.isArray(headerLastEventID)
-        ? headerLastEventID[0]
-        : headerLastEventID) ??
       (Array.isArray(queryLastEventID)
         ? queryLastEventID[0]
-        : queryLastEventID);
+        : queryLastEventID) ??
+      (Array.isArray(headerLastEventID)
+        ? headerLastEventID[0]
+        : headerLastEventID);
 
-    return this.runStream.createReconnectionObservable(
-      runID,
-      typeof lastEventID === 'string' ? lastEventID : '0',
-    ) as Observable<MessageEvent>;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+
+    const subscription = this.runStream
+      .createReconnectionObservable(
+        runID,
+        typeof lastEventID === 'string' ? lastEventID : '0',
+      )
+      .subscribe({
+        next: (frame) => {
+          if (frame.kind === 'comment') {
+            res.write(`: ${frame.text}\n\n`);
+          } else {
+            res.write(`id: ${frame.id}\ndata: ${frame.data}\n\n`);
+          }
+        },
+        error: (err) => {
+          this.logger.error(`SSE stream error for run ${runID}:`, err);
+          res.end();
+        },
+        complete: () => {
+          res.end();
+        },
+      });
+
+    req.on('close', () => {
+      subscription.unsubscribe();
+    });
   }
 
   @Get('active-run/:chatID')

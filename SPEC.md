@@ -1044,6 +1044,34 @@ Events flow through a Redis Stream (`run:{runID}:stream`) and are delivered to c
 - Completes on `run.completed`, `run.failed`, or `run.cancelled` events
 - Stream TTL: 1800s during execution, reduced to 300s after completion
 
+### Response Headers
+
+The SSE handler is implemented as a raw `@Get` with manual writes to `res` (not NestJS's `@Sse` decorator) so that SSE comment lines can be emitted for keep-alive and so that buffering can be explicitly disabled. The response sets:
+
+| Header              | Value                              | Reason                                                          |
+| ------------------- | ---------------------------------- | --------------------------------------------------------------- |
+| `Content-Type`      | `text/event-stream`                | SSE framing                                                     |
+| `Cache-Control`     | `no-cache, no-transform`           | Prevents intermediaries from rewriting the stream               |
+| `Connection`        | `keep-alive`                       | Long-lived socket                                               |
+| `X-Accel-Buffering` | `no`                               | Disables response buffering in nginx-family proxies (k3s ingress) |
+
+Express response compression (if globally enabled) MUST exclude the stream route. The bootstrap intentionally does not register `compression()`; any future addition must filter on `req.path`.
+
+### Heartbeat Protocol
+
+While the run is live and the Redis stream produces no new entries (typical during long-running tool calls), the server emits an SSE comment line `: ping <epoch-ms>\n\n` every **15 seconds**. Comment lines are ignored by the browser's `EventSource.onmessage` but force a socket flush, defeating idle-read timeouts at every layer (Node socket, k3s ingress, browser).
+
+Implementation: a `setInterval(15_000)` writes the comment line; the interval is cleared when the observable unsubscribes (client disconnect) or a terminal event is emitted. The `XREAD BLOCK` interval is set to 10000ms so the heartbeat cadence remains stable regardless of stream activity.
+
+### Reconnection & Resume
+
+Clients reconnect by reopening the SSE endpoint with the last `streamID` they observed, supplied as either:
+
+- `Last-Event-ID` header (auto-sent by `EventSource` after a native reconnect), or
+- `?last-event-id=<streamID>` query parameter (used by explicit client-driven retry, since `EventSource` does not allow setting custom headers).
+
+The server resolves the cursor (query param wins if both present), replays all entries strictly after that ID via `XRANGE (cursor +`, emits `replay.done`, then tails. A cursor of `'0'` means full replay. If the cursor is past the end of the stream, replay is empty and the tail loop takes over immediately.
+
 ### Event Types
 
 ```typescript

@@ -6,19 +6,17 @@ import type { AgentEvent } from './stream.interfaces';
 
 const STREAM_TTL = 1800; // 30 minutes — safety net for crash orphans
 const COMPLETED_TTL = 300; // 5 minutes — grace period after run ends
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const XREAD_BLOCK_MS = 10_000;
 
 interface StreamEntry {
   id: string;
   event: AgentEvent;
 }
 
-// NestJS SSE MessageEvent shape (avoids DOM MessageEvent mismatch)
-interface SseEvent {
-  data: string | object;
-  id?: string;
-  type?: string;
-  retry?: number;
-}
+export type SseFrame =
+  | { kind: 'event'; data: string; id: string }
+  | { kind: 'comment'; text: string };
 
 @Injectable()
 export class RunStreamService {
@@ -118,16 +116,21 @@ export class RunStreamService {
   createReconnectionObservable(
     runID: string,
     afterID: string = '0',
-  ): Observable<SseEvent> {
+  ): Observable<SseFrame> {
     const isFullReplay = afterID === '0';
 
     return new Observable((subscriber) => {
       let duplicateClient: Redis | null = null;
       let cancelled = false;
 
-      const emit = (data: string, id: string) => {
-        subscriber.next({ data, id });
+      const emitEvent = (data: string, id: string) => {
+        subscriber.next({ kind: 'event', data, id });
       };
+
+      const heartbeat = setInterval(() => {
+        if (cancelled) return;
+        subscriber.next({ kind: 'comment', text: `ping ${Date.now()}` });
+      }, HEARTBEAT_INTERVAL_MS);
 
       const run = async () => {
         duplicateClient = this.redis.duplicate();
@@ -141,7 +144,7 @@ export class RunStreamService {
         for (const entry of existing) {
           if (cancelled) return;
           entry.event.streamID = entry.id;
-          emit(JSON.stringify(entry.event), entry.id);
+          emitEvent(JSON.stringify(entry.event), entry.id);
           cursor = entry.id;
 
           if (
@@ -153,18 +156,20 @@ export class RunStreamService {
           }
         }
 
-        // 2. Emit replay.done boundary for full replays so the client
-        //    can flush accumulated state in a single render pass.
-        if (isFullReplay) {
-          const replayDoneEvent: AgentEvent = {
-            type: 'replay.done',
-            runID,
-            threadID: '',
-            timestamp: Date.now(),
-            data: null,
-          };
-          emit(JSON.stringify(replayDoneEvent), `replay-done-${runID}`);
-        }
+        // 2. Emit replay.done boundary so the client can flush accumulated
+        //    state in a single render pass — sent for every connect (full
+        //    replay or resume) so the client's replay-mode logic is uniform.
+        const replayDoneEvent: AgentEvent = {
+          type: 'replay.done',
+          runID,
+          threadID: '',
+          timestamp: Date.now(),
+          data: null,
+        };
+        const replayDoneID = isFullReplay
+          ? `replay-done-${runID}`
+          : `replay-done-${runID}-${cursor}`;
+        emitEvent(JSON.stringify(replayDoneEvent), replayDoneID);
 
         if (replayedTerminal) {
           subscriber.complete();
@@ -177,7 +182,7 @@ export class RunStreamService {
             duplicateClient,
             runID,
             cursor,
-            5000,
+            XREAD_BLOCK_MS,
           );
 
           if (cancelled) return;
@@ -194,7 +199,7 @@ export class RunStreamService {
           for (const entry of entries) {
             if (cancelled) return;
             entry.event.streamID = entry.id;
-            emit(JSON.stringify(entry.event), entry.id);
+            emitEvent(JSON.stringify(entry.event), entry.id);
             cursor = entry.id;
 
             if (
@@ -218,6 +223,7 @@ export class RunStreamService {
 
       return () => {
         cancelled = true;
+        clearInterval(heartbeat);
         if (duplicateClient) {
           duplicateClient.disconnect();
           duplicateClient = null;
