@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ActionsService } from './actions.service';
 import { MemoryService } from '../memory/memory.service';
+import { NtfyService } from '../ntfy/ntfy.service';
 import { StateService } from '../state/state.service';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import {
@@ -8,6 +9,7 @@ import {
   SearchMemoryAction,
   DeleteMemoryAction,
   NotificationAction,
+  PushNotificationAction,
   RequestConfirmationAction,
 } from './implementations';
 
@@ -18,6 +20,7 @@ export class ActionsBootstrapService implements OnModuleInit {
   constructor(
     private readonly actionsService: ActionsService,
     private readonly memoryService: MemoryService,
+    private readonly ntfyService: NtfyService,
     private readonly stateService: StateService,
     private readonly emitter: AgentEventEmitter,
   ) {}
@@ -40,12 +43,15 @@ export class ActionsBootstrapService implements OnModuleInit {
 
     // Notifications
     this.actionsService.registerAction(new NotificationAction(this.emitter));
+    this.actionsService.registerAction(
+      new PushNotificationAction(this.ntfyService),
+    );
 
     // Confirmation flow
     this.actionsService.registerAction(
       new RequestConfirmationAction(this.stateService, this.emitter),
     );
 
-    this.logger.log('Registered 5 core actions');
+    this.logger.log('Registered 6 core actions');
   }
 }

@@ -1,7 +1,7 @@
 # SERA Application Specification
 
 > **Version:** 1.0
-> **Last Updated:** 2026-05-14
+> **Last Updated:** 2026-05-15
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -122,6 +122,9 @@ AppModule
 | `OBJECT_STORAGE_BUCKET` | S3-compatible bucket for durable attachments                                   |
 | `REDIS_URL`             | Redis connection URL                                                           |
 | `WEBHOOK_API_KEY`       | Shared API key required by webhook ingress                                     |
+| `NTFY_API_URL`          | ntfy server base URL (trailing slashes stripped) for push notifications        |
+| `NTFY_API_TOKEN`        | ntfy bearer access token (must start with `tk_`); mint via `POST /v1/account/token` |
+| `NTFY_API_TOPIC`        | ntfy topic that `send_push_notification` publishes to                           |
 
 ### Optional Variables
 
@@ -1379,13 +1382,21 @@ interface BackendAction<TParams extends z.ZodType> {
 
 ### Registered Actions
 
-| Action                 | Parameters                                                   | Confirmation | Description                          |
-| ---------------------- | ------------------------------------------------------------ | ------------ | ------------------------------------ |
-| `save_memory`          | `content`, `tags?`                                           | No           | Save fact to long-term memory        |
-| `search_memory`        | `query`, `limit?`                                            | No           | Search long-term memory              |
-| `delete_memory`        | `memoryID`                                                   | Yes          | Delete a specific memory             |
-| `send_notification`    | `title`, `message`, `level?` (info/warning/error/success)    | No           | Send notification to frontend        |
-| `request_confirmation` | `message`, `actionName`, `actionArgs?`, `timeoutMs?` (5 min) | No           | Pause run and wait for user approval |
+| Action                    | Parameters                                                                              | Confirmation | Description                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------- |
+| `save_memory`             | `content`, `tags?`                                                                      | No           | Save fact to long-term memory                                                     |
+| `search_memory`           | `query`, `limit?`                                                                       | No           | Search long-term memory                                                           |
+| `delete_memory`           | `memoryID`                                                                              | Yes          | Delete a specific memory                                                          |
+| `send_notification`       | `title`, `message`, `level?` (info/warning/error/success)                               | No           | In-chat UI signal emitted as a `text.done` SSE event with a `notification` payload |
+| `send_push_notification`  | `title?`, `message`, `priority?` (min/low/default/high/max), `tags?`, `click?`, `actions?` (view/http, max 3) | No           | Off-session device push via ntfy; surfaces transport failures as `success: false`  |
+| `request_confirmation`    | `message`, `actionName`, `actionArgs?`, `timeoutMs?` (5 min)                            | No           | Pause run and wait for user approval                                              |
+
+### Push Notification Transport
+
+- `send_push_notification` publishes through `NtfyService` (`src/agent/ntfy/`), an injectable Nest provider exported by `NtfyModule` so cron, triggers, and commitments can reuse it later without going through the action layer.
+- Auth is bearer-only; `NtfyService` validates the `tk_` prefix at construction and throws if the token is misconfigured.
+- Transport uses JSON publish mode (`POST {NTFY_API_URL}`) with a 10s `AbortController` timeout. Priority strings map to ntfy's 1–5 internally.
+- Failures (non-2xx, network, timeout) propagate as thrown errors; the action wraps them into `{ success: false, error }` so the agent can react instead of assuming delivery.
 
 ### Confirmation Flow
 
