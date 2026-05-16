@@ -12,6 +12,9 @@ import { OrchestratorService } from '../orchestration/orchestrator.service';
 import { AUTONOMOUS_RUN_CONFIG } from '../orchestration/orchestration.interfaces';
 import { PromptsService } from '../../prompts/prompts.service';
 import { CommitmentsService } from '../commitments/commitments.service';
+import { StateService } from '../state/state.service';
+import { ScheduledExecution } from '../scheduling/scheduled-execution.schema';
+import { ScheduledExecutionService } from '../scheduling/scheduled-execution.service';
 
 @Injectable()
 export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
@@ -27,10 +30,12 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     private readonly promptsService: PromptsService,
     private readonly commitmentsService: CommitmentsService,
     private readonly configService: ConfigService,
+    private readonly stateService: StateService,
+    private readonly scheduledExecutions: ScheduledExecutionService,
   ) {}
 
   onModuleInit() {
-    this.tickInterval = setInterval(() => this.tick(), 60_000);
+    this.tickInterval = setInterval(() => void this.tick(), 60_000);
     this.logger.log('Heartbeat service started (1-minute tick)');
   }
 
@@ -48,29 +53,8 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     this.processing = true;
 
     try {
-      const now = new Date();
-      const dueConfigs = await this.heartbeatModel
-        .find({
-          enabled: true,
-          $or: [
-            { nextRunAt: { $lte: now } },
-            { nextRunAt: { $exists: false } },
-          ],
-        })
-        .exec();
-
-      for (const config of dueConfigs) {
-        if (!this.isWithinActiveHours(config, now)) continue;
-
-        try {
-          await this.fire(config);
-        } catch (err) {
-          this.logger.error(
-            `Heartbeat for agent "${config.agentID}" failed:`,
-            err,
-          );
-        }
-      }
+      await this.enqueueDueHeartbeats(new Date());
+      await this.startClaimedExecutions();
     } catch (err) {
       this.logger.error('Heartbeat tick failed:', err);
     } finally {
@@ -105,9 +89,73 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     return fmt;
   }
 
-  private async fire(config: HeartbeatConfig): Promise<void> {
-    const threadID = crypto.randomUUID();
-    const runID = crypto.randomUUID();
+  private async enqueueDueHeartbeats(now: Date): Promise<void> {
+    const dueConfigs = await this.heartbeatModel
+      .find({
+        enabled: true,
+        $or: [{ nextRunAt: { $lte: now } }, { nextRunAt: { $exists: false } }],
+      })
+      .exec();
+
+    for (const config of dueConfigs) {
+      if (!this.isWithinActiveHours(config, now)) continue;
+
+      const dueAt = config.nextRunAt ?? now;
+      await this.scheduledExecutions.ensurePending({
+        kind: 'heartbeat',
+        targetID: config.agentID,
+        agentID: config.agentID,
+        scheduledFor: dueAt,
+      });
+
+      await this.heartbeatModel
+        .updateOne(
+          {
+            agentID: config.agentID,
+            enabled: true,
+            $or: [{ nextRunAt: dueAt }, { nextRunAt: { $exists: false } }],
+          },
+          {
+            $set: {
+              nextRunAt: new Date(Date.now() + config.intervalMinutes * 60_000),
+            },
+          },
+        )
+        .exec();
+    }
+  }
+
+  private async startClaimedExecutions(): Promise<void> {
+    while (true) {
+      const execution = await this.scheduledExecutions.claimNext('heartbeat');
+      if (!execution) return;
+
+      this.executeClaimedHeartbeat(execution).catch((err) => {
+        this.logger.error(
+          `Heartbeat execution "${execution.executionID}" failed:`,
+          err,
+        );
+      });
+    }
+  }
+
+  private async executeClaimedHeartbeat(
+    execution: ScheduledExecution,
+  ): Promise<void> {
+    const config = await this.findByAgent(execution.targetID);
+    if (!config || !config.enabled) {
+      await this.scheduledExecutions.markTerminal(
+        execution.executionID,
+        'cancelled',
+        config
+          ? 'Heartbeat configuration is disabled'
+          : 'Heartbeat configuration no longer exists',
+      );
+      return;
+    }
+
+    const threadID = execution.threadID;
+    const runID = execution.runID;
 
     this.logger.log(
       `Firing heartbeat for agent "${config.agentID}" (run: ${runID})`,
@@ -122,7 +170,9 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const dueCommitments = await this.commitmentsService.findDue(config.agentID);
+      const dueCommitments = await this.commitmentsService.findDue(
+        config.agentID,
+      );
       if (dueCommitments.length > 0) {
         const lines = dueCommitments.map(
           (c) =>
@@ -134,15 +184,13 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
       // Non-critical
     }
 
-    const nextRunAt = new Date(Date.now() + config.intervalMinutes * 60_000);
-
-    await this.heartbeatModel.updateOne(
-      { agentID: config.agentID },
-      { lastRunAt: new Date(), nextRunAt },
+    const renewTimer = setInterval(
+      () => void this.scheduledExecutions.renewLease(execution.executionID),
+      this.scheduledExecutions.getRenewalIntervalMs(),
     );
 
-    this.orchestrator
-      .executeGoal(
+    try {
+      await this.orchestrator.executeGoal(
         {
           threadID,
           runID,
@@ -155,18 +203,40 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
         },
         {
           ...AUTONOMOUS_RUN_CONFIG,
-          wallClockTimeoutMs: parseInt(
-            this.configService.get<string>(
-              'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
-              String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
-            ),
-            10,
-          ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+          wallClockTimeoutMs:
+            parseInt(
+              this.configService.get<string>(
+                'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+                String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+              ),
+              10,
+            ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
         },
+      );
+    } finally {
+      clearInterval(renewTimer);
+    }
+
+    const run = await this.stateService.getRun(runID);
+    const status =
+      run?.status === 'completed'
+        ? 'completed'
+        : run?.status === 'cancelled'
+          ? 'cancelled'
+          : 'failed';
+
+    await this.scheduledExecutions.markTerminal(
+      execution.executionID,
+      status,
+      run?.error ?? '',
+    );
+
+    await this.heartbeatModel
+      .updateOne(
+        { agentID: config.agentID },
+        { $set: { lastRunAt: new Date() } },
       )
-      .catch((err) => {
-        this.logger.error(`Heartbeat run ${runID} failed:`, err);
-      });
+      .exec();
   }
 
   // CRUD

@@ -6,6 +6,8 @@ import { HeartbeatController } from './heartbeat.controller';
 import { OrchestrationModule } from '../orchestration/orchestration.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 import { CommitmentsModule } from '../commitments/commitments.module';
+import { SchedulingModule } from '../scheduling/scheduling.module';
+import { StateModule } from '../state/state.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { CommitmentsModule } from '../commitments/commitments.module';
     forwardRef(() => OrchestrationModule),
     PromptsModule,
     CommitmentsModule,
+    SchedulingModule,
+    StateModule,
   ],
   controllers: [HeartbeatController],
   providers: [HeartbeatService],

@@ -13,6 +13,8 @@ import { CronJob, CronJobDocument } from './cron-job.schema';
 import { OrchestratorService } from '../orchestration/orchestrator.service';
 import { AUTONOMOUS_RUN_CONFIG } from '../orchestration/orchestration.interfaces';
 import { StateService } from '../state/state.service';
+import { ScheduledExecution } from '../scheduling/scheduled-execution.schema';
+import { ScheduledExecutionService } from '../scheduling/scheduled-execution.service';
 
 @Injectable()
 export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -26,10 +28,11 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly orchestrator: OrchestratorService,
     private readonly configService: ConfigService,
     private readonly stateService: StateService,
+    private readonly scheduledExecutions: ScheduledExecutionService,
   ) {}
 
   onModuleInit() {
-    this.tickInterval = setInterval(() => this.tick(), 60_000);
+    this.tickInterval = setInterval(() => void this.tick(), 60_000);
     this.logger.log('Cron scheduler started (1-minute tick)');
   }
 
@@ -45,41 +48,83 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
     this.processing = true;
 
     try {
-      const now = new Date();
-      const dueJobs = await this.cronJobModel
-        .find({
-          enabled: true,
-          $or: [
-            { nextRunAt: { $lte: now } },
-            { nextRunAt: { $exists: false } },
-          ],
-        })
-        .exec();
-
-      for (const job of dueJobs) {
-        try {
-          await this.executeJob(job);
-        } catch (err) {
-          this.logger.error(`Cron job "${job.jobID}" failed:`, err);
-        }
-      }
+      await this.enqueueDueJobs(new Date());
+      await this.startClaimedExecutions();
     } finally {
       this.processing = false;
     }
   }
 
-  private async executeJob(job: CronJob): Promise<void> {
-    const threadID = crypto.randomUUID();
-    const runID = crypto.randomUUID();
+  private async enqueueDueJobs(now: Date): Promise<void> {
+    const dueJobs = await this.cronJobModel
+      .find({
+        enabled: true,
+        $or: [{ nextRunAt: { $lte: now } }, { nextRunAt: { $exists: false } }],
+      })
+      .exec();
+
+    for (const job of dueJobs) {
+      const dueAt = job.nextRunAt ?? now;
+      await this.scheduledExecutions.ensurePending({
+        kind: 'cron',
+        targetID: job.jobID,
+        agentID: job.agentID,
+        scheduledFor: dueAt,
+      });
+
+      await this.cronJobModel
+        .updateOne(
+          {
+            _id: (job as CronJobDocument)._id,
+            enabled: true,
+            $or: [{ nextRunAt: dueAt }, { nextRunAt: { $exists: false } }],
+          },
+          { $set: { nextRunAt: this.computeNextRun(job.schedule) } },
+        )
+        .exec();
+    }
+  }
+
+  private async startClaimedExecutions(): Promise<void> {
+    while (true) {
+      const execution = await this.scheduledExecutions.claimNext('cron');
+      if (!execution) return;
+
+      this.executeClaimedJob(execution).catch((err) => {
+        this.logger.error(
+          `Cron execution "${execution.executionID}" failed:`,
+          err,
+        );
+      });
+    }
+  }
+
+  private async executeClaimedJob(
+    execution: ScheduledExecution,
+  ): Promise<void> {
+    const job = await this.findByID(execution.targetID);
+    if (!job || !job.enabled) {
+      await this.scheduledExecutions.markTerminal(
+        execution.executionID,
+        'cancelled',
+        job ? 'Cron job is disabled' : 'Cron job no longer exists',
+      );
+      return;
+    }
+
+    const threadID = execution.threadID;
+    const runID = execution.runID;
 
     this.logger.log(
       `Executing cron job "${job.jobID}" for agent "${job.agentID}" (run: ${runID})`,
     );
 
-    await this.cronJobModel.updateOne(
-      { _id: (job as CronJobDocument)._id },
-      { $set: { lastRunID: runID } },
-    ).exec();
+    await this.cronJobModel
+      .updateOne(
+        { _id: (job as CronJobDocument)._id },
+        { $set: { lastRunID: runID } },
+      )
+      .exec();
 
     const parts: string[] = [job.command];
 
@@ -92,22 +137,34 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
 
     if (job.contextFromJobID) {
       try {
-        const sourceJob = await this.cronJobModel.findOne({ jobID: job.contextFromJobID }).exec();
+        const sourceJob = await this.cronJobModel
+          .findOne({ jobID: job.contextFromJobID })
+          .exec();
         if (sourceJob?.lastRunID) {
           const sourceRun = await this.stateService.getRun(sourceJob.lastRunID);
           if (sourceRun?.response) {
-            parts.push(`\n\n## Context from job ${job.contextFromJobID}\n${sourceRun.response}`);
+            parts.push(
+              `\n\n## Context from job ${job.contextFromJobID}\n${sourceRun.response}`,
+            );
           }
         }
       } catch (err) {
-        this.logger.warn(`Failed to load context from job ${job.contextFromJobID}:`, err);
+        this.logger.warn(
+          `Failed to load context from job ${job.contextFromJobID}:`,
+          err,
+        );
       }
     }
 
     const userMessage = parts.join('');
 
-    this.orchestrator
-      .executeGoal(
+    const renewTimer = setInterval(
+      () => void this.scheduledExecutions.renewLease(execution.executionID),
+      this.scheduledExecutions.getRenewalIntervalMs(),
+    );
+
+    try {
+      await this.orchestrator.executeGoal(
         {
           threadID,
           runID,
@@ -119,41 +176,66 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
         },
         {
           ...AUTONOMOUS_RUN_CONFIG,
-          wallClockTimeoutMs: parseInt(
-            this.configService.get<string>(
-              'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
-              String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
-            ),
-            10,
-          ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+          wallClockTimeoutMs:
+            parseInt(
+              this.configService.get<string>(
+                'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+                String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+              ),
+              10,
+            ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
         },
-      )
-      .catch((err) => {
-        this.logger.error(`Cron run ${runID} failed:`, err);
-      });
+      );
+    } finally {
+      clearInterval(renewTimer);
+    }
 
-    const nextRunAt = this.computeNextRun(job.schedule);
-    await this.cronJobModel.updateOne(
-      { jobID: job.jobID },
-      { lastRunAt: new Date(), nextRunAt },
+    const run = await this.stateService.getRun(runID);
+    const status =
+      run?.status === 'completed'
+        ? 'completed'
+        : run?.status === 'cancelled'
+          ? 'cancelled'
+          : 'failed';
+
+    await this.scheduledExecutions.markTerminal(
+      execution.executionID,
+      status,
+      run?.error ?? '',
     );
+
+    await this.cronJobModel
+      .updateOne(
+        { jobID: job.jobID },
+        { $set: { lastRunAt: new Date(), lastRunID: runID } },
+      )
+      .exec();
   }
 
   private async runScript(script: string): Promise<string> {
-    const timeoutMs = parseInt(
-      this.configService.get<string>('CRON_SCRIPT_TIMEOUT_MS', '10000'),
-      10,
-    ) || 10_000;
+    const timeoutMs =
+      parseInt(
+        this.configService.get<string>('CRON_SCRIPT_TIMEOUT_MS', '10000'),
+        10,
+      ) || 10_000;
 
     return new Promise<string>((resolve) => {
-      exec(script, { timeout: timeoutMs, maxBuffer: 64 * 1024 }, (err, stdout, stderr) => {
-        if (err) {
-          this.logger.warn(`Cron script failed: ${err.message}`);
-          resolve(stderr ? `[script error] ${stderr.trim()}` : `[script error] ${err.message}`);
-          return;
-        }
-        resolve(stdout.trim());
-      });
+      exec(
+        script,
+        { timeout: timeoutMs, maxBuffer: 64 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) {
+            this.logger.warn(`Cron script failed: ${err.message}`);
+            resolve(
+              stderr
+                ? `[script error] ${stderr.trim()}`
+                : `[script error] ${err.message}`,
+            );
+            return;
+          }
+          resolve(stdout.trim());
+        },
+      );
     });
   }
 

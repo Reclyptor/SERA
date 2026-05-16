@@ -1,7 +1,7 @@
 # SERA Application Specification
 
 > **Version:** 1.0
-> **Last Updated:** 2026-05-15
+> **Last Updated:** 2026-05-16
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -168,6 +168,8 @@ AppModule
 | `AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS` | `180000`                                      | Wall-clock timeout (ms) for autonomous runs (cron/heartbeat/webhook)          |
 | `MEMORY_NUDGE_INTERVAL`            | `10`                                          | Tool calls between memory-save nudge injections (0 = disabled)                |
 | `CRON_SCRIPT_TIMEOUT_MS`           | `10000`                                       | Max execution time (ms) for cron job pre-processing scripts                   |
+| `SCHEDULED_EXECUTION_LEASE_MS`      | `300000`                                      | Lease duration for durable cron/heartbeat execution claims                    |
+| `SCHEDULED_EXECUTION_MAX_ATTEMPTS`  | `3`                                           | Max claim attempts for expired scheduled executions                           |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 
 Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
@@ -608,7 +610,34 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | `end`      | Number (0-23) |         |
 | `timezone` | String        | `UTC`   |
 
-### 4.13 UsageRecord
+### 4.13 ScheduledExecution
+
+**Collection:** `scheduled_executions`
+
+Durable execution queue for cron and heartbeat firings. This collection is the horizontal-scaling coordination point: all backend instances may poll, but each scheduled occurrence is claimed through an atomic MongoDB update and lease.
+
+| Field            | Type                                   | Required | Default     | Index  |
+| ---------------- | -------------------------------------- | -------- | ----------- | ------ |
+| `executionID`    | String                                 | Yes      |             | Unique |
+| `kind`           | Enum: `cron`, `heartbeat`              | Yes      |             | Yes    |
+| `targetID`       | String                                 | Yes      |             | Yes    |
+| `agentID`        | String                                 | Yes      |             | Yes    |
+| `scheduledFor`   | Date                                   | Yes      |             | Yes    |
+| `status`         | Enum: `pending`, `running`, `completed`, `failed`, `cancelled` | Yes | `pending` | Yes |
+| `runID`          | String                                 | No       | `''`        |        |
+| `threadID`       | String                                 | No       | `''`        |        |
+| `attempts`       | Number                                 | No       | `0`         |        |
+| `leaseOwner`     | String                                 | No       | `''`        |        |
+| `leaseExpiresAt` | Date                                   | No       |             | Yes    |
+| `startedAt`      | Date                                   | No       |             |        |
+| `completedAt`    | Date                                   | No       |             |        |
+| `error`          | String                                 | No       | `''`        |        |
+| `createdAt`      | Date                                   | (auto)   |             |        |
+| `updatedAt`      | Date                                   | (auto)   |             |        |
+
+Unique compound index: `{ kind: 1, targetID: 1, scheduledFor: 1 }`.
+
+### 4.14 UsageRecord
 
 **Collection:** (default Mongoose name)
 
@@ -636,7 +665,7 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | `cacheRead`  | Number | `0`     |
 | `cacheWrite` | Number | `0`     |
 
-### 4.14 PluginConfigRecord
+### 4.15 PluginConfigRecord
 
 **Collection:** (default Mongoose name)
 
@@ -651,7 +680,7 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | `createdAt`   | Date    | (auto)   |         |        |
 | `updatedAt`   | Date    | (auto)   |         |        |
 
-### 4.15 McpServer
+### 4.16 McpServer
 
 **Collection:** (default Mongoose name)
 
@@ -667,7 +696,7 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | `createdAt` | Date                 | (auto)   |         |        |
 | `updatedAt` | Date                 | (auto)   |         |        |
 
-### 4.16 Commitment
+### 4.17 Commitment
 
 **Collection:** `commitments`
 
@@ -1719,10 +1748,16 @@ Validated by regex: `^(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(
 ### Execution
 
 - `CronSchedulerService` ticks every 60 seconds
-- Finds jobs where `nextRunAt <= now` (or `nextRunAt` is null)
-- Executes each job's `command` as an agent goal (maxSteps: 10, maxIterations: 2)
-- Updates `lastRunAt` and computes new `nextRunAt` via `cron-parser`
+- Finds enabled jobs where `nextRunAt <= now` (or `nextRunAt` is null)
+- Creates a durable `scheduled_executions` record with `kind: 'cron'`, `targetID: jobID`, and `scheduledFor: nextRunAt`
+- Advances the cron job's `nextRunAt` only after the durable execution exists
+- Claims due `scheduled_executions` records with an atomic lease update; multiple backend instances may poll, but only one instance owns a given scheduled occurrence
+- Executes each claimed job's `command` as an agent goal (maxSteps: 10, maxIterations: 2)
+- Renews the execution lease while the agent run is active
+- Marks the execution `completed`, `failed`, or `cancelled` from the persisted run state and updates `lastRunAt` / `lastRunID`
 - Fallback `nextRunAt`: now + 30 minutes (if cron parsing fails)
+
+Cron execution is at-least-once under crash recovery and duplicate-safe under normal horizontal operation. If a process dies while owning an execution, the lease expires and another instance can reclaim it until `SCHEDULED_EXECUTION_MAX_ATTEMPTS` is reached.
 
 ---
 
@@ -1739,9 +1774,16 @@ Each agent can have one heartbeat configuration specifying interval, active hour
 - `HeartbeatService` ticks every 60 seconds
 - Finds configs where `nextRunAt <= now` (or null) and `enabled: true`
 - Filters by `activeHours` (supports midnight wrap, timezone-aware via `Intl.DateTimeFormat`)
+- When inside active hours, creates a durable `scheduled_executions` record with `kind: 'heartbeat'`, `targetID: agentID`, and `scheduledFor: nextRunAt`
+- Advances the heartbeat config's `nextRunAt` only after the durable execution exists
+- Claims due heartbeat executions with the same atomic lease mechanism as cron
 - Builds message from `heartbeat` prompt slug or default template
 - Executes as agent goal with `isHeartbeat: true` (maxSteps: 10, maxIterations: 2)
+- Renews the execution lease while the run is active
+- Marks the execution `completed`, `failed`, or `cancelled` from the persisted run state and updates `lastRunAt`
 - Heartbeat runs skip memory extraction on completion
+
+Heartbeat execution uses the same horizontal-scaling guarantees as cron. If a heartbeat is due but outside active hours, no execution is created and `nextRunAt` is not advanced; the config is rechecked on the next tick.
 
 ### Active Hours
 
