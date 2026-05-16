@@ -829,6 +829,27 @@ Webhook requests must include `x-webhook-api-key: <WEBHOOK_API_KEY>` or `Authori
 | GET    | `/insights/run/:runID` | Yes  |                                       | UsageRecord[]            |
 | GET    | `/insights/tools`      | Yes  | Query: `limit?` (default 10)          | `Array<{ tool, count }>` |
 
+### 5.11 Crons
+
+| Method | Path             | Auth | Body / Params                                                                                       | Response            |
+| ------ | ---------------- | ---- | --------------------------------------------------------------------------------------------------- | ------------------- |
+| POST   | `/crons`         | Yes  | `{ agentID, schedule, command, description?, enabled?, script?, contextFromJobID? }`                | CronJob             |
+| GET    | `/crons`         | Yes  | Query: `agentID?`                                                                                   | CronJob[]           |
+| GET    | `/crons/:jobID`  | Yes  |                                                                                                     | CronJob             |
+| PUT    | `/crons/:jobID`  | Yes  | `{ schedule?, command?, description?, enabled?, script?, contextFromJobID? }`                       | CronJob             |
+| DELETE | `/crons/:jobID`  | Yes  |                                                                                                     | `{ deleted: true }` |
+
+`CronController` is registered in `CronModule` and reaches `AppModule` via `AgentModule → CronModule`. The `:jobID` is a UUID minted by the service on create — not by the client. PUT recomputes `nextRunAt` whenever `schedule` is provided. The list endpoint scopes by `agentID` when the query param is given.
+
+### 5.12 Memories
+
+| Method | Path           | Auth | Body / Params | Response            |
+| ------ | -------------- | ---- | ------------- | ------------------- |
+| GET    | `/memories`    | Yes  |               | MemoryEntry[]       |
+| DELETE | `/memories/:id`| Yes  |               | `{ deleted: true }` |
+
+Scoped to the authenticated user via `@CurrentUser()`. `MemoryController` is registered in `MemoryModule` and reaches `AppModule` via `AgentModule → OrchestrationModule → MemoryModule`. See §13 for `MemoryEntry` shape and storage details.
+
 ---
 
 ## 6. Orchestration Engine
