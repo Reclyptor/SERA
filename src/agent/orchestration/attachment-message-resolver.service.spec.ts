@@ -31,7 +31,7 @@ describe('AttachmentMessageResolverService', () => {
           },
         ],
       },
-    ] as ModelMessage[];
+    ] as unknown as ModelMessage[];
 
     await expect(resolver.resolve(messages, userID)).resolves.toEqual([
       {
@@ -62,7 +62,7 @@ describe('AttachmentMessageResolverService', () => {
           },
         ],
       },
-    ] as ModelMessage[];
+    ] as unknown as ModelMessage[];
 
     await expect(resolver.resolve(messages, userID)).resolves.toEqual([
       {

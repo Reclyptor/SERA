@@ -4,13 +4,21 @@ import { MemoryModule } from '../memory/memory.module';
 import { StateModule } from '../state/state.module';
 import { ChatsModule } from '../../chats/chats.module';
 import { AgentsModule } from '../../agents/agents.module';
+import { StreamingModule } from '../streaming/streaming.module';
 import { ToolsRegistry } from './tools.registry';
 import { ToolsService } from './tools.service';
 import { ToolsBootstrapService } from './tools-bootstrap.service';
 import { LoopDetectionService } from './loop-detection.service';
 
 @Module({
-  imports: [ConfigModule, MemoryModule, StateModule, ChatsModule, AgentsModule],
+  imports: [
+    ConfigModule,
+    MemoryModule,
+    StateModule,
+    ChatsModule,
+    AgentsModule,
+    StreamingModule,
+  ],
   providers: [
     ToolsRegistry,
     ToolsService,

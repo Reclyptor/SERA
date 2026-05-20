@@ -7,7 +7,11 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { McpServer, McpServerDocument } from './mcp-server.schema';
-import type { McpConnection, McpToolDefinition } from './mcp.interfaces';
+import type {
+  McpConnection,
+  McpToolDefinition,
+  McpTransport,
+} from './mcp.interfaces';
 
 @Injectable()
 export class McpClientService implements OnModuleInit, OnModuleDestroy {
@@ -16,7 +20,8 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     string,
     {
       client: unknown;
-      transport: unknown;
+      transport: McpTransport;
+      rawTransport: unknown;
       tools: McpToolDefinition[];
     }
   >();
@@ -119,10 +124,18 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
         description: t.description ?? '',
         inputSchema: t.inputSchema ?? {},
         serverName,
+        safety:
+          config.toolSafety?.[t.name] ??
+          config.toolSafety?.[`mcp_${serverName}_${t.name}`],
       }),
     );
 
-    this.connections.set(serverName, { client, transport, tools });
+    this.connections.set(serverName, {
+      client,
+      transport: config.transport,
+      rawTransport: transport,
+      tools,
+    });
 
     this.logger.log(
       `Connected to MCP server "${serverName}" — ${tools.length} tools discovered`,
@@ -143,6 +156,8 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     try {
       const client = conn.client as { close?: () => Promise<void> };
       await client.close?.();
+      const transport = conn.rawTransport as { close?: () => Promise<void> };
+      await transport.close?.();
     } catch (err) {
       this.logger.debug(`Error closing MCP connection "${serverName}":`, err);
     }
@@ -186,7 +201,7 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
   getConnections(): McpConnection[] {
     return Array.from(this.connections.entries()).map(([name, conn]) => ({
       serverName: name,
-      transport: 'stdio' as const,
+      transport: conn.transport,
       connected: true,
       tools: conn.tools,
     }));

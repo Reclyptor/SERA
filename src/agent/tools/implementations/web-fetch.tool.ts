@@ -4,6 +4,7 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolResource,
 } from '../tool.interface';
 
 const MAX_RESPONSE_SIZE = 100 * 1024; // 100KB
@@ -34,13 +35,21 @@ export class WebFetchTool implements Tool<typeof parameters> {
     'Fetch content from web URLs. Supports all HTTP methods with headers and body. Use for API calls and retrieving web page content.';
   readonly parameters = parameters;
 
+  getResources(args: z.infer<typeof parameters>): ToolResource[] {
+    try {
+      return [{ type: 'network', host: new URL(args.url).hostname }];
+    } catch {
+      return [];
+    }
+  }
+
   async execute(
     args: z.infer<typeof parameters>,
     _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { url, method, headers, body, timeoutMs } = args;
 
-    const validation = validateUrl(url);
+    const validation = await validateUrl(url);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -58,11 +67,11 @@ export class WebFetchTool implements Tool<typeof parameters> {
         }
       }
 
-      const response = await fetch(url, {
+      const response = await this.guardedFetch(url, {
         method,
         headers: requestHeaders,
         body: requestBody,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: this.buildSignal(timeoutMs, _context.abortSignal),
       });
 
       const contentLength = response.headers.get('content-length');
@@ -108,5 +117,45 @@ export class WebFetchTool implements Tool<typeof parameters> {
         error: error instanceof Error ? error.message : 'Fetch request failed',
       };
     }
+  }
+
+  private buildSignal(
+    timeoutMs: number,
+    abortSignal?: AbortSignal,
+  ): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    return abortSignal
+      ? AbortSignal.any([timeoutSignal, abortSignal])
+      : timeoutSignal;
+  }
+
+  private async guardedFetch(
+    url: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    let currentUrl = url;
+    for (let redirects = 0; redirects <= 5; redirects++) {
+      const validation = await validateUrl(currentUrl);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+
+      const response = await fetch(currentUrl, {
+        ...init,
+        redirect: 'manual',
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        return response;
+      }
+
+      const location = response.headers.get('location');
+      if (!location) return response;
+      currentUrl = new URL(location, currentUrl).toString();
+      if (response.status === 303) {
+        init = { ...init, method: 'GET', body: undefined };
+      }
+    }
+
+    throw new Error('Too many redirects');
   }
 }

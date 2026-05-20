@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 
 /**
  * Validate and sandbox file paths to a workspace directory.
@@ -34,19 +35,29 @@ export function validatePath(
     return { valid: false, error: 'Path and workspace directory are required' };
   }
 
-  // Resolve relative to workspace
-  const resolved = path.resolve(workspaceDir, inputPath);
+  let workspaceReal: string;
+  try {
+    workspaceReal = fsSync.realpathSync.native(path.resolve(workspaceDir));
+  } catch {
+    return { valid: false, error: 'Workspace directory does not exist' };
+  }
 
-  // Prevent traversal outside workspace
-  if (!resolved.startsWith(path.resolve(workspaceDir))) {
+  const requested = path.resolve(workspaceReal, inputPath);
+  const resolved = resolveRealOrNearest(requested);
+  const relativeToWorkspace = path.relative(workspaceReal, resolved);
+
+  if (
+    relativeToWorkspace === '..' ||
+    relativeToWorkspace.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeToWorkspace)
+  ) {
     return {
       valid: false,
       error: 'Path traversal outside workspace is not allowed',
     };
   }
 
-  // Check blocked patterns
-  const relative = path.relative(workspaceDir, resolved);
+  const relative = path.relative(workspaceReal, resolved);
   for (const pattern of BLOCKED_PATTERNS) {
     if (pattern.test(relative) || pattern.test(path.basename(resolved))) {
       return {
@@ -57,6 +68,25 @@ export function validatePath(
   }
 
   return { valid: true, resolvedPath: resolved };
+}
+
+function resolveRealOrNearest(targetPath: string): string {
+  try {
+    return fsSync.realpathSync.native(targetPath);
+  } catch {
+    const parts = targetPath.split(path.sep).filter(Boolean);
+    const root = path.parse(targetPath).root;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const candidate = path.join(root, ...parts.slice(0, i));
+      try {
+        const realParent = fsSync.realpathSync.native(candidate || root);
+        return path.join(realParent, ...parts.slice(i));
+      } catch {
+        // Continue walking toward the filesystem root.
+      }
+    }
+    return targetPath;
+  }
 }
 
 export async function pathExists(filePath: string): Promise<boolean> {

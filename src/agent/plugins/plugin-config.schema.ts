@@ -20,6 +20,9 @@ export class PluginConfigRecord {
   @Prop()
   version?: string;
 
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  capabilities: Record<string, unknown>;
+
   @Prop()
   loadError?: string;
 

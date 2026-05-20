@@ -3,6 +3,7 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolResource,
 } from '../tools/tool.interface';
 import type { McpClientService } from './mcp-client.service';
 import type { McpToolDefinition } from './mcp.interfaces';
@@ -60,7 +61,13 @@ export function adaptMcpTool(
     name: def.name,
     description: `[MCP:${def.serverName}] ${def.description}`,
     parameters: params,
-    parallelSafe: true,
+    parallelSafe: def.safety?.parallelSafe ?? def.safety?.readOnly ?? false,
+    getResources(): ToolResource[] {
+      if (def.safety?.readOnly) return [];
+      return [
+        { type: 'session-state', key: `mcp:${def.serverName}:${def.name}` },
+      ];
+    },
     async execute(
       args: Record<string, unknown>,
       _context: ToolExecutionContext,

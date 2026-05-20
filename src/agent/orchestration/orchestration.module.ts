@@ -18,6 +18,7 @@ import { InsightsModule } from '../insights/insights.module';
 import { CommitmentsModule } from '../commitments/commitments.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
+import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AttachmentMessageResolverService } from './attachment-message-resolver.
   ],
   providers: [
     OrchestratorService,
+    AiSdkAgentRuntimeService,
     PromptBuilderService,
     AttachmentMessageResolverService,
   ],

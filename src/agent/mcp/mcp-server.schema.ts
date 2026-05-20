@@ -23,6 +23,9 @@ export class McpServer {
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   env: Record<string, string>;
 
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  toolSafety: Record<string, unknown>;
+
   @Prop({ default: true })
   enabled: boolean;
 

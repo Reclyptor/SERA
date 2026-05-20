@@ -1,15 +1,27 @@
 import { z } from 'zod';
 import { exec } from 'child_process';
 import { validateCommand } from '../security/command-validator';
+import { validatePath } from '../security/path-validator';
 import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolResource,
 } from '../tool.interface';
 import type { SandboxRunnerLike } from './sandbox.types';
 import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
+
+export interface ToolApprovalRequester {
+  requestApproval(input: {
+    threadID: string;
+    runID: string;
+    actionName: string;
+    args: Record<string, unknown>;
+    message: string;
+  }): Promise<{ confirmationID: string; fingerprint: string }>;
+}
 
 const parameters = z.object({
   command: z.string().describe('Shell command to execute'),
@@ -34,7 +46,12 @@ export class ExecTool implements Tool<typeof parameters> {
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
     private readonly sandboxRunner?: SandboxRunnerLike,
+    private readonly approvalRequester?: ToolApprovalRequester,
   ) {}
+
+  getResources(): ToolResource[] {
+    return [{ type: 'process' }];
+  }
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -50,8 +67,33 @@ export class ExecTool implements Tool<typeof parameters> {
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
+    if (validation.action === 'approval_required') {
+      if (!this.approvalRequester) {
+        return {
+          success: false,
+          error:
+            'Command requires approval, but approval handling is unavailable',
+        };
+      }
+      const approval = await this.approvalRequester.requestApproval({
+        threadID: context.threadID,
+        runID: context.runID,
+        actionName: this.name,
+        args: { command, cwd, timeoutMs },
+        message: `Approval required to execute command: ${command}`,
+      });
+      return {
+        success: false,
+        result: { status: 'approval_required', ...approval },
+        error: `Command requires approval (${approval.confirmationID})`,
+      };
+    }
 
     const workspace = resolveWorkspace(context, this.workspaceDir);
+    const cwdValidation = validatePath(cwd ?? '.', workspace);
+    if (!cwdValidation.valid) {
+      return { success: false, error: cwdValidation.error };
+    }
 
     if (context.sandbox && this.sandboxRunner) {
       const result = await this.sandboxRunner.exec({
@@ -69,9 +111,14 @@ export class ExecTool implements Tool<typeof parameters> {
       };
     }
 
-    const workingDir = cwd ? `${workspace}/${cwd}` : workspace;
+    const workingDir = cwdValidation.resolvedPath!;
 
     return new Promise((resolve) => {
+      if (context.abortSignal?.aborted) {
+        resolve({ success: false, error: 'Command cancelled' });
+        return;
+      }
+      let timeout: NodeJS.Timeout | undefined;
       const child = exec(
         command,
         {
@@ -81,6 +128,12 @@ export class ExecTool implements Tool<typeof parameters> {
           env: { ...process.env, PATH: process.env.PATH },
         },
         (error, stdout, stderr) => {
+          if (timeout) clearTimeout(timeout);
+          context.abortSignal?.removeEventListener('abort', abort);
+          if (context.abortSignal?.aborted) {
+            resolve({ success: false, error: 'Command cancelled' });
+            return;
+          }
           if (error && error.killed) {
             resolve({
               success: false,
@@ -101,7 +154,9 @@ export class ExecTool implements Tool<typeof parameters> {
         },
       );
 
-      setTimeout(() => {
+      const abort = () => child.kill('SIGTERM');
+      context.abortSignal?.addEventListener('abort', abort, { once: true });
+      timeout = setTimeout(() => {
         child.kill('SIGTERM');
       }, timeoutMs + 1000);
     });

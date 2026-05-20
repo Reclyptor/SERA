@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { tool as aiTool, type ToolSet } from 'ai';
+import * as path from 'path';
 import { Tool, ToolExecutionContext } from './tool.interface';
 
 export interface ToolPolicyFilter {
@@ -10,7 +11,7 @@ export interface ToolPolicyFilter {
 @Injectable()
 export class ToolsRegistry {
   private readonly tools = new Map<string, Tool>();
-  private readonly mutationMutex = new Mutex();
+  private readonly locks = new LockManager();
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
@@ -81,10 +82,31 @@ export class ToolsRegistry {
     args: unknown,
     context: ToolExecutionContext,
   ): Promise<unknown> {
-    if (tool.parallelSafe) {
+    const resources = tool.getResources?.(args, context) ?? [];
+    const lockKeys = resources
+      .map((resource) => {
+        switch (resource.type) {
+          case 'workspace-path':
+            return resource.mode === 'write'
+              ? `workspace:${path.resolve(resource.path)}`
+              : null;
+          case 'process':
+            return 'process';
+          case 'session-state':
+            return `session:${resource.key ?? context.threadID}`;
+          case 'network':
+            return null;
+        }
+      })
+      .filter((key): key is string => Boolean(key));
+
+    if (lockKeys.length === 0 && tool.parallelSafe) {
       return tool.execute(args, context);
     }
-    return this.mutationMutex.run(() => tool.execute(args, context));
+    return this.locks.run(
+      lockKeys.length > 0 ? lockKeys : [`session:${context.threadID}`],
+      () => tool.execute(args, context),
+    );
   }
 }
 
@@ -101,7 +123,7 @@ class Mutex {
     }
   }
 
-  private acquire(): Promise<void> {
+  acquire(): Promise<void> {
     if (!this.locked) {
       this.locked = true;
       return Promise.resolve();
@@ -109,12 +131,42 @@ class Mutex {
     return new Promise<void>((resolve) => this.queue.push(resolve));
   }
 
-  private release(): void {
+  release(): void {
     const next = this.queue.shift();
     if (next) {
       next();
     } else {
       this.locked = false;
     }
+  }
+}
+
+class LockManager {
+  private readonly mutexes = new Map<string, Mutex>();
+
+  async run<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
+    const uniqueKeys = Array.from(new Set(keys)).sort();
+    const acquired: Mutex[] = [];
+    try {
+      for (const key of uniqueKeys) {
+        const mutex = this.getMutex(key);
+        await mutex.acquire();
+        acquired.push(mutex);
+      }
+      return await fn();
+    } finally {
+      for (const mutex of acquired.reverse()) {
+        mutex.release();
+      }
+    }
+  }
+
+  private getMutex(key: string): Mutex {
+    let mutex = this.mutexes.get(key);
+    if (!mutex) {
+      mutex = new Mutex();
+      this.mutexes.set(key, mutex);
+    }
+    return mutex;
   }
 }

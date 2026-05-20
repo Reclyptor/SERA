@@ -170,57 +170,65 @@ export class ModelRouterService {
   }
 
   resolveModel(options?: ModelRequestOptions): ResolvedModel {
-    const excludeSet = new Set(options?.excludeProviders ?? []);
+    const first = this.resolveModelCandidates(options)[0];
+    if (!first) {
+      throw new Error('No model providers available');
+    }
+    return first;
+  }
 
-    // Try preferred model first
+  private resolveModelCandidates(
+    options?: ModelRequestOptions,
+  ): ResolvedModel[] {
+    const excludeSet = new Set(options?.excludeProviders ?? []);
+    const candidates: ResolvedModel[] = [];
+    const seen = new Set<string>();
+
+    const addCandidate = (
+      provider: string,
+      modelID?: string,
+      strict = false,
+    ): void => {
+      if (excludeSet.has(provider)) return;
+      const entry = this.providers.find((p) => p.id === provider);
+      if (!entry) return;
+      const selectedModel = modelID ?? entry.defaultModel;
+      const key = `${provider}/${selectedModel}`;
+      if (seen.has(key)) return;
+      try {
+        candidates.push(this.buildResolved(entry, selectedModel));
+        seen.add(key);
+      } catch (error) {
+        if (strict) throw error;
+        this.logger.warn(
+          `Skipping unavailable fallback model ${key}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    };
+
     if (options?.preferredModel) {
       const { provider, model } = this.parseModelSpec(options.preferredModel);
-      const entry = this.providers.find(
-        (p) => p.id === provider && !excludeSet.has(p.id),
-      );
-      if (entry) {
-        return this.buildResolved(entry, model);
-      }
+      addCandidate(provider, model, true);
     }
 
-    // Try preferred provider
     if (options?.preferredProvider) {
-      const entry = this.providers.find(
-        (p) => p.id === options.preferredProvider && !excludeSet.has(p.id),
-      );
-      if (entry) {
-        return this.buildResolved(entry, entry.defaultModel);
-      }
+      addCandidate(options.preferredProvider);
     }
 
-    // Try primary model
     const { provider: primaryProvider, model: primaryModelID } =
       this.parseModelSpec(this.primaryModel);
-    const primaryEntry = this.providers.find(
-      (p) => p.id === primaryProvider && !excludeSet.has(p.id),
-    );
-    if (primaryEntry) {
-      return this.buildResolved(primaryEntry, primaryModelID);
-    }
+    addCandidate(primaryProvider, primaryModelID, true);
 
-    // Try fallbacks in order
     for (const fallback of this.fallbackModels) {
       const { provider, model } = this.parseModelSpec(fallback);
-      const entry = this.providers.find(
-        (p) => p.id === provider && !excludeSet.has(p.id),
-      );
-      if (entry) {
-        return this.buildResolved(entry, model);
-      }
+      addCandidate(provider, model);
     }
 
-    // Last resort: any available provider
-    const available = this.providers.find((p) => !excludeSet.has(p.id));
-    if (available) {
-      return this.buildResolved(available, available.defaultModel);
+    for (const provider of this.providers) {
+      addCandidate(provider.id);
     }
 
-    throw new Error('No model providers available');
+    return candidates;
   }
 
   /**
@@ -352,12 +360,115 @@ export class ModelRouterService {
     temperature?: number;
     options?: ModelRequestOptions;
     abortSignal?: AbortSignal;
+    onAttempt?: (attempt: {
+      attempt: number;
+      provider: string;
+      modelID: string;
+    }) => void | Promise<void>;
+    onFallback?: (fallback: {
+      attempt: number;
+      provider: string;
+      modelID: string;
+      reason: string;
+      message: string;
+      nextProvider?: string;
+      nextModelID?: string;
+    }) => void | Promise<void>;
     onChunk?: Parameters<typeof streamText>[0]['onChunk'];
     onStepFinish?: Parameters<typeof streamText>[0]['onStepFinish'];
     onFinish?: Parameters<typeof streamText>[0]['onFinish'];
   }): StreamTextResult<ToolSet, never> {
-    const resolved = this.resolveModel(params.options);
+    const candidates = this.resolveModelCandidates(params.options);
+    if (!candidates.length) {
+      throw new Error('No model providers available');
+    }
 
+    let activeResult = this.createStreamTextResult(params, candidates[0]);
+    let activeIndex = 0;
+    let attemptNumber = 0;
+
+    const call = async <T>(fn: (() => T | Promise<T>) | undefined) => {
+      if (fn) await fn();
+    };
+
+    const fullStream = async function* (this: ModelRouterService) {
+      while (activeIndex < candidates.length) {
+        const resolved = candidates[activeIndex];
+        attemptNumber++;
+        await call(() =>
+          params.onAttempt?.({
+            attempt: attemptNumber,
+            provider: resolved.provider,
+            modelID: resolved.modelID,
+          }),
+        );
+
+        let yielded = false;
+        try {
+          for await (const part of activeResult.fullStream) {
+            yielded = true;
+            yield part;
+          }
+          return;
+        } catch (error) {
+          const classified = classifyError(error);
+          const next = candidates[activeIndex + 1];
+          if (
+            yielded ||
+            classified.shouldCompress ||
+            !next ||
+            (!classified.retryable && !classified.shouldRotate)
+          ) {
+            throw error;
+          }
+
+          if (classified.shouldRotate) {
+            this.credentialPool.markCooldown(resolved.provider);
+          }
+
+          await call(() =>
+            params.onFallback?.({
+              attempt: attemptNumber,
+              provider: resolved.provider,
+              modelID: resolved.modelID,
+              reason: classified.reason,
+              message: classified.message,
+              nextProvider: next.provider,
+              nextModelID: next.modelID,
+            }),
+          );
+
+          activeIndex++;
+          activeResult = this.createStreamTextResult(params, next);
+        }
+      }
+    }.call(this);
+
+    return new Proxy(activeResult, {
+      get(_target, prop, receiver) {
+        if (prop === 'fullStream') return fullStream;
+        const value = Reflect.get(activeResult, prop, receiver);
+        return typeof value === 'function' ? value.bind(activeResult) : value;
+      },
+    });
+  }
+
+  private createStreamTextResult(
+    params: {
+      messages: ModelMessage[];
+      tools?: ToolSet;
+      system?: string;
+      stopSteps?: number;
+      maxOutputTokens?: number;
+      temperature?: number;
+      options?: ModelRequestOptions;
+      abortSignal?: AbortSignal;
+      onChunk?: Parameters<typeof streamText>[0]['onChunk'];
+      onStepFinish?: Parameters<typeof streamText>[0]['onStepFinish'];
+      onFinish?: Parameters<typeof streamText>[0]['onFinish'];
+    },
+    resolved: ResolvedModel,
+  ): StreamTextResult<ToolSet, never> {
     const cachedMessages = this.promptCache.applyCacheBreakpoints(
       params.messages,
       resolved.provider,

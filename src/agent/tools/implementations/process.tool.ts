@@ -6,8 +6,10 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolResource,
 } from '../tool.interface';
 import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
+import type { ToolApprovalRequester } from './exec.tool';
 
 export interface ProcessOrchestratorLike {
   executeGoal(
@@ -20,7 +22,11 @@ export interface ProcessOrchestratorLike {
       conversationHistory: unknown[];
       isHeartbeat?: boolean;
     },
-    config?: { maxSteps?: number; maxIterations?: number; wallClockTimeoutMs?: number },
+    config?: {
+      maxSteps?: number;
+      maxIterations?: number;
+      wallClockTimeoutMs?: number;
+    },
   ): Promise<void>;
 }
 
@@ -55,7 +61,9 @@ const parameters = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('If true, starts a new agent run with the process output when the process exits'),
+    .describe(
+      'If true, starts a new agent run with the process output when the process exits',
+    ),
 });
 
 export class ProcessTool implements Tool<typeof parameters> {
@@ -71,7 +79,12 @@ export class ProcessTool implements Tool<typeof parameters> {
     private readonly workspaceDir: string,
     private readonly enabled: boolean = false,
     private readonly orchestratorResolver?: () => ProcessOrchestratorLike,
+    private readonly approvalRequester?: ToolApprovalRequester,
   ) {}
+
+  getResources(): ToolResource[] {
+    return [{ type: 'process' }];
+  }
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -105,6 +118,34 @@ export class ProcessTool implements Tool<typeof parameters> {
     const validation = validateCommand(command);
     if (!validation.valid) {
       return { success: false, error: validation.error };
+    }
+    if (validation.action === 'approval_required') {
+      if (!this.approvalRequester) {
+        return {
+          success: false,
+          error:
+            'Command requires approval, but approval handling is unavailable',
+        };
+      }
+      const approval = await this.approvalRequester.requestApproval({
+        threadID: context.threadID,
+        runID: context.runID,
+        actionName: this.name,
+        args: {
+          operation: args.operation,
+          command,
+          notifyOnComplete: args.notifyOnComplete,
+        },
+        message: `Approval required to start background process: ${command}`,
+      });
+      return {
+        success: false,
+        result: { status: 'approval_required', ...approval },
+        error: `Command requires approval (${approval.confirmationID})`,
+      };
+    }
+    if (context.abortSignal?.aborted) {
+      return { success: false, error: 'Process start cancelled' };
     }
 
     const processID = randomUUID();
@@ -151,8 +192,12 @@ export class ProcessTool implements Tool<typeof parameters> {
       if (tracked.notifyOnComplete && this.orchestratorResolver) {
         const output = [
           `Process ${processID} exited with code ${code}`,
-          tracked.stdout ? `\n## stdout\n\`\`\`\n${tracked.stdout}\n\`\`\`` : '',
-          tracked.stderr ? `\n## stderr\n\`\`\`\n${tracked.stderr}\n\`\`\`` : '',
+          tracked.stdout
+            ? `\n## stdout\n\`\`\`\n${tracked.stdout}\n\`\`\``
+            : '',
+          tracked.stderr
+            ? `\n## stderr\n\`\`\`\n${tracked.stderr}\n\`\`\``
+            : '',
         ].join('');
 
         this.orchestratorResolver()

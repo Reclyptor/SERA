@@ -1,7 +1,7 @@
 # SERA Application Specification
 
 > **Version:** 1.0
-> **Last Updated:** 2026-05-16
+> **Last Updated:** 2026-05-18
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -36,9 +36,10 @@
 26. [GitHub Sync](#26-github-sync)
 27. [Storage](#27-storage)
 28. [Autonomy Features](#28-autonomy-features)
-29. [Appendix A: Deployment](#appendix-a-deployment)
-30. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
-31. [Appendix C: SyncResult](#appendix-c-syncresult)
+29. [Agent Maturity Implementation Plan](#29-agent-maturity-implementation-plan)
+30. [Appendix A: Deployment](#appendix-a-deployment)
+31. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
+32. [Appendix C: SyncResult](#appendix-c-syncresult)
 
 ---
 
@@ -109,22 +110,22 @@ AppModule
 
 ### Required Variables
 
-| Variable                | Description                                                                    |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `AUTH_SECRET`           | Secret for decrypting Auth.js session cookies                                  |
-| `ANTHROPIC_API_KEY`     | Anthropic API key (or first key in pool)                                       |
-| `PRIMARY_MODEL`         | Default model in `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`) |
-| `CORS_ORIGIN`           | Allowed CORS origin                                                            |
-| `AUTHENTIK_ISSUER`      | OIDC issuer URL for token validation                                           |
-| `AUTHENTIK_CLIENT_ID`   | OIDC client ID for audience validation                                         |
-| `MONGODB_URI`           | MongoDB connection string                                                      |
-| `OPENAI_API_KEY`        | OpenAI API key (or first key in pool)                                          |
-| `OBJECT_STORAGE_BUCKET` | S3-compatible bucket for durable attachments                                   |
-| `REDIS_URL`             | Redis connection URL                                                           |
-| `WEBHOOK_API_KEY`       | Shared API key required by webhook ingress                                     |
-| `NTFY_API_URL`          | ntfy server base URL (trailing slashes stripped) for push notifications        |
+| Variable                | Description                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `AUTH_SECRET`           | Secret for decrypting Auth.js session cookies                                       |
+| `ANTHROPIC_API_KEY`     | Anthropic API key (or first key in pool)                                            |
+| `PRIMARY_MODEL`         | Default model in `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`)      |
+| `CORS_ORIGIN`           | Allowed CORS origin                                                                 |
+| `AUTHENTIK_ISSUER`      | OIDC issuer URL for token validation                                                |
+| `AUTHENTIK_CLIENT_ID`   | OIDC client ID for audience validation                                              |
+| `MONGODB_URI`           | MongoDB connection string                                                           |
+| `OPENAI_API_KEY`        | OpenAI API key (or first key in pool)                                               |
+| `OBJECT_STORAGE_BUCKET` | S3-compatible bucket for durable attachments                                        |
+| `REDIS_URL`             | Redis connection URL                                                                |
+| `WEBHOOK_API_KEY`       | Shared API key required by webhook ingress                                          |
+| `NTFY_API_URL`          | ntfy server base URL (trailing slashes stripped) for push notifications             |
 | `NTFY_API_TOKEN`        | ntfy bearer access token (must start with `tk_`); mint via `POST /v1/account/token` |
-| `NTFY_API_TOPIC`        | ntfy topic that `send_push_notification` publishes to                           |
+| `NTFY_API_TOPIC`        | ntfy topic that `send_push_notification` publishes to                               |
 
 ### Optional Variables
 
@@ -168,8 +169,8 @@ AppModule
 | `AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS` | `180000`                                      | Wall-clock timeout (ms) for autonomous runs (cron/heartbeat/webhook)          |
 | `MEMORY_NUDGE_INTERVAL`            | `10`                                          | Tool calls between memory-save nudge injections (0 = disabled)                |
 | `CRON_SCRIPT_TIMEOUT_MS`           | `10000`                                       | Max execution time (ms) for cron job pre-processing scripts                   |
-| `SCHEDULED_EXECUTION_LEASE_MS`      | `300000`                                      | Lease duration for durable cron/heartbeat execution claims                    |
-| `SCHEDULED_EXECUTION_MAX_ATTEMPTS`  | `3`                                           | Max claim attempts for expired scheduled executions                           |
+| `SCHEDULED_EXECUTION_LEASE_MS`     | `300000`                                      | Lease duration for durable cron/heartbeat execution claims                    |
+| `SCHEDULED_EXECUTION_MAX_ATTEMPTS` | `3`                                           | Max claim attempts for expired scheduled executions                           |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 
 Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
@@ -616,24 +617,24 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 
 Durable execution queue for cron and heartbeat firings. This collection is the horizontal-scaling coordination point: all backend instances may poll, but each scheduled occurrence is claimed through an atomic MongoDB update and lease.
 
-| Field            | Type                                   | Required | Default     | Index  |
-| ---------------- | -------------------------------------- | -------- | ----------- | ------ |
-| `executionID`    | String                                 | Yes      |             | Unique |
-| `kind`           | Enum: `cron`, `heartbeat`              | Yes      |             | Yes    |
-| `targetID`       | String                                 | Yes      |             | Yes    |
-| `agentID`        | String                                 | Yes      |             | Yes    |
-| `scheduledFor`   | Date                                   | Yes      |             | Yes    |
-| `status`         | Enum: `pending`, `running`, `completed`, `failed`, `cancelled` | Yes | `pending` | Yes |
-| `runID`          | String                                 | No       | `''`        |        |
-| `threadID`       | String                                 | No       | `''`        |        |
-| `attempts`       | Number                                 | No       | `0`         |        |
-| `leaseOwner`     | String                                 | No       | `''`        |        |
-| `leaseExpiresAt` | Date                                   | No       |             | Yes    |
-| `startedAt`      | Date                                   | No       |             |        |
-| `completedAt`    | Date                                   | No       |             |        |
-| `error`          | String                                 | No       | `''`        |        |
-| `createdAt`      | Date                                   | (auto)   |             |        |
-| `updatedAt`      | Date                                   | (auto)   |             |        |
+| Field            | Type                                                           | Required | Default   | Index  |
+| ---------------- | -------------------------------------------------------------- | -------- | --------- | ------ |
+| `executionID`    | String                                                         | Yes      |           | Unique |
+| `kind`           | Enum: `cron`, `heartbeat`                                      | Yes      |           | Yes    |
+| `targetID`       | String                                                         | Yes      |           | Yes    |
+| `agentID`        | String                                                         | Yes      |           | Yes    |
+| `scheduledFor`   | Date                                                           | Yes      |           | Yes    |
+| `status`         | Enum: `pending`, `running`, `completed`, `failed`, `cancelled` | Yes      | `pending` | Yes    |
+| `runID`          | String                                                         | No       | `''`      |        |
+| `threadID`       | String                                                         | No       | `''`      |        |
+| `attempts`       | Number                                                         | No       | `0`       |        |
+| `leaseOwner`     | String                                                         | No       | `''`      |        |
+| `leaseExpiresAt` | Date                                                           | No       |           | Yes    |
+| `startedAt`      | Date                                                           | No       |           |        |
+| `completedAt`    | Date                                                           | No       |           |        |
+| `error`          | String                                                         | No       | `''`      |        |
+| `createdAt`      | Date                                                           | (auto)   |           |        |
+| `updatedAt`      | Date                                                           | (auto)   |           |        |
 
 Unique compound index: `{ kind: 1, targetID: 1, scheduledFor: 1 }`.
 
@@ -860,22 +861,22 @@ Webhook requests must include `x-webhook-api-key: <WEBHOOK_API_KEY>` or `Authori
 
 ### 5.11 Crons
 
-| Method | Path             | Auth | Body / Params                                                                                       | Response            |
-| ------ | ---------------- | ---- | --------------------------------------------------------------------------------------------------- | ------------------- |
-| POST   | `/crons`         | Yes  | `{ agentID, schedule, command, description?, enabled?, script?, contextFromJobID? }`                | CronJob             |
-| GET    | `/crons`         | Yes  | Query: `agentID?`                                                                                   | CronJob[]           |
-| GET    | `/crons/:jobID`  | Yes  |                                                                                                     | CronJob             |
-| PUT    | `/crons/:jobID`  | Yes  | `{ schedule?, command?, description?, enabled?, script?, contextFromJobID? }`                       | CronJob             |
-| DELETE | `/crons/:jobID`  | Yes  |                                                                                                     | `{ deleted: true }` |
+| Method | Path            | Auth | Body / Params                                                                        | Response            |
+| ------ | --------------- | ---- | ------------------------------------------------------------------------------------ | ------------------- |
+| POST   | `/crons`        | Yes  | `{ agentID, schedule, command, description?, enabled?, script?, contextFromJobID? }` | CronJob             |
+| GET    | `/crons`        | Yes  | Query: `agentID?`                                                                    | CronJob[]           |
+| GET    | `/crons/:jobID` | Yes  |                                                                                      | CronJob             |
+| PUT    | `/crons/:jobID` | Yes  | `{ schedule?, command?, description?, enabled?, script?, contextFromJobID? }`        | CronJob             |
+| DELETE | `/crons/:jobID` | Yes  |                                                                                      | `{ deleted: true }` |
 
 `CronController` is registered in `CronModule` and reaches `AppModule` via `AgentModule → CronModule`. The `:jobID` is a UUID minted by the service on create — not by the client. PUT recomputes `nextRunAt` whenever `schedule` is provided. The list endpoint scopes by `agentID` when the query param is given.
 
 ### 5.12 Memories
 
-| Method | Path           | Auth | Body / Params | Response            |
-| ------ | -------------- | ---- | ------------- | ------------------- |
-| GET    | `/memories`    | Yes  |               | MemoryEntry[]       |
-| DELETE | `/memories/:id`| Yes  |               | `{ deleted: true }` |
+| Method | Path            | Auth | Body / Params | Response            |
+| ------ | --------------- | ---- | ------------- | ------------------- |
+| GET    | `/memories`     | Yes  |               | MemoryEntry[]       |
+| DELETE | `/memories/:id` | Yes  |               | `{ deleted: true }` |
 
 Scoped to the authenticated user via `@CurrentUser()`. `MemoryController` is registered in `MemoryModule` and reaches `AppModule` via `AgentModule → OrchestrationModule → MemoryModule`. See §13 for `MemoryEntry` shape and storage details.
 
@@ -1101,12 +1102,12 @@ Events flow through a Redis Stream (`run:{runID}:stream`) and are delivered to c
 
 The SSE handler is implemented as a raw `@Get` with manual writes to `res` (not NestJS's `@Sse` decorator) so that SSE comment lines can be emitted for keep-alive and so that buffering can be explicitly disabled. The response sets:
 
-| Header              | Value                              | Reason                                                          |
-| ------------------- | ---------------------------------- | --------------------------------------------------------------- |
-| `Content-Type`      | `text/event-stream`                | SSE framing                                                     |
-| `Cache-Control`     | `no-cache, no-transform`           | Prevents intermediaries from rewriting the stream               |
-| `Connection`        | `keep-alive`                       | Long-lived socket                                               |
-| `X-Accel-Buffering` | `no`                               | Disables response buffering in nginx-family proxies (k3s ingress) |
+| Header              | Value                    | Reason                                                            |
+| ------------------- | ------------------------ | ----------------------------------------------------------------- |
+| `Content-Type`      | `text/event-stream`      | SSE framing                                                       |
+| `Cache-Control`     | `no-cache, no-transform` | Prevents intermediaries from rewriting the stream                 |
+| `Connection`        | `keep-alive`             | Long-lived socket                                                 |
+| `X-Accel-Buffering` | `no`                     | Disables response buffering in nginx-family proxies (k3s ingress) |
 
 Express response compression (if globally enabled) MUST exclude the stream route. The bootstrap intentionally does not register `compression()`; any future addition must filter on `req.path`.
 
@@ -1432,14 +1433,14 @@ interface BackendAction<TParams extends z.ZodType> {
 
 ### Registered Actions
 
-| Action                    | Parameters                                                                              | Confirmation | Description                                                                       |
-| ------------------------- | --------------------------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------- |
-| `save_memory`             | `content`, `tags?`                                                                      | No           | Save fact to long-term memory                                                     |
-| `search_memory`           | `query`, `limit?`                                                                       | No           | Search long-term memory                                                           |
-| `delete_memory`           | `memoryID`                                                                              | Yes          | Delete a specific memory                                                          |
-| `send_notification`       | `title`, `message`, `level?` (info/warning/error/success)                               | No           | In-chat UI signal emitted as a `text.done` SSE event with a `notification` payload |
-| `send_push_notification`  | `title?`, `message`, `priority?` (min/low/default/high/max), `tags?`, `click?`, `actions?` (view/http, max 3) | No           | Off-session device push via ntfy; surfaces transport failures as `success: false`  |
-| `request_confirmation`    | `message`, `actionName`, `actionArgs?`, `timeoutMs?` (5 min)                            | No           | Pause run and wait for user approval                                              |
+| Action                   | Parameters                                                                                                    | Confirmation | Description                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------- |
+| `save_memory`            | `content`, `tags?`                                                                                            | No           | Save fact to long-term memory                                                      |
+| `search_memory`          | `query`, `limit?`                                                                                             | No           | Search long-term memory                                                            |
+| `delete_memory`          | `memoryID`                                                                                                    | Yes          | Delete a specific memory                                                           |
+| `send_notification`      | `title`, `message`, `level?` (info/warning/error/success)                                                     | No           | In-chat UI signal emitted as a `text.done` SSE event with a `notification` payload |
+| `send_push_notification` | `title?`, `message`, `priority?` (min/low/default/high/max), `tags?`, `click?`, `actions?` (view/http, max 3) | No           | Off-session device push via ntfy; surfaces transport failures as `success: false`  |
+| `request_confirmation`   | `message`, `actionName`, `actionArgs?`, `timeoutMs?` (5 min)                                                  | No           | Pause run and wait for user approval                                               |
 
 ### Push Notification Transport
 
@@ -1492,10 +1493,10 @@ After each completed run (unless it's a heartbeat run), the orchestrator calls `
 
 `MemoryController` (mounted at `/api/v1/memories` via `MemoryModule`, discoverable through `AgentModule → OrchestrationModule → MemoryModule` — not re-imported into `AppModule`). Routes are scoped to the authenticated user via `@CurrentUser()`; a user can only list and delete their own entries.
 
-| Method | Path              | Description                                                                                                        |
-| ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/memories`       | List all memories for the current user, sorted by `createdAt` desc                                                 |
-| DELETE | `/memories/:id`   | Delete a single memory. `memoryService.delete()` first checks ownership via `getAll()`; returns 404 if not present |
+| Method | Path            | Description                                                                                                        |
+| ------ | --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/memories`     | List all memories for the current user, sorted by `createdAt` desc                                                 |
+| DELETE | `/memories/:id` | Delete a single memory. `memoryService.delete()` first checks ownership via `getAll()`; returns 404 if not present |
 
 Response shape (`MemoryResponse`): `{ id, content, tags, metadata, createdAt }` where `createdAt` is an ISO-8601 string. The list endpoint is the source of truth for the Manage → Memories tab in SERAUI.
 
@@ -2135,6 +2136,69 @@ The commitment data model is defined in [4.16 Commitment](#416-commitment).
 **Delivery:** The heartbeat service queries `CommitmentsService.findDue(agentID)` for pending commitments past their `dueAt` or `reminderAt` and appends them to the heartbeat message as a `## Pending Commitments` section.
 
 **Extraction toggle:** Controlled by `COMMITMENT_EXTRACTION_ENABLED` (default `true`).
+
+---
+
+## 29. Agent Maturity Implementation Plan
+
+This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve correctness and operational safety without replacing SERA's existing NestJS architecture.
+
+### 29.1 Run Reliability
+
+- Runs that exhaust `maxIterations` must always enter a terminal state. If the model has not produced usable final text, the run fails with `max_iterations_exceeded`.
+- Tool execution contexts carry an `AbortSignal` so tools can stop promptly when a run is cancelled.
+- Model attempts are emitted as structured stream events so clients can see the provider/model used for each attempt and any fallback decision.
+
+### 29.2 Tool Safety
+
+- Workspace path validation uses resolved real paths and `path.relative()` containment checks. Prefix checks are forbidden because `/workspace2` must not be accepted as inside `/workspace`.
+- URL validation is DNS-aware and must reject loopback, private, link-local, multicast, and cloud metadata addresses. Redirect targets are validated before a tool follows them.
+- Command validation separates `allow`, `approval_required`, and `block`. Destructive/system-level commands are hard-blocked; mutation and network commands require approval unless explicitly configured otherwise.
+
+### 29.3 Runtime Boundary
+
+- The current AI SDK execution path is exposed through an `AgentRuntime` interface.
+- The default implementation is `AiSdkAgentRuntimeService`.
+- Future runtimes can implement the same contract for provider-native agents, ACP-like harnesses, or local runtime adapters without expanding the orchestrator.
+
+### 29.4 Model Fallback
+
+- Streaming calls use the configured primary model plus `FALLBACK_MODELS`.
+- Retry/fallback decisions use the shared model error classifier.
+- Fallback is only attempted before output/tool-call side effects have been emitted. Mid-stream errors fail the current run to avoid duplicated side effects.
+- Fallback events include attempt number, provider, model, reason, and whether the fallback was attempted.
+
+### 29.5 Resource-Aware Tool Execution
+
+- Tool metadata may declare resources such as workspace paths, process state, network hosts, or session state.
+- Write/process/session resources are serialized by resource key.
+- Read-only parallel-safe tools continue to run concurrently.
+- Tools without explicit resources preserve the legacy behavior: `parallelSafe: true` runs directly; non-parallel tools use a session-state write lock.
+
+### 29.6 Approvals
+
+- Approval requests use the existing confirmation store as durable state.
+- Approval-required tools return a structured result containing the confirmation ID and fingerprint.
+- Approval events use the stream event names `approval.requested`, `approval.resolved`, and `approval.expired`.
+- Initial enforcement applies to shell execution; plugin and MCP tools can opt into approval through capability metadata.
+
+### 29.7 Plugin and MCP Capabilities
+
+- Plugins may declare capabilities and permissions in code/config.
+- MCP server records may declare per-tool safety metadata.
+- MCP tools default to conservative mutation/session locking unless marked read-only and parallel-safe.
+
+### 29.8 Test Priorities
+
+- Max-iteration terminal failure.
+- Tool cancellation propagation.
+- Path prefix and symlink escape rejection.
+- DNS and redirect SSRF rejection.
+- Command allow/approval/block classification.
+- Stream fallback before side effects.
+- Resource-lock behavior for conflicting workspace writes.
+- Plugin hook failure isolation.
+- MCP safety metadata defaults.
 
 ---
 

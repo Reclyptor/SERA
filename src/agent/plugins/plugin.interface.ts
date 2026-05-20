@@ -1,5 +1,19 @@
 import type { Tool } from '../tools/tool.interface';
 
+export interface PluginCapabilities {
+  [key: string]: unknown;
+  tools?: string[];
+  permissions?: Array<
+    | 'tools.register'
+    | 'knowledge.register'
+    | 'hooks.llm'
+    | 'hooks.tools'
+    | 'network'
+    | 'filesystem'
+  >;
+  requiresApproval?: boolean;
+}
+
 export interface PreToolCallHookArgs {
   toolName: string;
   args: Record<string, unknown>;
@@ -61,12 +75,14 @@ export interface PluginConfig {
   enabled: boolean;
   config?: Record<string, unknown>;
   version?: string;
+  capabilities?: PluginCapabilities;
 }
 
 export interface SeraPlugin {
   name: string;
   version: string;
   description?: string;
+  capabilities?: PluginCapabilities;
   onRegister(context: PluginContext): Promise<void> | void;
   onUnregister?(): Promise<void> | void;
 }

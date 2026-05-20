@@ -36,6 +36,8 @@ import type {
   SubagentSpawnedData,
   SubagentCompletedData,
   SubagentFailedData,
+  ModelAttemptData,
+  ModelFallbackData,
 } from '../streaming/stream.interfaces';
 import { ContextCompressorService } from '../context/context-compressor.service';
 import { PromptBuilderService } from './prompt-builder.service';
@@ -46,6 +48,7 @@ import { InsightsService } from '../insights/insights.service';
 import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
 import type { PluginLoaderService } from '../plugins/plugin-loader.service';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
+import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 
 const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
 const MAX_EVENT_RESULT_LENGTH = 5000;
@@ -83,6 +86,7 @@ export class OrchestratorService {
     private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
     private readonly attachmentMessageResolver: AttachmentMessageResolverService,
+    private readonly agentRuntime: AiSdkAgentRuntimeService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -155,6 +159,7 @@ export class OrchestratorService {
         ...goal.modelOptions,
       };
       const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
+      let activeModel = resolved;
       await this.emitEvent(runID, threadID, 'run.started', {
         provider: resolved.provider,
         modelID: resolved.modelID,
@@ -205,6 +210,7 @@ export class OrchestratorService {
         agentID: goal.agentID,
         sandbox,
         delegationDepth: goal.delegationDepth ?? 0,
+        abortSignal: abortController.signal,
         metadata: {
           chatID: goal.chatID,
         },
@@ -244,6 +250,7 @@ export class OrchestratorService {
       const runStartTime = Date.now();
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
+      let terminalStateReached = false;
 
       const memoryNudgeInterval =
         parseInt(
@@ -286,14 +293,14 @@ export class OrchestratorService {
           { toolName: string; args: Record<string, unknown>; startedAt: number }
         >();
 
-        let streamResult: ReturnType<typeof this.modelRouter.stream>;
+        let streamResult: ReturnType<typeof this.agentRuntime.streamAttempt>;
         try {
           const llmCallStart = Date.now();
           await this.runPluginHooks('onPreLLMCall', {
             threadID,
             runID,
-            provider: resolved.provider,
-            modelID: resolved.modelID,
+            provider: activeModel.provider,
+            modelID: activeModel.modelID,
             messageCount: messages.length,
           });
 
@@ -301,13 +308,36 @@ export class OrchestratorService {
             messages,
             userID,
           );
-          streamResult = this.modelRouter.stream({
+          streamResult = this.agentRuntime.streamAttempt({
             messages: messagesForModel,
             tools,
             system: systemPrompt,
             stopSteps: cfg.maxSteps,
             options: effectiveModelOptions,
             abortSignal: abortController.signal,
+            onAttempt: async (attempt) => {
+              activeModel = {
+                ...activeModel,
+                provider: attempt.provider,
+                modelID: attempt.modelID,
+              };
+              await this.emitEvent(runID, threadID, 'model.attempt', {
+                attempt: attempt.attempt,
+                provider: attempt.provider,
+                modelID: attempt.modelID,
+              } satisfies ModelAttemptData);
+            },
+            onFallback: async (fallback) => {
+              await this.emitEvent(runID, threadID, 'model.fallback', {
+                attempt: fallback.attempt,
+                provider: fallback.provider,
+                modelID: fallback.modelID,
+                reason: fallback.reason,
+                message: fallback.message,
+                nextProvider: fallback.nextProvider,
+                nextModelID: fallback.nextModelID,
+              } satisfies ModelFallbackData);
+            },
           });
 
           for await (const part of streamResult.fullStream) {
@@ -529,8 +559,8 @@ export class OrchestratorService {
           await this.runPluginHooks('onPostLLMCall', {
             threadID,
             runID,
-            provider: resolved.provider,
-            modelID: resolved.modelID,
+            provider: activeModel.provider,
+            modelID: activeModel.modelID,
             messageCount: messages.length,
             inputTokens: steps.reduce(
               (sum, s) => sum + (s.usage?.inputTokens ?? 0),
@@ -565,7 +595,7 @@ export class OrchestratorService {
               });
               const finalMessagesForModel =
                 await this.attachmentMessageResolver.resolve(messages, userID);
-              const finalStream = this.modelRouter.stream({
+              const finalStream = this.agentRuntime.streamAttempt({
                 messages: finalMessagesForModel,
                 system: systemPrompt,
                 options: effectiveModelOptions,
@@ -584,6 +614,7 @@ export class OrchestratorService {
                   content: finalText,
                 } satisfies TextDoneData);
               }
+              terminalStateReached = true;
               await this.completeRun(
                 goal,
                 finalText,
@@ -592,8 +623,8 @@ export class OrchestratorService {
                 totalToolCalls,
                 toolCallBlocks,
                 {
-                  provider: resolved.provider,
-                  modelID: resolved.modelID,
+                  provider: activeModel.provider,
+                  modelID: activeModel.modelID,
                   inputTokens: totalInputTokens,
                   outputTokens: totalOutputTokens,
                   durationMs: Date.now() - runStartTime,
@@ -622,6 +653,7 @@ export class OrchestratorService {
           }
 
           if (yieldRequested) {
+            terminalStateReached = true;
             await this.completeRun(
               goal,
               finalText || 'Yielded.',
@@ -630,8 +662,8 @@ export class OrchestratorService {
               totalToolCalls,
               toolCallBlocks,
               {
-                provider: resolved.provider,
-                modelID: resolved.modelID,
+                provider: activeModel.provider,
+                modelID: activeModel.modelID,
                 inputTokens: totalInputTokens,
                 outputTokens: totalOutputTokens,
                 durationMs: Date.now() - runStartTime,
@@ -645,6 +677,7 @@ export class OrchestratorService {
           const modelFinished = !lastStep || lastStep.toolCalls.length === 0;
 
           if (modelFinished) {
+            terminalStateReached = true;
             await this.completeRun(
               goal,
               finalText,
@@ -653,8 +686,8 @@ export class OrchestratorService {
               totalToolCalls,
               toolCallBlocks,
               {
-                provider: resolved.provider,
-                modelID: resolved.modelID,
+                provider: activeModel.provider,
+                modelID: activeModel.modelID,
                 inputTokens: totalInputTokens,
                 outputTokens: totalOutputTokens,
                 durationMs: Date.now() - runStartTime,
@@ -676,24 +709,34 @@ export class OrchestratorService {
         }
       }
 
-      // Safety net: hit maxIterations without the model finishing
-      if (iterationCount >= cfg.maxIterations && finalText) {
-        await this.completeRun(
-          goal,
-          finalText,
-          lastReasoningText,
-          lastThinkingDuration,
-          totalToolCalls,
-          undefined,
-          {
-            provider: resolved.provider,
-            modelID: resolved.modelID,
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            durationMs: Date.now() - runStartTime,
-            iterationCount,
-          },
-        );
+      // Safety net: hit maxIterations without the model finishing.
+      if (!terminalStateReached && iterationCount >= cfg.maxIterations) {
+        if (finalText) {
+          terminalStateReached = true;
+          await this.completeRun(
+            goal,
+            finalText,
+            lastReasoningText,
+            lastThinkingDuration,
+            totalToolCalls,
+            undefined,
+            {
+              provider: activeModel.provider,
+              modelID: activeModel.modelID,
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+              durationMs: Date.now() - runStartTime,
+              iterationCount,
+            },
+          );
+        } else {
+          const error = `max_iterations_exceeded: run reached ${cfg.maxIterations} iterations without final text`;
+          terminalStateReached = true;
+          await this.stateService.failRun(runID, error);
+          await this.emitEvent(runID, threadID, 'run.failed', {
+            error,
+          } satisfies RunFailedData);
+        }
       }
     } catch (error) {
       if (error instanceof AbortedError) {

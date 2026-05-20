@@ -3,6 +3,8 @@ export type AgentEventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
+  | 'model.attempt'
+  | 'model.fallback'
   | 'thinking.delta'
   | 'thinking.done'
   | 'text.delta'
@@ -16,6 +18,9 @@ export type AgentEventType =
   | 'subagent.failed'
   | 'confirmation.required'
   | 'confirmation.resolved'
+  | 'approval.requested'
+  | 'approval.resolved'
+  | 'approval.expired'
   | 'replay.done'
   | 'error';
 
@@ -44,6 +49,19 @@ export interface RunFailedData {
 
 export interface RunCancelledData {
   reason: string;
+}
+
+export interface ModelAttemptData {
+  attempt: number;
+  provider: string;
+  modelID: string;
+}
+
+export interface ModelFallbackData extends ModelAttemptData {
+  reason: string;
+  message: string;
+  nextProvider?: string;
+  nextModelID?: string;
 }
 
 export interface ThinkingDeltaData {

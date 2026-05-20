@@ -145,11 +145,13 @@ export class PluginLoaderService implements OnModuleInit {
     name: string;
     version: string;
     description?: string;
+    capabilities?: SeraPlugin['capabilities'];
   }> {
     return Array.from(this.loadedPlugins.entries()).map(([, plugin]) => ({
       name: plugin.name,
       version: plugin.version,
       description: plugin.description,
+      capabilities: plugin.capabilities,
     }));
   }
 

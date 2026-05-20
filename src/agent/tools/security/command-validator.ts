@@ -30,24 +30,61 @@ const BLOCKED_COMMANDS = [
   /\bcrontab\s+-r\b/i,
 ];
 
+const APPROVAL_REQUIRED_COMMANDS = [
+  /\brm\b/i,
+  /\bmv\b/i,
+  /\bcp\b/i,
+  /\bchmod\b/i,
+  /\bchown\b/i,
+  /\bsudo\b/i,
+  /\bcurl\b/i,
+  /\bwget\b/i,
+  /\bnc\b|\bnetcat\b/i,
+  /\bssh\b|\bscp\b|\brsync\b/i,
+  /\bgit\s+(push|clean|reset|checkout|rebase)\b/i,
+  /\bnpm\s+(install|publish)\b/i,
+  /\bpnpm\s+(install|publish)\b/i,
+  /\byarn\s+(add|publish)\b/i,
+  /\bdocker\b/i,
+  /\bkubectl\b/i,
+];
+
 export interface CommandValidationResult {
   valid: boolean;
+  action: 'allow' | 'approval_required' | 'block';
   error?: string;
+  reason?: string;
 }
 
 export function validateCommand(command: string): CommandValidationResult {
   if (!command?.trim()) {
-    return { valid: false, error: 'Command cannot be empty' };
+    return {
+      valid: false,
+      action: 'block',
+      error: 'Command cannot be empty',
+    };
   }
 
   for (const pattern of BLOCKED_COMMANDS) {
     if (pattern.test(command)) {
       return {
         valid: false,
+        action: 'block',
         error: `Command blocked: matches dangerous pattern "${pattern.source}"`,
+        reason: pattern.source,
       };
     }
   }
 
-  return { valid: true };
+  for (const pattern of APPROVAL_REQUIRED_COMMANDS) {
+    if (pattern.test(command)) {
+      return {
+        valid: true,
+        action: 'approval_required',
+        reason: pattern.source,
+      };
+    }
+  }
+
+  return { valid: true, action: 'allow' };
 }

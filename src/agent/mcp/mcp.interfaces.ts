@@ -1,5 +1,11 @@
 export type McpTransport = 'stdio' | 'sse';
 
+export interface McpToolSafety {
+  readOnly?: boolean;
+  parallelSafe?: boolean;
+  requiresApproval?: boolean;
+}
+
 export interface McpServerConfig {
   name: string;
   transport: McpTransport;
@@ -8,6 +14,7 @@ export interface McpServerConfig {
   url?: string;
   env?: Record<string, string>;
   enabled: boolean;
+  toolSafety?: Record<string, McpToolSafety>;
 }
 
 export interface McpToolDefinition {
@@ -15,6 +22,7 @@ export interface McpToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>;
   serverName: string;
+  safety?: McpToolSafety;
 }
 
 export interface McpConnection {

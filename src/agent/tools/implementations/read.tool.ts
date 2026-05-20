@@ -5,6 +5,7 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolResource,
 } from '../tool.interface';
 import { resolveWorkspace } from './tool-utils';
 
@@ -27,6 +28,10 @@ export class ReadTool implements Tool<typeof parameters> {
   readonly parameters = parameters;
 
   constructor(private readonly workspaceDir: string) {}
+
+  getResources(args: z.infer<typeof parameters>): ToolResource[] {
+    return [{ type: 'workspace-path', path: args.path, mode: 'read' }];
+  }
 
   async execute(
     args: z.infer<typeof parameters>,

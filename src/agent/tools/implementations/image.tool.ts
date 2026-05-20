@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { validatePath } from '../security/path-validator';
+import { validateUrl } from '../security/url-validator';
 import type {
   Tool,
   ToolExecutionContext,
@@ -111,6 +112,10 @@ export class ImageTool implements Tool<typeof parameters> {
     context: ToolExecutionContext,
   ): Promise<string> {
     if (source.startsWith('http://') || source.startsWith('https://')) {
+      const validation = await validateUrl(source);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
       return source;
     }
 
