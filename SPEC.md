@@ -2159,7 +2159,7 @@ This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve cor
 ### 29.2 Tool Safety
 
 - Workspace path validation uses resolved real paths and `path.relative()` containment checks. Prefix checks are forbidden because `/workspace2` must not be accepted as inside `/workspace`.
-- URL validation is DNS-aware and must reject loopback, private, link-local, multicast, and cloud metadata addresses. Redirect targets are validated before a tool follows them.
+- URL validation is DNS-aware and must reject loopback, private, link-local, multicast, and cloud metadata addresses. Redirect targets are validated before a tool follows them. The browser tool validates URLs both before `page.goto` and via a per-page Puppeteer request interceptor so that JavaScript-driven or HTTP-redirect navigations cannot escape into the private network.
 - Command validation separates `allow`, `approval_required`, and `block`. Destructive/system-level commands are hard-blocked; mutation and network commands require approval unless explicitly configured otherwise.
 
 ### 29.3 Runtime Boundary
