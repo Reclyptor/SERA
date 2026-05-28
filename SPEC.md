@@ -2216,7 +2216,23 @@ This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve cor
 | `onPreLLMCall`, `onPostLLMCall` | `hooks.llm` |
 | `onSessionStart`, `onSessionEnd` | _(ungated — lifecycle signals only)_ |
 
-Denied calls are logged at warn level and become no-ops; the plugin continues to load. The `network` and `filesystem` permissions are reserved for tools the plugin registers — they're checked at invocation time by the receiving subsystem, not at registration. The `requiresApproval` capability is currently un-enforced (a granted approval doesn't yet unblock subsequent re-invocations of the same call shape; closing that loop is a follow-up).
+Denied calls are logged at warn level and become no-ops; the plugin continues to load. The `network` and `filesystem` permissions are reserved for tools the plugin registers — they're checked at invocation time by the receiving subsystem, not at registration.
+
+### Plugin requiresApproval Enforcement
+
+When `capabilities.requiresApproval` is `true`, every tool the plugin registers is wrapped at registration time by `PluginLoaderService.wrapWithApprovalGate`. The wrapper routes each invocation through `ToolApprovalService.requestApproval`, which returns one of three outcomes:
+
+| Verdict | Wrapper behavior |
+| --- | --- |
+| `pending` | Returns `{ success: false, result: { status: 'approval_required', confirmationID, fingerprint } }`. The agent sees the same approval surface as exec/shell/process tools. `approval.requested` SSE event fires. |
+| `approved` | Falls through to the original tool's `execute`. The granted confirmation is removed from `pendingConfirmations` so subsequent identical calls re-prompt. |
+| `rejected` | Returns `{ success: false, error: 'Tool "X" rejected by operator: <feedback>' }` and consumes the confirmation. |
+
+The fingerprint is `sha256({ actionName, args })` — deliberately omitting `runID` so a confirmation granted in run A is honored in run B on the same thread (typical flow: the user approves while the agent has already returned `approval_required` and the system spawns a continuation run).
+
+### Tool Approval Flow Correctness
+
+`exec`, `shell`, and `process` use the same `ToolApprovalService` as plugin-wrapped tools. Before this service existed, a granted approval was silently ignored on the next invocation because `requestToolApproval` looked only for `pending` entries — a `status: 'approved'` entry with matching fingerprint produced a new pending alongside the existing approved one, prompting the user again. The current discriminated return shape (`approved` / `pending` / `rejected`) closes that gap.
 
 ### 29.8 Test Priorities
 

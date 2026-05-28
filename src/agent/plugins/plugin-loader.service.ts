@@ -14,7 +14,10 @@ import type {
 } from './plugin.interface';
 
 type PluginPermission = NonNullable<PluginCapabilities['permissions']>[number];
+import { z } from 'zod';
 import { ToolsService } from '../tools/tools.service';
+import { ToolApprovalService } from '../tools/tool-approval.service';
+import type { Tool } from '../tools/tool.interface';
 
 @Injectable()
 export class PluginLoaderService implements OnModuleInit {
@@ -26,6 +29,7 @@ export class PluginLoaderService implements OnModuleInit {
     @InjectModel(PluginConfigRecord.name)
     private readonly configModel: Model<PluginConfigDocument>,
     private readonly toolsService: ToolsService,
+    private readonly approvalService: ToolApprovalService,
   ) {}
 
   async onModuleInit() {
@@ -118,9 +122,14 @@ export class PluginLoaderService implements OnModuleInit {
           denyAccess('tools.register', `tool registration "${tool.name}"`);
           return;
         }
-        this.toolsService.registerTool(tool);
+        const finalTool = caps.requiresApproval
+          ? this.wrapWithApprovalGate(tool, config.name)
+          : tool;
+        this.toolsService.registerTool(finalTool);
         this.logger.debug(
-          `Plugin "${config.name}" registered tool "${tool.name}"`,
+          `Plugin "${config.name}" registered tool "${tool.name}"${
+            caps.requiresApproval ? ' (approval-gated)' : ''
+          }`,
         );
       },
       getConfig: <T = unknown>(key: string) => {
@@ -179,6 +188,67 @@ export class PluginLoaderService implements OnModuleInit {
         );
       }
     }
+  }
+
+  /**
+   * Wraps a plugin-registered tool so every invocation routes through
+   * the shared approval gate. The wrapper delegates to
+   * `ToolApprovalService.requestApproval`, which discriminates between
+   * a fresh prompt (pending), a previously-granted approval (approved
+   * → fall through to the original execute), and an explicit denial
+   * (rejected → surface to the agent as an error). This is the
+   * runtime enforcement layer for `PluginCapabilities.requiresApproval`
+   * declared in SPEC §29.7.
+   */
+  private wrapWithApprovalGate<T extends z.ZodType>(
+    tool: Tool<T>,
+    pluginName: string,
+  ): Tool<T> {
+    const approval = this.approvalService;
+    const wrapped: Tool<T> = {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      parallelSafe: tool.parallelSafe,
+      execute: async (args, context) => {
+        const verdict = await approval.requestApproval({
+          threadID: context.threadID,
+          runID: context.runID,
+          actionName: tool.name,
+          args: args ?? {},
+          message: `Plugin "${pluginName}" requests approval to call tool "${tool.name}"`,
+        });
+
+        if (verdict.status === 'rejected') {
+          return {
+            success: false,
+            error: `Tool "${tool.name}" rejected by operator${
+              verdict.feedback ? `: ${verdict.feedback}` : ''
+            }`,
+          };
+        }
+        if (verdict.status === 'pending') {
+          return {
+            success: false,
+            result: {
+              status: 'approval_required',
+              confirmationID: verdict.confirmationID,
+              fingerprint: verdict.fingerprint,
+            },
+            error: `Tool "${tool.name}" requires approval (${verdict.confirmationID})`,
+          };
+        }
+        return tool.execute(args, context);
+      },
+    };
+    if (tool.getResources) {
+      // Forward via property access so `this` stays bound to the
+      // original tool instance without extracting the method reference
+      // (which trips ESLint's unbound-method rule).
+      wrapped.getResources = (args, context) =>
+        tool.getResources!(args, context);
+    }
+    return wrapped;
   }
 
   private addHook(type: string, fn: PluginHookFn<any>): void {
