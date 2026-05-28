@@ -13,6 +13,13 @@ const BRIDGE_TOOL_WHITELIST = new Set([
   'memory_get',
 ]);
 
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf-8');
+  const bBuf = Buffer.from(b, 'utf-8');
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
 interface BridgeHandle {
   port: number;
   url: string;
@@ -32,88 +39,98 @@ export async function startToolBridge(
   const RATE_LIMIT = 100;
 
   return new Promise((resolve, reject) => {
-    const server = http.createServer(async (req, res) => {
-      // Rate limiting
-      const now = Date.now();
-      if (now - windowStart >= 1000) {
-        requestCount = 0;
-        windowStart = now;
-      }
-      requestCount++;
-      if (requestCount > RATE_LIMIT) {
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
-        return;
-      }
-
-      if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed' }));
-        return;
-      }
-
-      // Validate bridge token
-      const token = req.headers['x-bridge-token'] as string | undefined;
-      if (!token || token !== bridgeSecret) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid bridge token' }));
-        return;
-      }
-
-      const match = req.url?.match(/^\/tool\/([a-z_]+)$/);
-      if (!match) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not found' }));
-        return;
-      }
-
-      const toolName = match[1];
-      if (!BRIDGE_TOOL_WHITELIST.has(toolName)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: `Tool "${toolName}" not available via bridge`,
-          }),
-        );
-        return;
-      }
-
-      const tool = registry.get(toolName);
-      if (!tool) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Tool "${toolName}" not found` }));
-        return;
-      }
-
-      const chunks: Buffer[] = [];
-      let totalLength = 0;
-      for await (const chunk of req) {
-        const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
-        totalLength += buf.length;
-        if (totalLength > 1024 * 1024) {
-          res.writeHead(413, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Request body too large' }));
+    const server = http.createServer((req, res) => {
+      void (async () => {
+        // Rate limiting
+        const now = Date.now();
+        if (now - windowStart >= 1000) {
+          requestCount = 0;
+          windowStart = now;
+        }
+        requestCount++;
+        if (requestCount > RATE_LIMIT) {
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
           return;
         }
-        chunks.push(buf);
-      }
-      const body = Buffer.concat(chunks).toString('utf-8');
 
-      try {
-        const args = body ? JSON.parse(body) : {};
-        const result = await tool.execute(args, context);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            success: false,
-            error:
-              err instanceof Error ? err.message : 'Bridge execution failed',
-          }),
-        );
-      }
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
+
+        // Validate bridge token with constant-time comparison so a
+        // length-matching guess can't be timing-leaked one byte at a
+        // time.
+        const tokenHeader = req.headers['x-bridge-token'];
+        const token = typeof tokenHeader === 'string' ? tokenHeader : undefined;
+        if (!token || !timingSafeStringEqual(token, bridgeSecret)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid bridge token' }));
+          return;
+        }
+
+        // Match the URL path, then check against the whitelist directly —
+        // no charset assumptions in the regex so adding e.g. a `tool_v2`
+        // entry doesn't silently 404.
+        const segment = /^\/tool\/([^/]+)$/.exec(req.url ?? '')?.[1];
+        if (!segment) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not found' }));
+          return;
+        }
+        if (!BRIDGE_TOOL_WHITELIST.has(segment)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: `Tool "${segment}" not available via bridge`,
+            }),
+          );
+          return;
+        }
+        const toolName = segment;
+
+        const tool = registry.get(toolName);
+        if (!tool) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Tool "${toolName}" not found` }));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        let totalLength = 0;
+        for await (const chunk of req as AsyncIterable<Buffer | string>) {
+          const buf =
+            typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : chunk;
+          totalLength += buf.length;
+          if (totalLength > 1024 * 1024) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request body too large' }));
+            return;
+          }
+          chunks.push(buf);
+        }
+        const body = Buffer.concat(chunks).toString('utf-8');
+
+        try {
+          const args: Record<string, unknown> = body
+            ? (JSON.parse(body) as Record<string, unknown>)
+            : {};
+          const result = await tool.execute(args, context);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              success: false,
+              error:
+                err instanceof Error ? err.message : 'Bridge execution failed',
+            }),
+          );
+        }
+      })();
     });
 
     server.listen(0, '127.0.0.1', () => {
