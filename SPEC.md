@@ -1277,7 +1277,7 @@ Args are hashed with SHA-256 for comparison. Detection data is cleared on run co
 
 **Circuit breaker behavior:** When the circuit breaker fires, the orchestrator injects a system message forcing a final answer without tools, then does one last model call (without tools in the tool set) to produce a text response before completing the run. Non-circuit-breaker loop detections inject a warning message but allow the loop to continue.
 
-### Registered Tools (32 core + MCP)
+### Registered Tools (31 core + MCP)
 
 #### File Operations
 
@@ -1352,7 +1352,6 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 | ------------------ | ------------------------------------------------------------------------------------------------------------ | -------- | ----------------------------------------------------- |
 | `sessions_list`    | `limit?` (20), `status?`                                                                                     | Yes      | List threads with latest run status.                  |
 | `sessions_history` | `chatID`, `limit?` (50), `offset?`                                                                           | Yes      | Load conversation messages from a chat.               |
-| `sessions_send`    | `targetChatID`, `content`, `role?`                                                                           | No       | Append message to target chat.                        |
 | `sessions_spawn`   | `goal?`, `agentID?`, `maxSteps?`, `maxIterations?`, `waitForResult?`, `timeoutMs?`, `tasks?`, `concurrency?` | No       | Spawn one or more autonomous agent sessions.          |
 | `sessions_yield`   | `message?`                                                                                                   | No       | Yield the current turn until subagent results arrive. |
 | `session_status`   | `threadID`, `runID?`                                                                                         | Yes      | Get thread/run/agent state snapshot.                  |

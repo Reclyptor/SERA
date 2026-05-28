@@ -33,7 +33,6 @@ import {
   AgentMessageTool,
   SessionsListTool,
   SessionsHistoryTool,
-  SessionsSendTool,
   SessionsSpawnTool,
   SessionsYieldTool,
   SessionStatusTool,
@@ -193,7 +192,6 @@ export class ToolsBootstrapService implements OnModuleInit {
 
     this.toolsService.registerTool(new SessionsListTool(this.stateService));
     this.toolsService.registerTool(new SessionsHistoryTool(this.chatsService));
-    this.toolsService.registerTool(new SessionsSendTool(this.chatsService));
     this.toolsService.registerTool(
       new SessionsSpawnTool(
         lazyOrchestrator,
@@ -266,7 +264,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new TriggerTool(lazyTriggers));
 
     this.logger.log(
-      `Registered 32 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 

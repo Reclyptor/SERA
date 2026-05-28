@@ -36,7 +36,6 @@ export { AgentMessageTool } from './agent-message.tool';
 // Sessions & agents
 export { SessionsListTool } from './sessions-list.tool';
 export { SessionsHistoryTool } from './sessions-history.tool';
-export { SessionsSendTool } from './sessions-send.tool';
 export { SessionsSpawnTool } from './sessions-spawn.tool';
 export { SessionsYieldTool } from './sessions-yield.tool';
 export { SessionStatusTool } from './session-status.tool';
