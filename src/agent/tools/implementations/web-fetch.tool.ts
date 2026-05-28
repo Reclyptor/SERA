@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Agent } from 'undici';
 import { validateUrl } from '../security/url-validator';
 import type {
   Tool,
@@ -8,6 +9,52 @@ import type {
 } from '../tool.interface';
 
 const MAX_RESPONSE_SIZE = 100 * 1024; // 100KB
+const MAX_REDIRECTS = 5;
+
+// Headers that carry credentials or session state. Stripped on
+// cross-origin redirects so a malicious target can't capture them by
+// Location-redirecting to an attacker-controlled host.
+const CROSS_ORIGIN_STRIPPED_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'www-authenticate',
+]);
+
+export function normalizeHeaders(
+  headers: HeadersInit | undefined,
+): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  const out: Record<string, string> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((v, k) => {
+      out[k] = v;
+    });
+    return out;
+  }
+  if (Array.isArray(headers)) {
+    for (const [k, v] of headers) out[k] = v;
+    return out;
+  }
+  for (const [k, v] of Object.entries(headers)) {
+    out[k] = v;
+  }
+  return out;
+}
+
+export function stripCredentialHeaders(
+  headers: HeadersInit | undefined,
+): Record<string, string> | undefined {
+  const normalized = normalizeHeaders(headers);
+  if (!normalized) return undefined;
+  const safe: Record<string, string> = {};
+  for (const [k, v] of Object.entries(normalized)) {
+    if (!CROSS_ORIGIN_STRIPPED_HEADERS.has(k.toLowerCase())) {
+      safe[k] = v;
+    }
+  }
+  return safe;
+}
 
 const parameters = z.object({
   url: z.string().describe('Target URL'),
@@ -129,33 +176,84 @@ export class WebFetchTool implements Tool<typeof parameters> {
       : timeoutSignal;
   }
 
+  /**
+   * Validates each redirect hop, pins the outbound TCP connection to an
+   * IP address resolved during validation (defeating DNS rebind between
+   * validation and connect), and strips credential-carrying headers on
+   * cross-origin redirects so they cannot leak to an attacker-chosen
+   * Location.
+   */
   private async guardedFetch(
     url: string,
     init: RequestInit,
   ): Promise<Response> {
     let currentUrl = url;
-    for (let redirects = 0; redirects <= 5; redirects++) {
+    let currentInit: RequestInit = init;
+    let currentOrigin = new URL(url).origin;
+
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
       const validation = await validateUrl(currentUrl);
       if (!validation.valid) {
-        throw new Error(validation.error);
+        throw new Error(validation.error ?? 'URL blocked');
       }
 
+      const dispatcher = this.buildPinnedDispatcher(validation.addresses);
+
       const response = await fetch(currentUrl, {
-        ...init,
+        ...currentInit,
         redirect: 'manual',
+        // Node 18+ global `fetch` honors undici's `dispatcher` field.
+        ...(dispatcher ? { dispatcher } : {}),
       });
+
       if (![301, 302, 303, 307, 308].includes(response.status)) {
         return response;
       }
 
       const location = response.headers.get('location');
       if (!location) return response;
-      currentUrl = new URL(location, currentUrl).toString();
+
+      const nextUrl = new URL(location, currentUrl).toString();
+      const nextOrigin = new URL(nextUrl).origin;
+
+      // Cross-origin redirect: rebuild headers without credentials.
+      const nextHeaders =
+        nextOrigin !== currentOrigin
+          ? stripCredentialHeaders(currentInit.headers)
+          : normalizeHeaders(currentInit.headers);
+
+      currentUrl = nextUrl;
+      currentOrigin = nextOrigin;
       if (response.status === 303) {
-        init = { ...init, method: 'GET', body: undefined };
+        // Per RFC 7231: 303 downgrades to GET and drops the body.
+        currentInit = {
+          ...currentInit,
+          method: 'GET',
+          body: undefined,
+          headers: nextHeaders,
+        };
+      } else {
+        currentInit = { ...currentInit, headers: nextHeaders };
       }
     }
 
     throw new Error('Too many redirects');
+  }
+
+  private buildPinnedDispatcher(
+    addresses: ReadonlyArray<{ address: string; family: number }> | undefined,
+  ): Agent | undefined {
+    const pinned = addresses?.[0];
+    if (!pinned) return undefined;
+    return new Agent({
+      connect: {
+        // Force every DNS resolution from the dispatcher's connect path
+        // to return the address we already validated. TLS SNI still uses
+        // the URL hostname, so cert verification is unaffected.
+        lookup: (_host, _opts, cb) => {
+          cb(null, pinned.address, pinned.family);
+        },
+      },
+    });
   }
 }

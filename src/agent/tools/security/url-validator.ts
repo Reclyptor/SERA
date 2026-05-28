@@ -9,9 +9,22 @@ const BLOCKED_HOSTNAMES = new Set([
   'metadata.google.internal',
 ]);
 
+export interface ResolvedAddress {
+  address: string;
+  family: number;
+}
+
 export interface UrlValidationResult {
   valid: boolean;
   error?: string;
+  /**
+   * Resolved IP addresses that passed the safety checks. Populated only
+   * when validation succeeds and the URL contains a hostname (literal
+   * IPs return themselves). Consumers can pin the actual connection to
+   * one of these addresses to defeat DNS rebind between validation and
+   * the outbound request.
+   */
+  addresses?: ResolvedAddress[];
 }
 
 export async function validateUrl(url: string): Promise<UrlValidationResult> {
@@ -35,17 +48,21 @@ export async function validateUrl(url: string): Promise<UrlValidationResult> {
     return { valid: false, error: `Access to "${parsed.hostname}" is blocked` };
   }
 
-  if (isIP(hostname)) {
+  const family = isIP(hostname);
+  if (family) {
     if (isBlockedIP(hostname)) {
       return {
         valid: false,
         error: 'Access to private/internal IP addresses is blocked',
       };
     }
-    return { valid: true };
+    return {
+      valid: true,
+      addresses: [{ address: hostname, family }],
+    };
   }
 
-  let records: Array<{ address: string }>;
+  let records: ResolvedAddress[];
   try {
     records = await lookup(hostname, { all: true, verbatim: true });
   } catch (error) {
@@ -64,7 +81,7 @@ export async function validateUrl(url: string): Promise<UrlValidationResult> {
     }
   }
 
-  return { valid: true };
+  return { valid: true, addresses: records };
 }
 
 export function validateUrlSyntax(url: string): UrlValidationResult {

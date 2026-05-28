@@ -45,6 +45,7 @@ describe('validateUrl', () => {
 
     await expect(validateUrl('https://example.com')).resolves.toEqual({
       valid: true,
+      addresses: [{ address: '93.184.216.34', family: 4 }],
     });
   });
 });
