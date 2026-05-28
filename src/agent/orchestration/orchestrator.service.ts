@@ -870,7 +870,7 @@ export class OrchestratorService {
 
     try {
       const parentThreadID = await this.stateService.getCustomState<string>(
-        goal.threadID ?? threadID,
+        threadID,
         'parentThreadID',
       );
       if (parentThreadID) {

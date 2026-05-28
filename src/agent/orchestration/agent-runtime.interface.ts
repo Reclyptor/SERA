@@ -31,8 +31,4 @@ export interface AgentRuntime {
   streamAttempt(
     input: AgentRuntimeStreamInput,
   ): StreamTextResult<ToolSet, never>;
-  compact?(input: unknown): Promise<unknown>;
-  classify?(input: unknown): Promise<unknown>;
-  reset?(sessionID: string): Promise<void>;
-  dispose?(): Promise<void>;
 }

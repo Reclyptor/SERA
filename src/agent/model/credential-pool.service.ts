@@ -140,35 +140,4 @@ export class CredentialPoolService {
       );
     }
   }
-
-  markUsed(provider: string, key: string): void {
-    const pool = this.pools.get(provider);
-    if (!pool) return;
-    const state = pool.keys.find((k) => k.key === key);
-    if (state) state.usageCount++;
-  }
-
-  hasPool(provider: string): boolean {
-    const pool = this.pools.get(provider);
-    return !!pool && pool.keys.length > 1;
-  }
-
-  getStats(): Record<
-    string,
-    { total: number; available: number; strategy: Strategy }
-  > {
-    const now = Date.now();
-    const stats: Record<
-      string,
-      { total: number; available: number; strategy: Strategy }
-    > = {};
-    for (const [provider, pool] of this.pools) {
-      stats[provider] = {
-        total: pool.keys.length,
-        available: pool.keys.filter((k) => k.cooldownUntil <= now).length,
-        strategy: pool.strategy,
-      };
-    }
-    return stats;
-  }
 }
