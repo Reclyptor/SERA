@@ -22,7 +22,6 @@ import {
 } from './orchestration.interfaces';
 import type {
   RunStartedData,
-  TextDeltaData,
   TextDoneData,
   ModelAttemptData,
   ModelFallbackData,
@@ -37,6 +36,7 @@ import { AttachmentMessageResolverService } from './attachment-message-resolver.
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
 import { StreamEventReducer } from './stream-event-reducer.service';
+import { LoopCircuitBreakerHandler } from './loop-circuit-breaker-handler.service';
 
 @Injectable()
 export class OrchestratorService {
@@ -62,6 +62,7 @@ export class OrchestratorService {
     private readonly agentRuntime: AiSdkAgentRuntimeService,
     private readonly lifecycle: RunLifecycleService,
     private readonly streamReducer: StreamEventReducer,
+    private readonly breakerHandler: LoopCircuitBreakerHandler,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -381,33 +382,21 @@ export class OrchestratorService {
               `Loop detected in run ${runID}: [${loop.type}] ${loop.message}`,
             );
             if (loop.type === 'circuit_breaker') {
-              messages.push({
-                role: 'user',
-                content: `[SYSTEM] ${loop.message} You must provide a final answer now without calling any more tools.`,
-              });
-              const finalMessagesForModel =
-                await this.attachmentMessageResolver.resolve(messages, userID);
-              const finalStream = this.agentRuntime.streamAttempt({
-                messages: finalMessagesForModel,
-                system: systemPrompt,
+              finalText = await this.breakerHandler.forceFinalAnswer({
+                runID,
+                threadID,
+                userID,
+                messages,
+                systemPrompt,
                 options: effectiveModelOptions,
                 abortSignal: abortController.signal,
+                initialText: finalText,
+                breakerMessage: loop.message,
               });
-              for await (const p of finalStream.fullStream) {
-                if (p.type === 'text-delta') {
-                  finalText += p.text;
-                  await this.emitEvent(runID, threadID, 'text.delta', {
-                    content: p.text,
-                  } satisfies TextDeltaData);
-                }
-              }
-              if (finalText) {
-                await this.emitEvent(runID, threadID, 'text.done', {
-                  content: finalText,
-                } satisfies TextDoneData);
-              }
               terminalStateReached = true;
-              await this.lifecycle.completeRun(goal, finalText, {
+              await this.finishRun({
+                goal,
+                response: finalText,
                 thinking: lastReasoningText,
                 thinkingDuration: lastThinkingDuration,
                 totalToolCalls,
@@ -421,7 +410,6 @@ export class OrchestratorService {
                   iterationCount,
                 },
               });
-              await this.maybeResumeYield(goal, finalText);
               break;
             }
             messages.push({
@@ -445,8 +433,9 @@ export class OrchestratorService {
 
           if (yieldRequested) {
             terminalStateReached = true;
-            const yieldResponse = finalText || 'Yielded.';
-            await this.lifecycle.completeRun(goal, yieldResponse, {
+            await this.finishRun({
+              goal,
+              response: finalText || 'Yielded.',
               thinking: lastReasoningText,
               thinkingDuration: lastThinkingDuration,
               totalToolCalls,
@@ -460,7 +449,6 @@ export class OrchestratorService {
                 iterationCount,
               },
             });
-            await this.maybeResumeYield(goal, yieldResponse);
             break;
           }
 
@@ -469,7 +457,9 @@ export class OrchestratorService {
 
           if (modelFinished) {
             terminalStateReached = true;
-            await this.lifecycle.completeRun(goal, finalText, {
+            await this.finishRun({
+              goal,
+              response: finalText,
               thinking: lastReasoningText,
               thinkingDuration: lastThinkingDuration,
               totalToolCalls,
@@ -483,7 +473,6 @@ export class OrchestratorService {
                 iterationCount,
               },
             });
-            await this.maybeResumeYield(goal, finalText);
             break;
           }
         } catch (streamError) {
@@ -503,7 +492,9 @@ export class OrchestratorService {
       if (!terminalStateReached && iterationCount >= cfg.maxIterations) {
         if (finalText) {
           terminalStateReached = true;
-          await this.lifecycle.completeRun(goal, finalText, {
+          await this.finishRun({
+            goal,
+            response: finalText,
             thinking: lastReasoningText,
             thinkingDuration: lastThinkingDuration,
             totalToolCalls,
@@ -516,7 +507,6 @@ export class OrchestratorService {
               iterationCount,
             },
           });
-          await this.maybeResumeYield(goal, finalText);
         } else {
           const error = `max_iterations_exceeded: run reached ${cfg.maxIterations} iterations without final text`;
           terminalStateReached = true;
@@ -553,6 +543,49 @@ export class OrchestratorService {
       runID,
     );
     return listeners > 0;
+  }
+
+  /**
+   * Single terminal-state path consumed by every successful-completion
+   * branch in `executeGoal` (model finished, yield, circuit-breaker
+   * force-final, max-iter partial). Delegates the per-run side effects
+   * to `RunLifecycleService.completeRun` and then schedules a parent
+   * resume if `sessions_yield` set the linkage.
+   */
+  private async finishRun(input: {
+    goal: AgentGoal;
+    response: string;
+    thinking?: string;
+    thinkingDuration?: number;
+    totalToolCalls: number;
+    toolCalls?: ToolCallBlock[];
+    usage: {
+      provider: string;
+      modelID: string;
+      inputTokens: number;
+      outputTokens: number;
+      durationMs: number;
+      iterationCount: number;
+    };
+  }): Promise<void> {
+    const {
+      goal,
+      response,
+      thinking,
+      thinkingDuration,
+      totalToolCalls,
+      toolCalls,
+      usage,
+    } = input;
+
+    await this.lifecycle.completeRun(goal, response, {
+      thinking,
+      thinkingDuration,
+      totalToolCalls,
+      toolCalls,
+      usage,
+    });
+    await this.maybeResumeYield(goal, response);
   }
 
   /**

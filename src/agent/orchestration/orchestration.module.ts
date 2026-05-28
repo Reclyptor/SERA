@@ -21,6 +21,7 @@ import { AttachmentMessageResolverService } from './attachment-message-resolver.
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
 import { StreamEventReducer } from './stream-event-reducer.service';
+import { LoopCircuitBreakerHandler } from './loop-circuit-breaker-handler.service';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { StreamEventReducer } from './stream-event-reducer.service';
     AttachmentMessageResolverService,
     RunLifecycleService,
     StreamEventReducer,
+    LoopCircuitBreakerHandler,
   ],
   exports: [OrchestratorService, StreamingModule],
 })

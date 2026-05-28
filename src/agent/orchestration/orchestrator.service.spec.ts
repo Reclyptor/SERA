@@ -77,6 +77,9 @@ describe('OrchestratorService', () => {
           toolCallBlocks: [],
         }),
       },
+      breakerHandler: {
+        forceFinalAnswer: vi.fn().mockResolvedValue(''),
+      },
       redis: {
         duplicate: vi.fn().mockReturnValue(redisSubscriber),
         publish: vi.fn(),
@@ -103,6 +106,7 @@ describe('OrchestratorService', () => {
         deps.agentRuntime as never,
         deps.lifecycle as never,
         deps.streamReducer as never,
+        deps.breakerHandler as never,
         deps.redis as never,
       ),
       deps,
