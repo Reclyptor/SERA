@@ -1,6 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ModuleRef } from '@nestjs/core';
 import { ToolsService } from './tools.service';
 import { ToolsRegistry } from './tools.registry';
 import { ToolApprovalService } from './tool-approval.service';
@@ -10,6 +15,14 @@ import { ChatsService } from '../../chats/chats.service';
 import { AgentsService } from '../../agents/agents.service';
 import { AgentRouterService } from '../../agents/agent-router.service';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
+import { SandboxRunnerService } from '../sandbox/sandbox-runner.service';
+import { CronSchedulerService } from '../cron/cron-scheduler.service';
+import { OrchestratorService } from '../orchestration/orchestrator.service';
+import { TasksService } from '../tasks/tasks.service';
+import { SkillsService } from '../skills/skills.service';
+import { TriggersService } from '../triggers/triggers.service';
+import { McpClientService } from '../mcp/mcp-client.service';
+import { adaptMcpTool } from '../mcp/mcp-tool-adapter';
 import {
   ReadTool,
   WriteTool,
@@ -59,7 +72,20 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly agentRouter: AgentRouterService,
     private readonly eventEmitter: AgentEventEmitter,
     private readonly approvalService: ToolApprovalService,
-    private readonly moduleRef: ModuleRef,
+    private readonly sandboxRunner: SandboxRunnerService,
+    private readonly tasksService: TasksService,
+    private readonly triggersService: TriggersService,
+    private readonly mcpClient: McpClientService,
+    // The remaining three create a module-import cycle with ToolsModule
+    // (Orchestration → Tools; Skills → Tools direct; Cron → Orchestration
+    // → Tools). `forwardRef` defers resolution so NestJS can complete the
+    // ring at runtime.
+    @Inject(forwardRef(() => OrchestratorService))
+    private readonly orchestrator: OrchestratorService,
+    @Inject(forwardRef(() => SkillsService))
+    private readonly skillsService: SkillsService,
+    @Inject(forwardRef(() => CronSchedulerService))
+    private readonly cronScheduler: CronSchedulerService,
   ) {}
 
   onModuleInit() {
@@ -80,43 +106,38 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new EditTool(workspace));
     this.toolsService.registerTool(new ApplyPatchTool(workspace));
 
-    // Sandbox runner (lazy — resolved only when sandbox is configured on an agent)
-    const lazySandboxRunner: import('./implementations/sandbox.types').SandboxRunnerLike =
-      {
-        exec: (opts) => this.resolveSandboxRunner().exec(opts),
-      };
-    const approvalRequester = this.approvalService;
-
-    // Runtime
+    // Runtime tools (shell/exec/process gated by ENABLE_SHELL_TOOL).
+    // SandboxRunnerService is injected directly; the orchestrator and
+    // approval service are injected too. No more lazy-shim resolvers.
     this.toolsService.registerTool(
       new ExecTool(
         workspace,
         shellEnabled,
-        lazySandboxRunner,
-        approvalRequester,
+        this.sandboxRunner,
+        this.approvalService,
       ),
     );
     this.toolsService.registerTool(
       new ShellTool(
         workspace,
         shellEnabled,
-        lazySandboxRunner,
-        approvalRequester,
+        this.sandboxRunner,
+        this.approvalService,
       ),
     );
     this.toolsService.registerTool(
       new ProcessTool(
         workspace,
         shellEnabled,
-        () => this.resolveOrchestrator(),
-        approvalRequester,
+        () => this.orchestrator,
+        this.approvalService,
       ),
     );
     this.toolsService.registerTool(
       new CodeExecutionTool(
         workspace,
         shellEnabled,
-        lazySandboxRunner,
+        this.sandboxRunner,
         this.toolsRegistry,
       ),
     );
@@ -144,187 +165,67 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new SessionSearchTool(this.chatsService));
 
     // Automation & messaging
-    const lazyCronScheduler: import('./implementations/cron.tool').CronSchedulerLike =
-      {
-        create: (data) => this.resolveCronScheduler().create(data),
-        findAll: (agentID) => this.resolveCronScheduler().findAll(agentID),
-        remove: (jobID) => this.resolveCronScheduler().remove(jobID),
-        setEnabled: (jobID, enabled) =>
-          this.resolveCronScheduler().setEnabled(jobID, enabled),
-      };
-    this.toolsService.registerTool(new CronTool(lazyCronScheduler));
+    this.toolsService.registerTool(new CronTool(this.cronScheduler));
     this.toolsService.registerTool(new MessageTool(this.chatsService));
 
-    // Shared lazy deps for agent delegation tools
-    const lazyOrchestrator: import('./implementations/agent-message.tool').OrchestratorLike =
-      {
-        executeGoal: (goal, config) =>
-          this.resolveOrchestrator().executeGoal(goal, config),
-      };
-    const runReader: import('./implementations/agent-message.tool').RunReaderLike =
-      {
-        getRunResponse: async (runID: string) => {
-          const run = await this.stateService.getRun(runID);
-          if (!run) return null;
-          return {
-            status: run.status,
-            response: run.response,
-          };
-        },
-      };
+    // Inter-agent delegation. The runReader adapts StateService's full
+    // run document down to the minimal `{ status, response }` slice the
+    // tools consume — keeping the shape narrow makes future reuse and
+    // testing easier than passing the full StateService.
+    const runReader = {
+      getRunResponse: async (runID: string) => {
+        const run = await this.stateService.getRun(runID);
+        if (!run) return null;
+        return { status: run.status, response: run.response };
+      },
+    };
 
     this.toolsService.registerTool(
-      new AgentMessageTool(this.agentsService, lazyOrchestrator, runReader),
+      new AgentMessageTool(this.agentsService, this.orchestrator, runReader),
     );
 
     // Sessions & agents
-    const lazyStateService = {
-      setCustomState: (threadID: string, key: string, value: unknown) =>
-        this.stateService.setCustomState(threadID, key, value),
-    };
-
     this.toolsService.registerTool(new SessionsListTool(this.stateService));
     this.toolsService.registerTool(new SessionsHistoryTool(this.chatsService));
     this.toolsService.registerTool(
       new SessionsSpawnTool(
-        lazyOrchestrator,
+        this.orchestrator,
         this.agentRouter,
         runReader,
         this.agentsService,
-        lazyStateService,
+        this.stateService,
       ),
     );
-    this.toolsService.registerTool(new SessionsYieldTool(lazyStateService));
+    this.toolsService.registerTool(new SessionsYieldTool(this.stateService));
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
     this.toolsService.registerTool(new SubagentsTool(this.stateService));
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
 
-    // Task decomposition (lazily resolved to avoid circular deps)
-    const lazyTasksService: import('./implementations/task-plan.tool').TasksServiceLike =
-      {
-        createPlan: (data) => this.resolveTasksService().createPlan(data),
-        getPlan: (planID) => this.resolveTasksService().getPlan(planID),
-        listPlans: (filters) => this.resolveTasksService().listPlans(filters),
-        updateTask: (planID, taskID, update, expectedRevision) =>
-          this.resolveTasksService().updateTask(
-            planID,
-            taskID,
-            update,
-            expectedRevision,
-          ),
-        cancelPlan: (planID) => this.resolveTasksService().cancelPlan(planID),
-        setState: (planID, key, value, expectedRevision) =>
-          this.resolveTasksService().setState(
-            planID,
-            key,
-            value,
-            expectedRevision,
-          ),
-        getState: (planID) => this.resolveTasksService().getState(planID),
-        deletePlan: (planID) => this.resolveTasksService().deletePlan(planID),
-      };
-    this.toolsService.registerTool(new TaskPlanTool(lazyTasksService));
+    // Task decomposition
+    this.toolsService.registerTool(new TaskPlanTool(this.tasksService));
 
-    // Skills (lazily resolved)
-    const lazySkills: import('./implementations/skills.tool').SkillsServiceLike =
-      {
-        findAll: () => this.resolveSkillsService().findAll(),
-        findByName: (name) => this.resolveSkillsService().findByName(name),
-        create: (dto) => this.resolveSkillsService().create(dto),
-        update: (name, dto) => this.resolveSkillsService().update(name, dto),
-        remove: (name) => this.resolveSkillsService().remove(name),
-        listFiles: (name) => this.resolveSkillsService().listFiles(name),
-        findFile: (name, path) =>
-          this.resolveSkillsService().findFile(name, path),
-        addFile: (name, path, content) =>
-          this.resolveSkillsService().addFile(name, path, content),
-        updateFile: (name, path, content) =>
-          this.resolveSkillsService().updateFile(name, path, content),
-        removeFile: (name, path) =>
-          this.resolveSkillsService().removeFile(name, path),
-      };
-    this.toolsService.registerTool(new SkillsTool(lazySkills));
+    // Skills
+    this.toolsService.registerTool(new SkillsTool(this.skillsService));
 
-    // Webhook triggers (lazily resolved)
-    const lazyTriggers: import('./implementations/trigger.tool').TriggersServiceLike =
-      {
-        create: (data) => this.resolveTriggersService().create(data),
-        findAll: (agentID) => this.resolveTriggersService().findAll(agentID),
-        update: (triggerID, data) =>
-          this.resolveTriggersService().update(triggerID, data),
-        remove: (triggerID) => this.resolveTriggersService().remove(triggerID),
-      };
-    this.toolsService.registerTool(new TriggerTool(lazyTriggers));
+    // Webhook triggers
+    this.toolsService.registerTool(new TriggerTool(this.triggersService));
 
     this.logger.log(
       `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 
-  private resolveSandboxRunner() {
-    const {
-      SandboxRunnerService,
-    } = require('../sandbox/sandbox-runner.service');
-    const svc = this.moduleRef.get(SandboxRunnerService, { strict: false });
-    if (!svc) throw new Error('SandboxRunnerService not available');
-    return svc;
-  }
-
-  private resolveCronScheduler() {
-    const { CronSchedulerService } = require('../cron/cron-scheduler.service');
-    const svc = this.moduleRef.get(CronSchedulerService, { strict: false });
-    if (!svc) throw new Error('CronSchedulerService not available');
-    return svc;
-  }
-
-  private resolveOrchestrator() {
-    const {
-      OrchestratorService,
-    } = require('../orchestration/orchestrator.service');
-    const svc = this.moduleRef.get(OrchestratorService, { strict: false });
-    if (!svc) throw new Error('OrchestratorService not available');
-    return svc;
-  }
-
-  private resolveTasksService() {
-    const { TasksService } = require('../tasks/tasks.service');
-    const svc = this.moduleRef.get(TasksService, { strict: false });
-    if (!svc) throw new Error('TasksService not available');
-    return svc;
-  }
-
-  private resolveSkillsService() {
-    const { SkillsService } = require('../skills/skills.service');
-    const svc = this.moduleRef.get(SkillsService, { strict: false });
-    if (!svc) throw new Error('SkillsService not available');
-    return svc;
-  }
-
-  private resolveTriggersService() {
-    const { TriggersService } = require('../triggers/triggers.service');
-    const svc = this.moduleRef.get(TriggersService, { strict: false });
-    if (!svc) throw new Error('TriggersService not available');
-    return svc;
-  }
-
   private registerMcpTools() {
-    // Delay MCP tool registration to allow MCP connections to be established
+    // Delay MCP tool registration so the McpClientService's onModuleInit
+    // has time to complete connections + tool discovery against any
+    // configured MCP servers.
     setTimeout(() => {
       try {
-        const { McpClientService } = require('../mcp/mcp-client.service');
-        const mcpClient = this.moduleRef.get(McpClientService, {
-          strict: false,
-        });
-        if (!mcpClient) return;
-
-        const { adaptMcpTool } = require('../mcp/mcp-tool-adapter');
-        const tools = mcpClient.getDiscoveredTools();
-
+        const tools = this.mcpClient.getDiscoveredTools();
         for (const toolDef of tools) {
-          const adapted = adaptMcpTool(toolDef, mcpClient);
+          const adapted = adaptMcpTool(toolDef, this.mcpClient);
           this.toolsService.registerTool(adapted);
         }
-
         if (tools.length > 0) {
           this.logger.log(`Registered ${tools.length} MCP tools`);
         }
