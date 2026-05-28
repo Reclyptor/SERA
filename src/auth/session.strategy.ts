@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-custom';
 import { ConfigService } from '@nestjs/config';
@@ -20,7 +25,10 @@ export interface SessionUser {
  * 4. Validates the access token against Authentik's JWKS
  */
 @Injectable()
-export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
+export class SessionStrategy
+  extends PassportStrategy(Strategy, 'session')
+  implements OnModuleInit
+{
   private readonly logger = new Logger(SessionStrategy.name);
   private readonly authSecret: string;
   private readonly issuer: string;
@@ -47,9 +55,33 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
     this.cookieName = 'authjs.session-token';
   }
 
+  /**
+   * Pre-warm OIDC discovery + JWKS setup so the first authenticated
+   * request doesn't pay the discovery latency. A failure here is
+   * non-fatal — discovery will retry lazily on the first request — but
+   * we log loudly so a misconfigured issuer surfaces at boot rather
+   * than mid-traffic.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.getJWKS();
+      this.logger.log('Pre-warmed JWKS from OIDC discovery');
+    } catch (err) {
+      this.logger.warn(
+        `OIDC discovery warm-up failed (will retry on first request): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   private async getJWKS(): Promise<jose.JWTVerifyGetKey> {
     if (!this.jwks) {
-      // Use OIDC discovery to find the correct JWKS URI
+      // Use OIDC discovery to find the correct JWKS URI. Once we hold
+      // the `createRemoteJWKSet` getter, `jose` handles its own JWKS
+      // cache + key-rotation refresh (default 10-minute cacheMaxAge,
+      // automatic refresh when an unknown `kid` is presented), so we
+      // only need to discover the URI once per process.
       const discoveryUrl = `${this.issuer}/.well-known/openid-configuration`;
       const response = await fetch(discoveryUrl);
       if (!response.ok) {
@@ -57,7 +89,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
           `OIDC discovery failed: ${response.status} ${response.statusText}`,
         );
       }
-      const config = await response.json();
+      const config = (await response.json()) as { jwks_uri?: string };
       const jwksUri = config.jwks_uri;
       if (!jwksUri) {
         throw new Error('No jwks_uri found in OIDC discovery document');
@@ -82,7 +114,7 @@ export class SessionStrategy extends PassportStrategy(Strategy, 'session') {
   private async decryptSessionCookie(
     encryptedToken: string,
     cookieName: string,
-  ): Promise<any> {
+  ): Promise<jose.JWTPayload> {
     try {
       // Derive encryption key the same way Auth.js v5 does
       const secret = new TextEncoder().encode(this.authSecret);
