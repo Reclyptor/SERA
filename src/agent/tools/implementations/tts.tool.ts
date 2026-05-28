@@ -5,6 +5,11 @@ import type {
   ToolExecutionResult,
 } from '../tool.interface';
 
+// 5 MiB inline cap — base64-encoded audio above this overwhelms the SSE
+// stream and most LLM context windows. Callers wanting larger output
+// should route through object storage instead of inline base64.
+const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+
 const parameters = z.object({
   text: z.string().max(4096).describe('Text to convert to speech'),
   voice: z
@@ -71,6 +76,12 @@ export class TtsTool implements Tool<typeof parameters> {
       }
 
       const arrayBuffer = await response.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_AUDIO_BYTES) {
+        return {
+          success: false,
+          error: `TTS audio (${arrayBuffer.byteLength} bytes) exceeds the ${MAX_AUDIO_BYTES}-byte inline cap. Shorten the input or split into multiple calls.`,
+        };
+      }
       const audio = Buffer.from(arrayBuffer).toString('base64');
 
       return {

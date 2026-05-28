@@ -70,13 +70,22 @@ export class ImageGenerateTool implements Tool<typeof parameters> {
         };
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        data?: Array<{ url?: string; revised_prompt?: string }>;
+      };
+      const first = data.data?.[0];
+      if (!first?.url) {
+        return {
+          success: false,
+          error: 'OpenAI returned no image URL',
+        };
+      }
       return {
         success: true,
         result: {
           prompt,
-          url: data.data[0].url,
-          revisedPrompt: data.data[0].revised_prompt,
+          url: first.url,
+          revisedPrompt: first.revised_prompt,
         },
       };
     } catch (error) {

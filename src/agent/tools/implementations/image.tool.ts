@@ -87,12 +87,21 @@ export class ImageTool implements Tool<typeof parameters> {
         };
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const analysis = data.choices?.[0]?.message?.content;
+      if (!analysis) {
+        return {
+          success: false,
+          error: 'OpenAI returned no analysis content',
+        };
+      }
       return {
         success: true,
         result: {
           source,
-          analysis: data.choices[0].message.content,
+          analysis,
         },
       };
     } catch (error) {
