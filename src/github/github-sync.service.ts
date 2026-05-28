@@ -1,8 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
-import Redis from 'ioredis';
-import { REDIS_CLIENT } from '../redis/redis.constants';
 import type { PromptDocument } from '../prompts/prompt.schema';
 import type { SkillDocument } from '../agent/skills/skill.schema';
 import {
@@ -14,19 +12,8 @@ import {
   type PromptFrontmatterData,
   type SkillFrontmatterData,
 } from './frontmatter-codec';
-
-interface TreeEntry {
-  path: string;
-  sha: string;
-  type: 'blob' | 'tree';
-  size?: number;
-}
-
-interface GitHubFile {
-  content: string;
-  sha: string;
-  path: string;
-}
+import { GitHubHttpClient } from './github-http-client.service';
+import { GitHubShaTracker } from './github-sha-tracker.service';
 
 export interface SyncResult {
   created: number;
@@ -35,21 +22,23 @@ export interface SyncResult {
   errors: string[];
 }
 
-const SYNC_SHA_PREFIX = 'github:sync:';
-const API_BASE = 'https://api.github.com';
-
+/**
+ * Coordinates bidirectional GitHub sync for prompts and skills.
+ * Delegates HTTP I/O to `GitHubHttpClient`, last-synced commit tracking
+ * to `GitHubShaTracker`, and frontmatter parsing/serialization to the
+ * `frontmatter-codec` module.
+ */
 @Injectable()
 export class GitHubSyncService {
   private readonly logger = new Logger(GitHubSyncService.name);
-  private readonly pat: string | null;
   readonly promptsRepo: string;
   readonly skillsRepo: string;
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly http: GitHubHttpClient,
+    private readonly shaTracker: GitHubShaTracker,
   ) {
-    this.pat = this.configService.get<string>('GITHUB_PAT') ?? null;
     this.promptsRepo = this.configService.get<string>(
       'GITHUB_PROMPTS_REPO',
       'Reclyptor/Prompts',
@@ -58,139 +47,10 @@ export class GitHubSyncService {
       'GITHUB_SKILLS_REPO',
       'Reclyptor/Skills',
     );
-
-    if (!this.pat) {
-      this.logger.warn('GITHUB_PAT not set — GitHub sync disabled');
-    }
   }
 
   get enabled(): boolean {
-    return this.pat !== null;
-  }
-
-  private get headers(): Record<string, string> {
-    return {
-      Authorization: `Bearer ${this.pat}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    };
-  }
-
-  // ── Tree & File Operations ──────────────────────────────────────────
-
-  async fetchTree(repo: string, branch = 'master'): Promise<TreeEntry[]> {
-    const res = await fetch(
-      `${API_BASE}/repos/${repo}/git/trees/${branch}?recursive=1`,
-      {
-        headers: this.headers,
-      },
-    );
-    if (!res.ok)
-      throw new Error(
-        `GitHub tree fetch failed: ${res.status} ${res.statusText}`,
-      );
-
-    const data = await res.json();
-    return (data.tree as TreeEntry[]).filter((e) => e.type === 'blob');
-  }
-
-  async fetchFile(repo: string, path: string): Promise<GitHubFile> {
-    const res = await fetch(
-      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
-      {
-        headers: this.headers,
-      },
-    );
-    if (!res.ok)
-      throw new Error(`GitHub file fetch failed (${path}): ${res.status}`);
-
-    const data = await res.json();
-    const content = Buffer.from(data.content, 'base64').toString('utf-8');
-    return { content, sha: data.sha, path: data.path };
-  }
-
-  async putFile(
-    repo: string,
-    path: string,
-    content: string,
-    sha?: string,
-    message?: string,
-  ): Promise<string> {
-    const body: Record<string, unknown> = {
-      message: message ?? `Update ${path}`,
-      content: Buffer.from(content).toString('base64'),
-    };
-    if (sha) body.sha = sha;
-
-    const res = await fetch(
-      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
-      {
-        method: 'PUT',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
-
-    if (res.status === 409 && sha) {
-      // SHA conflict — refetch and retry once
-      const current = await this.fetchFile(repo, path);
-      return this.putFile(repo, path, content, current.sha, message);
-    }
-
-    if (!res.ok)
-      throw new Error(`GitHub putFile failed (${path}): ${res.status}`);
-
-    const data = await res.json();
-    return data.content.sha;
-  }
-
-  async deleteFile(
-    repo: string,
-    path: string,
-    sha: string,
-    message?: string,
-  ): Promise<void> {
-    const res = await fetch(
-      `${API_BASE}/repos/${repo}/contents/${encodeURIComponent(path)}`,
-      {
-        method: 'DELETE',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: message ?? `Delete ${path}`,
-          sha,
-        }),
-      },
-    );
-    if (!res.ok && res.status !== 404) {
-      throw new Error(`GitHub deleteFile failed (${path}): ${res.status}`);
-    }
-  }
-
-  // ── SHA Tracking ────────────────────────────────────────────────────
-
-  private async getStoredSha(repo: string): Promise<string | null> {
-    try {
-      return await this.redis.get(`${SYNC_SHA_PREFIX}${repo}:sha`);
-    } catch {
-      return null;
-    }
-  }
-
-  private async setStoredSha(repo: string, sha: string): Promise<void> {
-    try {
-      await this.redis.set(`${SYNC_SHA_PREFIX}${repo}:sha`, sha);
-    } catch {
-      this.logger.warn('Failed to store sync SHA in Redis');
-    }
-  }
-
-  private async getHeadSha(repo: string, branch = 'master'): Promise<string> {
-    const res = await fetch(`${API_BASE}/repos/${repo}/commits/${branch}`, {
-      headers: this.headers,
-    });
-    if (!res.ok) throw new Error(`GitHub HEAD fetch failed: ${res.status}`);
-    const data = await res.json();
-    return data.sha;
+    return this.http.enabled;
   }
 
   // ── Prompt Sync ─────────────────────────────────────────────────────
@@ -207,15 +67,15 @@ export class GitHubSyncService {
     };
 
     try {
-      const headSha = await this.getHeadSha(this.promptsRepo);
-      const storedSha = await this.getStoredSha(this.promptsRepo);
+      const headSha = await this.http.getHeadSha(this.promptsRepo);
+      const storedSha = await this.shaTracker.get(this.promptsRepo);
 
       if (headSha === storedSha) {
         this.logger.debug('Prompts repo unchanged, skipping sync');
         return result;
       }
 
-      const tree = await this.fetchTree(this.promptsRepo);
+      const tree = await this.http.fetchTree(this.promptsRepo);
       const mdFiles = tree.filter(
         (e) => e.path.endsWith('.md') && !e.path.includes('/'),
       );
@@ -231,7 +91,7 @@ export class GitHubSyncService {
             continue;
           }
 
-          const file = await this.fetchFile(this.promptsRepo, entry.path);
+          const file = await this.http.fetchFile(this.promptsRepo, entry.path);
           const { meta, content } = parseFrontmatter(file.content);
 
           const update: Record<string, unknown> = {
@@ -252,18 +112,18 @@ export class GitHubSyncService {
             this.logger.log(`Created prompt "${slug}" from GitHub`);
           }
         } catch (err) {
-          const msg = `Failed to sync prompt "${slug}": ${err instanceof Error ? err.message : err}`;
+          const msg = `Failed to sync prompt "${slug}": ${err instanceof Error ? err.message : String(err)}`;
           result.errors.push(msg);
           this.logger.error(msg);
         }
       }
 
-      await this.setStoredSha(this.promptsRepo, headSha);
+      await this.shaTracker.set(this.promptsRepo, headSha);
       this.logger.log(
         `Prompts sync complete: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`,
       );
     } catch (err) {
-      const msg = `Prompts sync failed: ${err instanceof Error ? err.message : err}`;
+      const msg = `Prompts sync failed: ${err instanceof Error ? err.message : String(err)}`;
       result.errors.push(msg);
       this.logger.error(msg);
     }
@@ -285,18 +145,18 @@ export class GitHubSyncService {
     };
 
     try {
-      const headSha = await this.getHeadSha(this.skillsRepo);
-      const storedSha = await this.getStoredSha(this.skillsRepo);
+      const headSha = await this.http.getHeadSha(this.skillsRepo);
+      const storedSha = await this.shaTracker.get(this.skillsRepo);
 
       if (headSha === storedSha) {
         this.logger.debug('Skills repo unchanged, skipping sync');
         return result;
       }
 
-      const tree = await this.fetchTree(this.skillsRepo);
+      const tree = await this.http.fetchTree(this.skillsRepo);
 
       // Group files by top-level directory
-      const skillDirs = new Map<string, TreeEntry[]>();
+      const skillDirs = new Map<string, typeof tree>();
       for (const entry of tree) {
         const slashIdx = entry.path.indexOf('/');
         if (slashIdx === -1) continue; // skip root-level files
@@ -310,7 +170,6 @@ export class GitHubSyncService {
         if (!skillMd) continue;
 
         try {
-          // Composite hash from all file SHAs in the directory
           const compositeSha = computeCompositeSha(entries);
           const existing = await skillModel.findOne({ name }).exec();
 
@@ -319,15 +178,17 @@ export class GitHubSyncService {
             continue;
           }
 
-          const file = await this.fetchFile(this.skillsRepo, skillMd.path);
+          const file = await this.http.fetchFile(this.skillsRepo, skillMd.path);
           const { meta, content } = parseSkillFrontmatter(file.content);
 
-          // Fetch supplementary files
           const supplementary: { path: string; content: string }[] = [];
           for (const entry of entries) {
             if (entry.path === `${name}/SKILL.md`) continue;
             const relPath = entry.path.slice(name.length + 1);
-            const fetched = await this.fetchFile(this.skillsRepo, entry.path);
+            const fetched = await this.http.fetchFile(
+              this.skillsRepo,
+              entry.path,
+            );
             supplementary.push({ path: relPath, content: fetched.content });
           }
 
@@ -352,18 +213,18 @@ export class GitHubSyncService {
             this.logger.log(`Created skill "${name}" from GitHub`);
           }
         } catch (err) {
-          const msg = `Failed to sync skill "${name}": ${err instanceof Error ? err.message : err}`;
+          const msg = `Failed to sync skill "${name}": ${err instanceof Error ? err.message : String(err)}`;
           result.errors.push(msg);
           this.logger.error(msg);
         }
       }
 
-      await this.setStoredSha(this.skillsRepo, headSha);
+      await this.shaTracker.set(this.skillsRepo, headSha);
       this.logger.log(
         `Skills sync complete: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`,
       );
     } catch (err) {
-      const msg = `Skills sync failed: ${err instanceof Error ? err.message : err}`;
+      const msg = `Skills sync failed: ${err instanceof Error ? err.message : String(err)}`;
       result.errors.push(msg);
       this.logger.error(msg);
     }
@@ -381,11 +242,10 @@ export class GitHubSyncService {
 
     try {
       const fileContent = serializePromptFile(data);
-      const existing = await this.fetchFile(
-        this.promptsRepo,
-        `${slug}.md`,
-      ).catch(() => null);
-      const newSha = await this.putFile(
+      const existing = await this.http
+        .fetchFile(this.promptsRepo, `${slug}.md`)
+        .catch(() => null);
+      const newSha = await this.http.putFile(
         this.promptsRepo,
         `${slug}.md`,
         fileContent,
@@ -409,11 +269,10 @@ export class GitHubSyncService {
 
     try {
       const skillMdContent = serializeSkillFile(data);
-      const existing = await this.fetchFile(
-        this.skillsRepo,
-        `${name}/SKILL.md`,
-      ).catch(() => null);
-      await this.putFile(
+      const existing = await this.http
+        .fetchFile(this.skillsRepo, `${name}/SKILL.md`)
+        .catch(() => null);
+      await this.http.putFile(
         this.skillsRepo,
         `${name}/SKILL.md`,
         skillMdContent,
@@ -424,11 +283,10 @@ export class GitHubSyncService {
       if (data.files) {
         for (const file of data.files) {
           const filePath = `${name}/${file.path}`;
-          const existingFile = await this.fetchFile(
-            this.skillsRepo,
-            filePath,
-          ).catch(() => null);
-          await this.putFile(
+          const existingFile = await this.http
+            .fetchFile(this.skillsRepo, filePath)
+            .catch(() => null);
+          await this.http.putFile(
             this.skillsRepo,
             filePath,
             file.content,
@@ -446,8 +304,11 @@ export class GitHubSyncService {
     if (!this.enabled) return;
 
     try {
-      const existing = await this.fetchFile(this.promptsRepo, `${slug}.md`);
-      await this.deleteFile(
+      const existing = await this.http.fetchFile(
+        this.promptsRepo,
+        `${slug}.md`,
+      );
+      await this.http.deleteFile(
         this.promptsRepo,
         `${slug}.md`,
         existing.sha,
@@ -462,11 +323,11 @@ export class GitHubSyncService {
     if (!this.enabled) return;
 
     try {
-      const tree = await this.fetchTree(this.skillsRepo);
+      const tree = await this.http.fetchTree(this.skillsRepo);
       const skillFiles = tree.filter((e) => e.path.startsWith(`${name}/`));
 
       for (const entry of skillFiles) {
-        await this.deleteFile(
+        await this.http.deleteFile(
           this.skillsRepo,
           entry.path,
           entry.sha,
