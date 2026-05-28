@@ -1030,10 +1030,11 @@ All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel`
 
 **`generate()` method:**
 
-- 3 attempts with exponential backoff (capped at 30s) plus jitter
+- **Per provider:** up to 3 attempts with exponential backoff (capped at 30s) plus jitter
+- **Across providers:** an outer loop walks the resolved provider list (primary + `FALLBACK_MODELS`), so with N providers the worst-case total is 3 × N attempts before exhaustion
 - On context length errors: thrown immediately (triggers compression)
-- On retryable non-rotate errors (500, 504, request timeout, connection reset): retry with backoff
-- On rotate-required errors (rate limit, quota, invalid auth, model not found, service unavailable): cooldown the provider key, exclude provider, try next
+- On retryable non-rotate errors (500, 504, request timeout, connection reset): retry with backoff on the same provider
+- On rotate-required errors (rate limit, quota, invalid auth, model not found, service unavailable): cooldown the provider key, exclude provider, advance to next
 - Throws after all providers exhausted
 
 **`stream()` method:**
