@@ -1399,7 +1399,7 @@ On first boot, `AgentsBootstrapService` seeds:
 3. **Default binding** — `bindingType: 'default'`
 4. **null** — No agent matched
 
-All lookups filter by `enabled: true` and sort by `priority` descending (highest priority wins).
+Each tier filters BOTH the binding's `enabled` flag and the target agent's `enabled` flag, sorted by `priority` descending (highest priority wins). A binding pointing at a disabled agent is treated as if the binding did not exist, falling through to the next tier. If no tier resolves to an enabled agent, the resolver returns `null`.
 
 ### Inter-Agent Messaging
 

@@ -30,6 +30,28 @@ export class AgentsController {
     return this.agentsService.findAll();
   }
 
+  // Bindings routes are declared BEFORE the `:agentID` routes so that
+  // any future `/agents/bindings*` path cannot be shadowed by `:agentID`.
+
+  @Post('bindings')
+  async createBinding(@Body() dto: CreateBindingDto) {
+    return this.routerService.createBinding(dto);
+  }
+
+  @Get('bindings/list')
+  async listBindings(@Query('agentID') agentID?: string) {
+    return this.routerService.listBindings(agentID);
+  }
+
+  @Delete('bindings/:bindingID')
+  async removeBinding(@Param('bindingID') bindingID: string) {
+    const deleted = await this.routerService.removeBinding(bindingID);
+    if (!deleted) {
+      throw new NotFoundException(`Binding "${bindingID}" not found`);
+    }
+    return { deleted: true };
+  }
+
   @Get(':agentID')
   async findOne(@Param('agentID') agentID: string) {
     const agent = await this.agentsService.findByID(agentID);
@@ -49,27 +71,6 @@ export class AgentsController {
     const deleted = await this.agentsService.remove(agentID);
     if (!deleted) {
       throw new NotFoundException(`Agent "${agentID}" not found`);
-    }
-    return { deleted: true };
-  }
-
-  // Bindings
-
-  @Post('bindings')
-  async createBinding(@Body() dto: CreateBindingDto) {
-    return this.routerService.createBinding(dto);
-  }
-
-  @Get('bindings/list')
-  async listBindings(@Query('agentID') agentID?: string) {
-    return this.routerService.listBindings(agentID);
-  }
-
-  @Delete('bindings/:bindingID')
-  async removeBinding(@Param('bindingID') bindingID: string) {
-    const deleted = await this.routerService.removeBinding(bindingID);
-    if (!deleted) {
-      throw new NotFoundException(`Binding "${bindingID}" not found`);
     }
     return { deleted: true };
   }

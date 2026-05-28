@@ -29,11 +29,14 @@ export class AgentRouterService {
    * 2. Channel binding (bindingType='channel', bindingValue=chatID or threadID)
    * 3. Default binding (bindingType='default')
    * 4. null (use built-in default — no agent config)
+   *
+   * Each tier filters both the binding's `enabled` flag and the target
+   * agent's `enabled` flag. A binding to a disabled agent falls through
+   * to the next tier as if the binding did not exist.
    */
   async resolve(context: RoutingContext): Promise<string | null> {
-    // 1. User binding
     if (context.userID) {
-      const userBinding = await this.findBinding('user', context.userID);
+      const userBinding = await this.findEnabledBinding('user', context.userID);
       if (userBinding) {
         this.logger.debug(
           `Routed to agent "${userBinding.agentID}" via user binding`,
@@ -42,10 +45,12 @@ export class AgentRouterService {
       }
     }
 
-    // 2. Channel binding (try chatID first, then threadID)
     const channelID = context.chatID ?? context.threadID;
     if (channelID) {
-      const channelBinding = await this.findBinding('channel', channelID);
+      const channelBinding = await this.findEnabledBinding(
+        'channel',
+        channelID,
+      );
       if (channelBinding) {
         this.logger.debug(
           `Routed to agent "${channelBinding.agentID}" via channel binding`,
@@ -54,8 +59,7 @@ export class AgentRouterService {
       }
     }
 
-    // 3. Default binding
-    const defaultBinding = await this.findBinding('default');
+    const defaultBinding = await this.findEnabledBinding('default');
     if (defaultBinding) {
       this.logger.debug(
         `Routed to agent "${defaultBinding.agentID}" via default binding`,
@@ -63,11 +67,10 @@ export class AgentRouterService {
       return defaultBinding.agentID;
     }
 
-    // 4. No binding found
     return null;
   }
 
-  private async findBinding(
+  private async findEnabledBinding(
     type: string,
     value?: string,
   ): Promise<AgentBinding | null> {
@@ -79,7 +82,23 @@ export class AgentRouterService {
       filter.bindingValue = value;
     }
 
-    return this.bindingModel.findOne(filter).sort({ priority: -1 }).exec();
+    // Iterate in priority order — the first binding whose target agent is
+    // also enabled wins. Disabled targets are skipped so a user-binding to
+    // a deactivated agent falls through to channel/default tiers instead
+    // of routing into an agent that should not be receiving traffic.
+    const bindings = await this.bindingModel
+      .find(filter)
+      .sort({ priority: -1 })
+      .exec();
+
+    for (const binding of bindings) {
+      const agent = await this.agentModel
+        .findOne({ agentID: binding.agentID, enabled: true })
+        .exec();
+      if (agent) return binding;
+    }
+
+    return null;
   }
 
   // CRUD for bindings
