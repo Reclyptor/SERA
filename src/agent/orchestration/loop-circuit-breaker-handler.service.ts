@@ -7,6 +7,7 @@ import type { ModelRequestOptions } from '../model/model.interfaces';
 import type {
   TextDeltaData,
   TextDoneData,
+  ModelAttemptData,
 } from '../streaming/stream.interfaces';
 
 export interface ForceFinalAnswerInput {
@@ -64,6 +65,16 @@ export class LoopCircuitBreakerHandler {
       system: systemPrompt,
       options,
       abortSignal,
+      // SPEC §29.1: "Model attempts are emitted as structured stream
+      // events." The force-final stream is a separate model call from
+      // the main loop, so it surfaces its own attempt event to clients.
+      onAttempt: async (attempt) => {
+        await this.eventEmitter.emitEvent(runID, threadID, 'model.attempt', {
+          attempt: attempt.attempt,
+          provider: attempt.provider,
+          modelID: attempt.modelID,
+        } satisfies ModelAttemptData);
+      },
     });
 
     let finalText = initialText;
