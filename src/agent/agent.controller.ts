@@ -145,7 +145,6 @@ export class AgentController {
           chatID,
           agentID,
           userMessage: messageText,
-          attachmentIDs,
           conversationHistory: [],
           modelOptions: body.model ? { preferredModel: body.model } : undefined,
         },
