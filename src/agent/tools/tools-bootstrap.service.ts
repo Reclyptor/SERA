@@ -199,6 +199,7 @@ export class ToolsBootstrapService implements OnModuleInit {
         lazyOrchestrator,
         this.agentRouter,
         runReader,
+        this.agentsService,
         lazyStateService,
       ),
     );

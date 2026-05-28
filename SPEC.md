@@ -2111,6 +2111,8 @@ concurrency?: number  // Default: 3
 
 When `tasks` is provided, subagents are spawned in parallel with a semaphore-based concurrency limiter. All tasks use `waitForResult: true`. Results are aggregated and returned as an array with per-task `threadID`, `runID`, `status`, and `response`.
 
+Both the single-spawn and batch paths share the delegation cap and agent gating used by `agent_message` (§11): `sessions_spawn` refuses to fire when `context.delegationDepth >= 2`, validates that each target `agentID` exists and is `enabled`, and propagates `delegationDepth + 1` into the spawned run so further nesting is bounded. In batch mode, individual tasks routed to invalid agents are marked `status: 'failed'` without launching a run; the remaining tasks proceed.
+
 ### 28.6 Cron Script Pre-Processing
 
 Cron jobs support a `script` field containing a shell command that runs before the agent. Its stdout is injected into the agent's message as a `## Script Output` section.

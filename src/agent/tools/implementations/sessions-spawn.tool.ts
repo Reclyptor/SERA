@@ -40,6 +40,7 @@ export interface SpawnOrchestratorLike {
       agentID: string;
       userMessage: string;
       conversationHistory: unknown[];
+      delegationDepth?: number;
     },
     config?: { maxSteps?: number; maxIterations?: number },
   ): Promise<void>;
@@ -63,6 +64,14 @@ export interface SpawnRunReaderLike {
 export interface SpawnStateServiceLike {
   setCustomState<T>(threadID: string, key: string, value: T): Promise<void>;
 }
+
+export interface SpawnAgentsServiceLike {
+  findByID(
+    agentID: string,
+  ): Promise<{ agentID: string; enabled: boolean } | null>;
+}
+
+const MAX_DELEGATION_DEPTH = 2;
 
 const parameters = z.object({
   goal: z
@@ -125,6 +134,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     private readonly orchestrator: SpawnOrchestratorLike,
     private readonly router: SpawnRouterLike,
     private readonly runReader: SpawnRunReaderLike,
+    private readonly agentsService: SpawnAgentsServiceLike,
     private readonly stateService?: SpawnStateServiceLike,
   ) {}
 
@@ -132,8 +142,16 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
+    const currentDepth = context.delegationDepth ?? 0;
+    if (currentDepth >= MAX_DELEGATION_DEPTH) {
+      return {
+        success: false,
+        error: `Delegation depth limit reached (max ${MAX_DELEGATION_DEPTH}). Cannot spawn further sessions.`,
+      };
+    }
+
     if (args.tasks && args.tasks.length > 0) {
-      return this.executeBatch(args, context);
+      return this.executeBatch(args, context, currentDepth);
     }
 
     if (!args.goal?.trim()) {
@@ -162,6 +180,9 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
       };
     }
 
+    const agentCheck = await this.assertAgentRoutable(agentID);
+    if (agentCheck) return agentCheck;
+
     if (this.stateService) {
       await this.stateService.setCustomState(
         threadID,
@@ -178,6 +199,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
         agentID,
         userMessage: goal,
         conversationHistory: [],
+        delegationDepth: currentDepth + 1,
       },
       { maxSteps, maxIterations },
     );
@@ -227,6 +249,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
   private async executeBatch(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
+    currentDepth: number,
   ): Promise<ToolExecutionResult> {
     const tasks = args.tasks!;
     const concurrency = args.concurrency ?? 3;
@@ -243,6 +266,18 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
         })) ??
         context.agentID;
 
+      const agentCheck = await this.assertAgentRoutable(agentID);
+      if (agentCheck) {
+        return {
+          threadID,
+          runID,
+          agentID,
+          goal: task.goal,
+          status: 'failed',
+          response: agentCheck.error ?? 'agent not routable',
+        };
+      }
+
       const goalObj = {
         threadID,
         runID,
@@ -250,6 +285,7 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
         agentID,
         userMessage: task.goal,
         conversationHistory: [] as unknown[],
+        delegationDepth: currentDepth + 1,
       };
 
       if (this.stateService) {
@@ -321,5 +357,24 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
         totalCount: tasks.length,
       },
     };
+  }
+
+  private async assertAgentRoutable(
+    agentID: string,
+  ): Promise<ToolExecutionResult | null> {
+    const agent = await this.agentsService.findByID(agentID);
+    if (!agent) {
+      return {
+        success: false,
+        error: `Agent "${agentID}" not found.`,
+      };
+    }
+    if (!agent.enabled) {
+      return {
+        success: false,
+        error: `Agent "${agentID}" is disabled.`,
+      };
+    }
+    return null;
   }
 }
