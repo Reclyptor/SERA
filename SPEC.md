@@ -2216,7 +2216,7 @@ This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve cor
 | `onPreLLMCall`, `onPostLLMCall` | `hooks.llm` |
 | `onSessionStart`, `onSessionEnd` | _(ungated — lifecycle signals only)_ |
 
-Denied calls are logged at warn level and become no-ops; the plugin continues to load. The `network` and `filesystem` permissions are reserved for tools the plugin registers — they're checked at invocation time by the receiving subsystem, not at registration.
+Denied calls are logged at warn level and become no-ops; the plugin continues to load. `network` and `filesystem` are declarative-only — they describe what a plugin claims to need so operators can audit before enabling it, but the runtime does not currently sandbox plugin code, so the host process can't actually deny those accesses from within the plugin's own execution. Promoting them to runtime-enforced would require sandboxing each plugin (separate process, restricted FS, network namespace) — out of scope for this layer. The `tools.register` / `hooks.tools` / `hooks.llm` enforcement above gates what the plugin can register WITH the host; that's the line where runtime enforcement is meaningful.
 
 ### Plugin requiresApproval Enforcement
 
