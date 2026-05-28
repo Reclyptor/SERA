@@ -41,7 +41,7 @@ export interface CronSchedulerLike {
 }
 
 const CRON_REGEX =
-  /^(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)$/;
+  /^(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)$/;
 
 const parameters = z.object({
   operation: z
@@ -63,11 +63,15 @@ const parameters = z.object({
   script: z
     .string()
     .optional()
-    .describe('Shell command to run before the agent. Its stdout is injected into the prompt as data context.'),
+    .describe(
+      'Shell command to run before the agent. Its stdout is injected into the prompt as data context.',
+    ),
   contextFromJobID: z
     .string()
     .optional()
-    .describe('Job ID whose last run response is injected as context for this job.'),
+    .describe(
+      'Job ID whose last run response is injected as context for this job.',
+    ),
   jobID: z
     .string()
     .optional()

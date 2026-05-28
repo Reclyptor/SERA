@@ -37,7 +37,10 @@ export class CommitmentExtractorService {
     runID: string,
   ): Promise<void> {
     if (
-      this.configService.get<string>('COMMITMENT_EXTRACTION_ENABLED', 'true') !== 'true'
+      this.configService.get<string>(
+        'COMMITMENT_EXTRACTION_ENABLED',
+        'true',
+      ) !== 'true'
     ) {
       return;
     }
@@ -60,9 +63,10 @@ export class CommitmentExtractorService {
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) return;
 
-      const parsed: ExtractedCommitment[] = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      const raw: unknown = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(raw) || raw.length === 0) return;
 
+      const parsed = raw as ExtractedCommitment[];
       for (const item of parsed) {
         if (!item.description) continue;
         await this.commitmentsService.create({

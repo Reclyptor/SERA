@@ -62,10 +62,12 @@ const parameters = z.object({
     ),
 });
 
-export class PushNotificationAction implements BackendAction<typeof parameters> {
+export class PushNotificationAction implements BackendAction<
+  typeof parameters
+> {
   readonly name = 'send_push_notification';
   readonly description =
-    'Send a push notification to the user\'s device(s) via ntfy. Use for off-session alerts when the user needs attention but may not be watching the chat. Distinct from send_notification, which signals within the active chat UI. Choose priority based on urgency.';
+    "Send a push notification to the user's device(s) via ntfy. Use for off-session alerts when the user needs attention but may not be watching the chat. Distinct from send_notification, which signals within the active chat UI. Choose priority based on urgency.";
   readonly parameters = parameters;
 
   constructor(private readonly ntfyService: NtfyService) {}

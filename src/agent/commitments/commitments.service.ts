@@ -45,10 +45,7 @@ export class CommitmentsService {
       .find({
         agentID,
         status: 'pending',
-        $or: [
-          { dueAt: { $lte: cutoff } },
-          { reminderAt: { $lte: cutoff } },
-        ],
+        $or: [{ dueAt: { $lte: cutoff } }, { reminderAt: { $lte: cutoff } }],
       })
       .sort({ dueAt: 1 })
       .exec();

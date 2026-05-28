@@ -67,13 +67,14 @@ export class TriggersController {
         },
         {
           ...AUTONOMOUS_RUN_CONFIG,
-          wallClockTimeoutMs: parseInt(
-            this.configService.get<string>(
-              'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
-              String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
-            ),
-            10,
-          ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
+          wallClockTimeoutMs:
+            parseInt(
+              this.configService.get<string>(
+                'AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS',
+                String(AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs),
+              ),
+              10,
+            ) || AUTONOMOUS_RUN_CONFIG.wallClockTimeoutMs,
         },
       )
       .catch((err) => {
