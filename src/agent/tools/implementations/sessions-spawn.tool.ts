@@ -11,7 +11,7 @@ async function withConcurrencyLimit<T, R>(
   limit: number,
   fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
-  const results: (R | Error)[] = new Array(items.length);
+  const results: (R | Error)[] = new Array<R | Error>(items.length);
   let nextIndex = 0;
 
   async function worker(): Promise<void> {

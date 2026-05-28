@@ -1,14 +1,17 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { SessionUser } from './session.strategy';
+import type { Request } from 'express';
+import type { SessionUser } from './session.strategy';
+
+type RequestWithUser = Request & { user?: SessionUser };
 
 export const CurrentUser = createParamDecorator(
-  (
-    data: keyof SessionUser | undefined,
+  <K extends keyof SessionUser>(
+    data: K | undefined,
     ctx: ExecutionContext,
-  ): SessionUser | any => {
-    const request = ctx.switchToHttp().getRequest();
-    const user = request.user as SessionUser;
-
-    return data ? user?.[data] : user;
+  ): SessionUser | SessionUser[K] | undefined => {
+    const request = ctx.switchToHttp().getRequest<RequestWithUser>();
+    const user = request.user;
+    if (!user) return undefined;
+    return data ? user[data] : user;
   },
 );

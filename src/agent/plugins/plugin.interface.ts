@@ -4,11 +4,7 @@ export interface PluginCapabilities {
   [key: string]: unknown;
   tools?: string[];
   permissions?: Array<
-    | 'tools.register'
-    | 'hooks.llm'
-    | 'hooks.tools'
-    | 'network'
-    | 'filesystem'
+    'tools.register' | 'hooks.llm' | 'hooks.tools' | 'network' | 'filesystem'
   >;
   requiresApproval?: boolean;
 }

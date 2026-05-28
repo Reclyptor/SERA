@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
+import type { McpToolSafety } from './mcp.interfaces';
 
 export type McpServerDocument = HydratedDocument<McpServer>;
 
@@ -24,7 +25,7 @@ export class McpServer {
   env: Record<string, string>;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  toolSafety: Record<string, unknown>;
+  toolSafety: Record<string, McpToolSafety>;
 
   @Prop({ default: true })
   enabled: boolean;

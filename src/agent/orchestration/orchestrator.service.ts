@@ -9,7 +9,6 @@ import { ActionsService } from '../actions/actions.service';
 import { StateService } from '../state/state.service';
 import { MemoryService } from '../memory/memory.service';
 import { AgentsService } from '../../agents/agents.service';
-import { SkillReviewService } from '../skills/skill-review.service';
 import { randomUUID } from 'crypto';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import { ChatsService } from '../../chats/chats.service';

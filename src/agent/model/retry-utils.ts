@@ -10,8 +10,19 @@ export function jitteredBackoff(attempt: number): number {
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    // AbortSignal.reason is `any` by spec — wrap non-Error reasons so the
+    // promise rejection always carries an Error subtype (lint enforces
+    // this for typed-stack reliability).
+    const toError = (reason: unknown): Error =>
+      reason instanceof Error
+        ? reason
+        : new Error(
+            typeof reason === 'string' ? reason : 'Aborted',
+            reason !== undefined ? { cause: reason } : undefined,
+          );
+
     if (signal?.aborted) {
-      reject(signal.reason ?? new Error('Aborted'));
+      reject(toError(signal.reason));
       return;
     }
     const timer = setTimeout(resolve, ms);
@@ -19,7 +30,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       'abort',
       () => {
         clearTimeout(timer);
-        reject(signal.reason ?? new Error('Aborted'));
+        reject(toError(signal.reason));
       },
       { once: true },
     );

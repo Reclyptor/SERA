@@ -7,6 +7,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { IS_WEBHOOK_PROTECTED_KEY } from './webhook-protected.decorator';
+import type { SessionUser } from './session.strategy';
 
 @Injectable()
 export class SessionAuthGuard extends AuthGuard('session') {
@@ -36,9 +37,13 @@ export class SessionAuthGuard extends AuthGuard('session') {
     return super.canActivate(context);
   }
 
-  handleRequest(err: any, user: any, _info: any) {
+  handleRequest<TUser = SessionUser>(
+    err: Error | null,
+    user: TUser | false,
+    _info: unknown,
+  ): TUser {
     if (err || !user) {
-      throw err || new UnauthorizedException('Session authentication failed');
+      throw err ?? new UnauthorizedException('Session authentication failed');
     }
     return user;
   }

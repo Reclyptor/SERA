@@ -49,11 +49,11 @@ describe('ProcessTool cross-thread isolation', () => {
     const tool = new ProcessTool('/tmp', true);
 
     const resultA = await tool.execute(
-      { operation: 'list' },
+      { operation: 'list', notifyOnComplete: false },
       makeContext('thread-a'),
     );
     const resultB = await tool.execute(
-      { operation: 'list' },
+      { operation: 'list', notifyOnComplete: false },
       makeContext('thread-b'),
     );
 
@@ -70,7 +70,7 @@ describe('ProcessTool cross-thread isolation', () => {
 
     const tool = new ProcessTool('/tmp', true);
     const result = await tool.execute(
-      { operation: 'output', processID: 'proc-a' },
+      { operation: 'output', processID: 'proc-a', notifyOnComplete: false },
       makeContext('thread-b'),
     );
 
@@ -83,7 +83,7 @@ describe('ProcessTool cross-thread isolation', () => {
 
     const tool = new ProcessTool('/tmp', true);
     const result = await tool.execute(
-      { operation: 'output', processID: 'proc-a' },
+      { operation: 'output', processID: 'proc-a', notifyOnComplete: false },
       makeContext('thread-a'),
     );
 
@@ -96,7 +96,7 @@ describe('ProcessTool cross-thread isolation', () => {
 
     const tool = new ProcessTool('/tmp', true);
     const result = await tool.execute(
-      { operation: 'kill', processID: 'proc-a' },
+      { operation: 'kill', processID: 'proc-a', notifyOnComplete: false },
       makeContext('thread-b'),
     );
 
@@ -113,7 +113,7 @@ describe('ProcessTool cross-thread isolation', () => {
 
     const tool = new ProcessTool('/tmp', true);
     const result = await tool.execute(
-      { operation: 'kill', processID: 'proc-a' },
+      { operation: 'kill', processID: 'proc-a', notifyOnComplete: false },
       makeContext('thread-a'),
     );
 
@@ -129,11 +129,15 @@ describe('ProcessTool cross-thread isolation', () => {
 
     const tool = new ProcessTool('/tmp', true);
     const unknown = await tool.execute(
-      { operation: 'output', processID: 'proc-unknown' },
+      {
+        operation: 'output',
+        processID: 'proc-unknown',
+        notifyOnComplete: false,
+      },
       makeContext('thread-a'),
     );
     const otherThread = await tool.execute(
-      { operation: 'output', processID: 'proc-a' },
+      { operation: 'output', processID: 'proc-a', notifyOnComplete: false },
       makeContext('thread-b'),
     );
 

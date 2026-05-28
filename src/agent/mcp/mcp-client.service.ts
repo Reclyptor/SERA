@@ -13,22 +13,74 @@ import type {
   McpTransport,
 } from './mcp.interfaces';
 
+// The @modelcontextprotocol/sdk packages are pure-ESM and treated as
+// optional dependencies (the service quietly disables itself if they're
+// not installed). Declaring narrow shapes for the SDK exports we use
+// lets the rest of the file stay strictly typed without pulling in the
+// SDK's full d.ts surface area.
+interface McpClient {
+  connect(transport: unknown): Promise<void>;
+  close?: () => Promise<void>;
+  listTools(): Promise<{ tools?: McpToolListEntry[] }>;
+  callTool(params: {
+    name: string;
+    arguments: Record<string, unknown>;
+  }): Promise<{ content: unknown[] }>;
+}
+
+interface McpToolListEntry {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
+interface McpTransportInstance {
+  close?: () => Promise<void>;
+}
+
+interface McpClientCtor {
+  new (info: { name: string; version: string }): McpClient;
+}
+
+interface McpStdioTransportCtor {
+  new (opts: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  }): McpTransportInstance;
+}
+
+interface McpSseTransportCtor {
+  new (url: URL): McpTransportInstance;
+}
+
+interface McpSdkModule {
+  Client: McpClientCtor;
+}
+
+interface McpStdioModule {
+  StdioClientTransport: McpStdioTransportCtor;
+}
+
+interface McpSseModule {
+  SSEClientTransport: McpSseTransportCtor;
+}
+
 @Injectable()
 export class McpClientService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(McpClientService.name);
   private readonly connections = new Map<
     string,
     {
-      client: unknown;
+      client: McpClient;
       transport: McpTransport;
-      rawTransport: unknown;
+      rawTransport: McpTransportInstance;
       tools: McpToolDefinition[];
     }
   >();
 
-  private mcpSdk: any = null;
-
-  private mcpStdio: any = null;
+  private mcpSdk: McpSdkModule | null = null;
+  private mcpStdio: McpStdioModule | null = null;
 
   constructor(
     @InjectModel(McpServer.name)
@@ -37,14 +89,10 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     try {
-      const clientMod = '@modelcontextprotocol/sdk/client/index.js';
-      const stdioMod = '@modelcontextprotocol/sdk/client/stdio.js';
-      this.mcpSdk = await (
-        Function('m', 'return import(m)') as (m: string) => Promise<unknown>
-      )(clientMod);
-      this.mcpStdio = await (
-        Function('m', 'return import(m)') as (m: string) => Promise<unknown>
-      )(stdioMod);
+      this.mcpSdk =
+        (await import('@modelcontextprotocol/sdk/client/index.js')) as unknown as McpSdkModule;
+      this.mcpStdio =
+        (await import('@modelcontextprotocol/sdk/client/stdio.js')) as unknown as McpStdioModule;
       this.logger.log('MCP SDK loaded');
     } catch {
       this.logger.warn(
@@ -82,16 +130,17 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
       await this.disconnect(serverName);
     }
 
-    const { Client } = this.mcpSdk;
-    const client = new Client({ name: `sera-${serverName}`, version: '1.0.0' });
+    const client = new this.mcpSdk.Client({
+      name: `sera-${serverName}`,
+      version: '1.0.0',
+    });
 
-    let transport: unknown;
+    let transport: McpTransportInstance;
 
     if (config.transport === 'stdio') {
       if (!config.command)
         throw new Error('stdio transport requires a command');
-      const { StdioClientTransport } = this.mcpStdio;
-      transport = new StdioClientTransport({
+      transport = new this.mcpStdio.StdioClientTransport({
         command: config.command,
         args: config.args ?? [],
         env: { ...process.env, ...(config.env ?? {}) } as Record<
@@ -101,11 +150,8 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
       });
     } else if (config.transport === 'sse') {
       if (!config.url) throw new Error('SSE transport requires a URL');
-      // SSE transport via fetch-based SSE client
-      const sseMod = '@modelcontextprotocol/sdk/client/sse.js';
-      const sseModule = await (
-        Function('m', 'return import(m)') as (m: string) => Promise<any>
-      )(sseMod);
+      const sseModule =
+        (await import('@modelcontextprotocol/sdk/client/sse.js')) as unknown as McpSseModule;
       transport = new sseModule.SSEClientTransport(new URL(config.url));
     } else {
       throw new Error(`Unsupported transport: ${config.transport}`);
@@ -114,21 +160,15 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     await client.connect(transport);
 
     const toolsResult = await client.listTools();
-    const tools: McpToolDefinition[] = (toolsResult.tools ?? []).map(
-      (t: {
-        name: string;
-        description?: string;
-        inputSchema?: Record<string, unknown>;
-      }) => ({
-        name: `mcp_${serverName}_${t.name}`,
-        description: t.description ?? '',
-        inputSchema: t.inputSchema ?? {},
-        serverName,
-        safety:
-          config.toolSafety?.[t.name] ??
-          config.toolSafety?.[`mcp_${serverName}_${t.name}`],
-      }),
-    );
+    const tools: McpToolDefinition[] = (toolsResult.tools ?? []).map((t) => ({
+      name: `mcp_${serverName}_${t.name}`,
+      description: t.description ?? '',
+      inputSchema: t.inputSchema ?? {},
+      serverName,
+      safety:
+        config.toolSafety?.[t.name] ??
+        config.toolSafety?.[`mcp_${serverName}_${t.name}`],
+    }));
 
     this.connections.set(serverName, {
       client,
@@ -154,10 +194,8 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     if (!conn) return;
 
     try {
-      const client = conn.client as { close?: () => Promise<void> };
-      await client.close?.();
-      const transport = conn.rawTransport as { close?: () => Promise<void> };
-      await transport.close?.();
+      await conn.client.close?.();
+      await conn.rawTransport.close?.();
     } catch (err) {
       this.logger.debug(`Error closing MCP connection "${serverName}":`, err);
     }
@@ -173,16 +211,7 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     const conn = this.connections.get(serverName);
     if (!conn) throw new Error(`MCP server "${serverName}" not connected`);
 
-    const client = conn.client as {
-      callTool: (params: {
-        name: string;
-        arguments: Record<string, unknown>;
-      }) => Promise<{
-        content: unknown[];
-      }>;
-    };
-
-    const result = await client.callTool({
+    const result = await conn.client.callTool({
       name: toolName,
       arguments: args,
     });

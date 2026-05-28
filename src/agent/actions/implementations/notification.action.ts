@@ -28,7 +28,7 @@ export class NotificationAction implements BackendAction<typeof parameters> {
     args: z.infer<typeof parameters>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
-    this.emitter.emitEvent(context.runID, context.threadID, 'text.done', {
+    await this.emitter.emitEvent(context.runID, context.threadID, 'text.done', {
       content: `[${args.level.toUpperCase()}] ${args.title}: ${args.message}`,
       notification: {
         title: args.title,

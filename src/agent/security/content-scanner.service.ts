@@ -84,7 +84,7 @@ const THREAT_PATTERNS: ThreatPattern[] = [
     category: 'credential_exfil',
     severity: 'high',
     regex:
-      /(?:env|process\.env|os\.environ)\s*[\[.(]\s*['"]?\s*(?:API[_\s]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_\s]?KEY|DATABASE[_\s]?URL)/i,
+      /(?:env|process\.env|os\.environ)\s*[[.(]\s*['"]?\s*(?:API[_\s]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_\s]?KEY|DATABASE[_\s]?URL)/i,
     label: 'Environment variable access',
   },
   {
@@ -106,13 +106,17 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   {
     category: 'invisible_unicode',
     severity: 'high',
-    regex: /[\u200B\u200C\u200D\u2060\uFEFF]{3,}/,
+    // Alternation rather than a character class: ZWJ (U+200D) joining
+    // with adjacent codepoints inside `[...]` is flagged by the lint
+    // rule `no-misleading-character-class`. Listing each codepoint as
+    // its own branch sidesteps that without changing semantics.
+    regex: /(?:\u200B|\u200C|\u200D|\u2060|\uFEFF){3,}/,
     label: 'Suspicious zero-width character sequence',
   },
   {
     category: 'invisible_unicode',
     severity: 'medium',
-    regex: /[\u200B\u200C\u200D\u2060\uFEFF]/,
+    regex: /(?:\u200B|\u200C|\u200D|\u2060|\uFEFF)/,
     label: 'Zero-width character detected',
   },
   {

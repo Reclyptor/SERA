@@ -391,64 +391,78 @@ export class ModelRouterService {
       if (fn) await fn();
     };
 
-    const fullStream = async function* (this: ModelRouterService) {
-      while (activeIndex < candidates.length) {
-        const resolved = candidates[activeIndex];
-        attemptNumber++;
-        await call(() =>
-          params.onAttempt?.({
-            attempt: attemptNumber,
-            provider: resolved.provider,
-            modelID: resolved.modelID,
-          }),
-        );
-
-        let yielded = false;
-        try {
-          for await (const part of activeResult.fullStream) {
-            yielded = true;
-            yield part;
-          }
-          return;
-        } catch (error) {
-          const classified = classifyError(error);
-          const next = candidates[activeIndex + 1];
-          if (
-            yielded ||
-            classified.shouldCompress ||
-            !next ||
-            (!classified.retryable && !classified.shouldRotate)
-          ) {
-            throw error;
-          }
-
-          if (classified.shouldRotate) {
-            this.credentialPool.markCooldown(resolved.provider);
-          }
-
+    type StreamPart =
+      StreamTextResult<ToolSet, never>['fullStream'] extends AsyncIterable<
+        infer P
+      >
+        ? P
+        : never;
+    const fullStream: AsyncGenerator<StreamPart, void, unknown> =
+      async function* (this: ModelRouterService) {
+        while (activeIndex < candidates.length) {
+          const resolved = candidates[activeIndex];
+          attemptNumber++;
           await call(() =>
-            params.onFallback?.({
+            params.onAttempt?.({
               attempt: attemptNumber,
               provider: resolved.provider,
               modelID: resolved.modelID,
-              reason: classified.reason,
-              message: classified.message,
-              nextProvider: next.provider,
-              nextModelID: next.modelID,
             }),
           );
 
-          activeIndex++;
-          activeResult = this.createStreamTextResult(params, next);
-        }
-      }
-    }.call(this);
+          let yielded = false;
+          try {
+            for await (const part of activeResult.fullStream) {
+              yielded = true;
+              yield part;
+            }
+            return;
+          } catch (error) {
+            const classified = classifyError(error);
+            const next = candidates[activeIndex + 1];
+            if (
+              yielded ||
+              classified.shouldCompress ||
+              !next ||
+              (!classified.retryable && !classified.shouldRotate)
+            ) {
+              throw error;
+            }
 
+            if (classified.shouldRotate) {
+              this.credentialPool.markCooldown(resolved.provider);
+            }
+
+            await call(() =>
+              params.onFallback?.({
+                attempt: attemptNumber,
+                provider: resolved.provider,
+                modelID: resolved.modelID,
+                reason: classified.reason,
+                message: classified.message,
+                nextProvider: next.provider,
+                nextModelID: next.modelID,
+              }),
+            );
+
+            activeIndex++;
+            activeResult = this.createStreamTextResult(params, next);
+          }
+        }
+      }.call(this) as AsyncGenerator<StreamPart, void, unknown>;
+
+    // Wrap the active stream result so callers see a single object whose
+    // `fullStream` is our fallback-aware generator, while every other
+    // property is forwarded to whichever underlying result is currently
+    // active.
     return new Proxy(activeResult, {
-      get(_target, prop, receiver) {
+      get(_target, prop, receiver): unknown {
         if (prop === 'fullStream') return fullStream;
-        const value = Reflect.get(activeResult, prop, receiver);
-        return typeof value === 'function' ? value.bind(activeResult) : value;
+        const value: unknown = Reflect.get(activeResult, prop, receiver);
+        if (typeof value === 'function') {
+          return (value as (...args: unknown[]) => unknown).bind(activeResult);
+        }
+        return value;
       },
     });
   }

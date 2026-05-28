@@ -47,7 +47,7 @@ describe('SessionsSpawnTool delegation depth', () => {
     const { tool, orchestrator } = createTool();
 
     const result = await tool.execute(
-      { action: 'navigate' as never, goal: 'do work', agentID: 'agent-ok' },
+      { goal: 'do work', agentID: 'agent-ok' } as never,
       ctx({ delegationDepth: 2 }),
     );
 

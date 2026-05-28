@@ -13,7 +13,10 @@ vi.mock('dns/promises', () => ({
   lookup: vi.fn(),
 }));
 
-const mockedLookup = lookup as MockedFunction<typeof lookup>;
+// Node's `dns/promises.lookup` is an overloaded function; vitest's
+// MockedFunction can't be directly applied to overload sets, so cast
+// through `unknown` to acknowledge the intentional type narrowing.
+const mockedLookup = lookup as unknown as MockedFunction<typeof lookup>;
 
 describe('validateUrl', () => {
   beforeEach(() => {

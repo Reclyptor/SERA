@@ -250,14 +250,22 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
       const raw = text.trim();
       const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
       const jsonStr = fenceMatch ? fenceMatch[1].trim() : raw;
-      const parsed = JSON.parse(jsonStr);
+      const parsed: unknown = JSON.parse(jsonStr);
 
-      return {
-        consolidations: Array.isArray(parsed.consolidations)
-          ? parsed.consolidations
-          : [],
-        skipped: Array.isArray(parsed.skipped) ? parsed.skipped : [],
-      };
+      // The curator LLM may emit a partial object or extra fields; pick
+      // out the two arrays we know about and tolerate anything else.
+      const obj =
+        parsed !== null && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : {};
+      const consolidations = Array.isArray(obj.consolidations)
+        ? (obj.consolidations as ConsolidationReport['consolidations'])
+        : [];
+      const skipped = Array.isArray(obj.skipped)
+        ? (obj.skipped as ConsolidationReport['skipped'])
+        : [];
+
+      return { consolidations, skipped };
     } catch {
       this.logger.debug('Curator produced no parseable consolidation report');
       return empty;

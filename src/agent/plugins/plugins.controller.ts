@@ -15,15 +15,9 @@ export class PluginsController {
 
   @Get()
   async listPlugins() {
-    const [configs, loaded] = await Promise.all([
-      this.pluginLoader.listConfigs(),
-      this.pluginLoader.getLoadedPlugins(),
-    ]);
-
-    return {
-      configs,
-      loaded,
-    };
+    const configs = await this.pluginLoader.listConfigs();
+    const loaded = this.pluginLoader.getLoadedPlugins();
+    return { configs, loaded };
   }
 
   @Post()
