@@ -6,6 +6,5 @@ import { SessionAuthGuard } from './session.guard';
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'session' })],
   providers: [SessionStrategy, SessionAuthGuard],
-  exports: [SessionAuthGuard, SessionStrategy],
 })
 export class AuthModule {}

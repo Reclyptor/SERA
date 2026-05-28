@@ -11,10 +11,6 @@ export class KnowledgeRegistry {
     this.logger.log(`Registered knowledge provider: ${provider.name}`);
   }
 
-  unregisterProvider(name: string): boolean {
-    return this.providers.delete(name);
-  }
-
   getProvider(name: string): KnowledgeProvider | undefined {
     return this.providers.get(name);
   }
