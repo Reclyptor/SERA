@@ -99,11 +99,11 @@ export class ProcessTool implements Tool<typeof parameters> {
       case 'start':
         return this.start(args, context);
       case 'list':
-        return this.list();
+        return this.list(context);
       case 'output':
-        return this.output(args.processID);
+        return this.output(args.processID, context);
       case 'kill':
-        return this.kill(args.processID);
+        return this.kill(args.processID, context);
     }
   }
 
@@ -234,27 +234,37 @@ export class ProcessTool implements Tool<typeof parameters> {
     };
   }
 
-  private list(): ToolExecutionResult {
-    const entries = Array.from(ProcessTool.processes.entries()).map(
-      ([processID, tracked]) => ({
+  private list(context: ToolExecutionContext): ToolExecutionResult {
+    // Processes are scoped to the thread that started them — the static
+    // map is shared across tool instances, so the threadID filter is the
+    // boundary that keeps one agent/thread from observing another's
+    // running commands or stdout.
+    const entries = Array.from(ProcessTool.processes.entries())
+      .filter(([, tracked]) => tracked.threadID === context.threadID)
+      .map(([processID, tracked]) => ({
         processID,
         pid: tracked.child.pid,
         command: tracked.command,
         running: tracked.exitCode === null,
         startedAt: tracked.startedAt,
-      }),
-    );
+      }));
 
     return { success: true, result: entries };
   }
 
-  private output(processID?: string): ToolExecutionResult {
+  private output(
+    processID: string | undefined,
+    context: ToolExecutionContext,
+  ): ToolExecutionResult {
     if (!processID) {
       return { success: false, error: 'processID is required for output' };
     }
 
     const tracked = ProcessTool.processes.get(processID);
-    if (!tracked) {
+    if (!tracked || tracked.threadID !== context.threadID) {
+      // Return the same error shape regardless of whether the process
+      // exists or belongs to another thread, to avoid leaking
+      // cross-thread process IDs as side-channel information.
       return { success: false, error: `Process ${processID} not found` };
     }
 
@@ -269,7 +279,10 @@ export class ProcessTool implements Tool<typeof parameters> {
     };
   }
 
-  private kill(processID?: string): ToolExecutionResult {
+  private kill(
+    processID: string | undefined,
+    context: ToolExecutionContext,
+  ): ToolExecutionResult {
     if (!this.enabled) {
       return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }
@@ -279,7 +292,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     }
 
     const tracked = ProcessTool.processes.get(processID);
-    if (!tracked) {
+    if (!tracked || tracked.threadID !== context.threadID) {
       return { success: false, error: `Process ${processID} not found` };
     }
 

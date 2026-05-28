@@ -1295,7 +1295,7 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 | ---------------- | ----------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
 | `exec`           | `command`, `cwd?`, `timeoutMs?` (30s)                                               | No       | Execute shell command. Max output 64KB. Sandbox-aware.                                   |
 | `shell`          | `script`, `cwd?`, `timeoutMs?` (30s)                                                | No       | Execute multi-line shell script via `/bin/sh`. Sandbox-aware.                            |
-| `process`        | `operation` (start/list/output/kill), `command?`, `processID?`, `notifyOnComplete?` | No       | Background process management. Auto-cleanup after 5 min. Max 64KB output per stream.     |
+| `process`        | `operation` (start/list/output/kill), `command?`, `processID?`, `notifyOnComplete?` | No       | Background process management. Auto-cleanup after 5 min. Max 64KB output per stream. Processes are scoped to the thread that started them; `list`/`output`/`kill` cannot observe or affect processes owned by other threads. |
 | `code_execution` | `language` (javascript/typescript/python), `code`, `timeoutMs?` (15s)               | No       | Run code with tool bridge. Generates helper libraries (`sera_tools.js`/`sera_tools.py`). |
 
 **Code Execution Tool Bridge:**
