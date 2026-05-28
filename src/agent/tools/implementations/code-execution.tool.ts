@@ -49,10 +49,6 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
     private readonly toolsRegistry?: ToolsRegistry,
   ) {}
 
-  private resolveWorkspace(_context: ToolExecutionContext): string {
-    return this.workspaceDir;
-  }
-
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
@@ -67,7 +63,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
 
     const { language, code, timeoutMs } = args;
     const config = LANGUAGE_CONFIG[language];
-    const workspace = this.resolveWorkspace(context);
+    const workspace = this.workspaceDir;
     const tmpDir = path.join(workspace, '.tmp');
     const filename = `exec_${randomUUID()}${config.ext}`;
     const filePath = path.join(tmpDir, filename);

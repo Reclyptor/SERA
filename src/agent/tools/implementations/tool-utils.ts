@@ -1,14 +1,4 @@
-import type {
-  ToolExecutionContext,
-  ToolExecutionResult,
-} from '../tool.interface';
-
-export function resolveWorkspace(
-  _context: ToolExecutionContext,
-  fallback: string,
-): string {
-  return fallback;
-}
+import type { ToolExecutionResult } from '../tool.interface';
 
 export function truncateOutput(content: string, maxSize: number): string {
   if (content.length <= maxSize) return content;

@@ -8,12 +8,7 @@ import type {
   ToolExecutionResult,
   ToolResource,
 } from '../tool.interface';
-import {
-  buildToolEnv,
-  resolveWorkspace,
-  truncateOutput,
-  disabledError,
-} from './tool-utils';
+import { buildToolEnv, truncateOutput, disabledError } from './tool-utils';
 import type { ToolApprovalRequester } from './exec.tool';
 
 export interface ProcessOrchestratorLike {
@@ -156,7 +151,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     const processID = randomUUID();
     const child = spawn(command, {
       shell: true,
-      cwd: resolveWorkspace(context, this.workspaceDir),
+      cwd: this.workspaceDir,
       env: buildToolEnv(),
     });
 

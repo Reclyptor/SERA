@@ -38,10 +38,6 @@ export class ImageTool implements Tool<typeof parameters> {
     private readonly workspaceDir?: string,
   ) {}
 
-  private resolveWorkspace(_context: ToolExecutionContext): string | undefined {
-    return this.workspaceDir;
-  }
-
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
@@ -109,7 +105,7 @@ export class ImageTool implements Tool<typeof parameters> {
 
   private async resolveImageUrl(
     source: string,
-    context: ToolExecutionContext,
+    _context: ToolExecutionContext,
   ): Promise<string> {
     if (source.startsWith('http://') || source.startsWith('https://')) {
       const validation = await validateUrl(source);
@@ -119,7 +115,7 @@ export class ImageTool implements Tool<typeof parameters> {
       return source;
     }
 
-    const workspace = this.resolveWorkspace(context);
+    const workspace = this.workspaceDir;
     if (!workspace) {
       throw new Error(
         'Workspace directory not configured for file-based image analysis',

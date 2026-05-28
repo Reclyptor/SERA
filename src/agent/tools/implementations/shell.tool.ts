@@ -9,12 +9,7 @@ import type {
   ToolResource,
 } from '../tool.interface';
 import type { SandboxRunnerLike } from './sandbox.types';
-import {
-  buildToolEnv,
-  resolveWorkspace,
-  truncateOutput,
-  disabledError,
-} from './tool-utils';
+import { buildToolEnv, truncateOutput, disabledError } from './tool-utils';
 import type { ToolApprovalRequester } from './exec.tool';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
@@ -85,7 +80,7 @@ export class ShellTool implements Tool<typeof parameters> {
       };
     }
 
-    const workspace = resolveWorkspace(context, this.workspaceDir);
+    const workspace = this.workspaceDir;
     const cwdValidation = validatePath(cwd ?? '.', workspace);
     if (!cwdValidation.valid) {
       return { success: false, error: cwdValidation.error };
