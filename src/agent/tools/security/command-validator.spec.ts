@@ -22,4 +22,18 @@ describe('validateCommand', () => {
       action: 'block',
     });
   });
+
+  it('hard-blocks the canonical fork bomb', () => {
+    expect(validateCommand(':(){ :|:& };:')).toMatchObject({
+      valid: false,
+      action: 'block',
+    });
+  });
+
+  it('hard-blocks fork bomb variants with extra whitespace', () => {
+    expect(validateCommand(': () { : | : & ; } ; :')).toMatchObject({
+      valid: false,
+      action: 'block',
+    });
+  });
 });

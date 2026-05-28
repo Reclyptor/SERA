@@ -17,7 +17,14 @@ const BLOCKED_COMMANDS = [
   /\bchown\s+-R\s+.*\//i,
   />\s*\/dev\/sd/i,
   />\s*\/dev\/nvme/i,
-  /\b:()\s*\{\s*:\|:\s*&\s*\}\s*;/, // Fork bomb
+  // Fork bomb. The canonical form is `:(){ :|:& };:` — a function
+  // named `:` recursively pipes itself in the background, then is
+  // invoked. The previous pattern incorrectly used `:()` (literal `:`
+  // followed by an empty capture group with no parens consumed) and
+  // additionally lead with `\b`, which never matches before a non-word
+  // `:` at the start of a command. This explicit pattern matches the
+  // function definition + invocation with flexible whitespace.
+  /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*;?\s*\}\s*;\s*:/,
   /\bkillall\b/i,
   /\bpkill\s+-9\b/i,
   /\biptables\s+-F\b/i,
