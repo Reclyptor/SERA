@@ -215,20 +215,6 @@ export class StateStore {
     return this.toAgentState(state);
   }
 
-  async updateAgentState(
-    threadID: string,
-    update: Partial<AgentState>,
-  ): Promise<AgentState> {
-    const state = await this.agentStateModel
-      .findOneAndUpdate(
-        { threadID },
-        { $set: update },
-        { returnDocument: 'after', upsert: true },
-      )
-      .exec();
-    return this.toAgentState(state);
-  }
-
   async setCustomState(
     threadID: string,
     key: string,

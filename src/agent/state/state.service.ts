@@ -151,11 +151,6 @@ export class StateService {
     return this.store.getAgentState(threadID);
   }
 
-  async setWorkflowStep(threadID: string, step: string): Promise<void> {
-    await this.store.updateAgentState(threadID, { currentStep: step });
-    this.logger.debug(`Thread ${threadID} workflow step: ${step}`);
-  }
-
   async setCustomState<T>(
     threadID: string,
     key: string,

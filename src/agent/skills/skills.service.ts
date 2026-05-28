@@ -249,28 +249,6 @@ export class SkillsService implements OnModuleInit {
     await this.invalidateCache(name);
   }
 
-  async markUsed(name: string): Promise<void> {
-    await this.skillModel.updateOne(
-      { name },
-      {
-        $set: { lastUsedAt: new Date(), status: 'active' },
-        $inc: { usageCount: 1 },
-      },
-    );
-    await this.invalidateCache(name);
-  }
-
-  async setStatus(
-    name: string,
-    status: 'active' | 'stale' | 'archived',
-    notes?: string,
-  ): Promise<void> {
-    const update: Record<string, unknown> = { status };
-    if (notes !== undefined) update.curatorNotes = notes;
-    await this.skillModel.updateOne({ name }, { $set: update });
-    await this.invalidateCache(name);
-  }
-
   async findRelevant(
     query: string,
     availableTools?: string[],
@@ -358,7 +336,17 @@ export class SkillsService implements OnModuleInit {
   ): string {
     return content.replace(/\{\{([\w-]+)\}\}/g, (match, key: string) => {
       const value = metadata[key];
-      return value == null ? match : String(value);
+      if (value == null) return match;
+      if (typeof value === 'string') return value;
+      if (
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        typeof value === 'bigint'
+      ) {
+        return String(value);
+      }
+      // Objects/arrays/etc. render via JSON instead of '[object Object]'.
+      return JSON.stringify(value);
     });
   }
 
