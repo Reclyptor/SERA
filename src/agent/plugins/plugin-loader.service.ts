@@ -47,13 +47,19 @@ export class PluginLoaderService implements OnModuleInit {
     }
 
     try {
-      const mod = await (
-        Function('m', 'return import(m)') as (m: string) => Promise<any>
-      )(config.packageName);
+      // Plugin packages are installed at runtime as arbitrary npm
+      // packages — the Function constructor hides the import from
+      // TypeScript's static module resolver so the project compiles
+      // without those packages present at build time.
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const loader = new Function('m', 'return import(m)') as (
+        m: string,
+      ) => Promise<{ default?: SeraPlugin } & Partial<SeraPlugin>>;
 
-      const plugin: SeraPlugin = mod.default ?? mod;
+      const mod = await loader(config.packageName);
+      const plugin: SeraPlugin = mod.default ?? (mod as SeraPlugin);
 
-      if (!plugin || typeof plugin.onRegister !== 'function') {
+      if (typeof plugin?.onRegister !== 'function') {
         throw new Error(
           `Package "${config.packageName}" does not export a valid SERA plugin (missing onRegister)`,
         );
