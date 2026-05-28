@@ -117,7 +117,13 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
           },
           {
             $set: {
-              nextRunAt: new Date(Date.now() + config.intervalMinutes * 60_000),
+              // Advance from the SCHEDULED time (dueAt), not wall-clock,
+              // so a slow tick or late claim does not drift the cadence.
+              // Two-minute heartbeats stay two-minute heartbeats even on
+              // congested ticks.
+              nextRunAt: new Date(
+                dueAt.getTime() + config.intervalMinutes * 60_000,
+              ),
             },
           },
         )

@@ -235,9 +235,12 @@ export class TasksService {
     const newStatus = anyFailed ? 'failed' : 'completed';
 
     if (plan.status !== newStatus) {
+      // Reconciliation is a mutation; bump `revision` to keep the
+      // optimistic-concurrency contract from SPEC §18 ("Every successful
+      // mutation increments `revision`").
       await this.taskPlanModel.updateOne(
         { planID: plan.planID },
-        { $set: { status: newStatus } },
+        { $set: { status: newStatus }, $inc: { revision: 1 } },
       );
     }
   }

@@ -225,12 +225,17 @@ export class CronSchedulerService implements OnModuleInit, OnModuleDestroy {
         { timeout: timeoutMs, maxBuffer: 64 * 1024 },
         (err, stdout, stderr) => {
           if (err) {
-            this.logger.warn(`Cron script failed: ${err.message}`);
-            resolve(
-              stderr
-                ? `[script error] ${stderr.trim()}`
-                : `[script error] ${err.message}`,
+            // SPEC §28.6: "Failures log a warning and proceed without
+            // script output." Returning the stderr would inject
+            // operator-uncontrolled text (and any malicious stdout/err
+            // produced by the script) into the agent prompt — a soft
+            // prompt-injection vector — and contradicts the spec.
+            this.logger.warn(
+              `Cron script failed: ${err.message}${
+                stderr ? ` | stderr: ${stderr.trim().slice(0, 200)}` : ''
+              }`,
             );
+            resolve('');
             return;
           }
           resolve(stdout.trim());
