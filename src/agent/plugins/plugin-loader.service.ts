@@ -10,7 +10,10 @@ import type {
   PluginContext,
   PluginConfig,
   PluginHookFn,
+  PluginCapabilities,
 } from './plugin.interface';
+
+type PluginPermission = NonNullable<PluginCapabilities['permissions']>[number];
 import { ToolsService } from '../tools/tools.service';
 
 @Injectable()
@@ -92,24 +95,75 @@ export class PluginLoaderService implements OnModuleInit {
 
   private createContext(config: PluginConfigDocument): PluginContext {
     const pluginLogger = new Logger(`Plugin:${config.name}`);
+    const caps = (config.capabilities ?? {}) as PluginCapabilities;
+    const declared = caps.permissions;
+
+    // No declared permissions = grant all (backward-compat with plugins
+    // authored before the capability system existed). Once a plugin
+    // declares ANY permissions, the array is treated as a strict
+    // allowlist per SPEC §29.7.
+    const hasPermission = (perm: PluginPermission): boolean => {
+      if (!declared) return true;
+      return declared.includes(perm);
+    };
+
+    const denyAccess = (perm: PluginPermission, what: string): void => {
+      pluginLogger.warn(
+        `Denied: ${what} requires "${perm}" in capabilities.permissions`,
+      );
+    };
 
     return {
       registerTool: (tool) => {
+        if (!hasPermission('tools.register')) {
+          denyAccess('tools.register', `tool registration "${tool.name}"`);
+          return;
+        }
         this.toolsService.registerTool(tool);
         this.logger.debug(
           `Plugin "${config.name}" registered tool "${tool.name}"`,
         );
       },
       registerKnowledge: (key, content) => {
+        if (!hasPermission('knowledge.register')) {
+          denyAccess('knowledge.register', `knowledge key "${key}"`);
+          return;
+        }
         this.knowledgeStore.set(`${config.name}:${key}`, content);
       },
       getConfig: <T = unknown>(key: string) => {
         return (config.config?.[key] as T) ?? undefined;
       },
-      onPreToolCall: (fn) => this.addHook('onPreToolCall', fn),
-      onPostToolCall: (fn) => this.addHook('onPostToolCall', fn),
-      onPreLLMCall: (fn) => this.addHook('onPreLLMCall', fn),
-      onPostLLMCall: (fn) => this.addHook('onPostLLMCall', fn),
+      onPreToolCall: (fn) => {
+        if (!hasPermission('hooks.tools')) {
+          denyAccess('hooks.tools', 'onPreToolCall hook');
+          return;
+        }
+        this.addHook('onPreToolCall', fn);
+      },
+      onPostToolCall: (fn) => {
+        if (!hasPermission('hooks.tools')) {
+          denyAccess('hooks.tools', 'onPostToolCall hook');
+          return;
+        }
+        this.addHook('onPostToolCall', fn);
+      },
+      onPreLLMCall: (fn) => {
+        if (!hasPermission('hooks.llm')) {
+          denyAccess('hooks.llm', 'onPreLLMCall hook');
+          return;
+        }
+        this.addHook('onPreLLMCall', fn);
+      },
+      onPostLLMCall: (fn) => {
+        if (!hasPermission('hooks.llm')) {
+          denyAccess('hooks.llm', 'onPostLLMCall hook');
+          return;
+        }
+        this.addHook('onPostLLMCall', fn);
+      },
+      // Session-lifecycle hooks are not gated — they carry no inputs
+      // that affect tool/LLM behavior; they only signal run boundaries.
       onSessionStart: (fn) => this.addHook('onSessionStart', fn),
       onSessionEnd: (fn) => this.addHook('onSessionEnd', fn),
       logger: {

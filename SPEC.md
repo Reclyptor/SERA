@@ -2205,6 +2205,20 @@ This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve cor
 - MCP server records may declare per-tool safety metadata.
 - MCP tools default to conservative mutation/session locking unless marked read-only and parallel-safe.
 
+### Plugin Permission Enforcement
+
+`PluginContext` methods are gated by the plugin's declared `capabilities.permissions` allowlist. When `permissions` is undefined the plugin retains the legacy "grant all" behavior (backward compatibility with plugins authored before the capability system); once a plugin declares the field, it becomes a strict allowlist:
+
+| Method | Required permission |
+| --- | --- |
+| `registerTool` | `tools.register` |
+| `registerKnowledge` | `knowledge.register` |
+| `onPreToolCall`, `onPostToolCall` | `hooks.tools` |
+| `onPreLLMCall`, `onPostLLMCall` | `hooks.llm` |
+| `onSessionStart`, `onSessionEnd` | _(ungated — lifecycle signals only)_ |
+
+Denied calls are logged at warn level and become no-ops; the plugin continues to load. The `network` and `filesystem` permissions are reserved for tools the plugin registers — they're checked at invocation time by the receiving subsystem, not at registration. The `requiresApproval` capability is currently un-enforced (a granted approval doesn't yet unblock subsequent re-invocations of the same call shape; closing that loop is a follow-up).
+
 ### 29.8 Test Priorities
 
 - Max-iteration terminal failure.
