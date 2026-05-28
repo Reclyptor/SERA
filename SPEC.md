@@ -1464,6 +1464,10 @@ interface BackendAction<TParams extends z.ZodType> {
 
 When the timeout deadline is reached, the action calls `StateService.tryExpireConfirmation()`, which atomically removes the confirmation **only if** it is still `pending`. If a concurrent `resolveConfirmation` already transitioned the entry to `approved`/`rejected`, the atomic claim fails and the resolved decision is returned to the agent instead of a silent `timed_out`. This closes a race where a slow user response could be silently dropped.
 
+### Approval vs Confirmation Events
+
+Two event channels surface the same underlying pending-confirmation lifecycle: `confirmation.required` / `confirmation.resolved` originate from action-layer pauses (`request_confirmation`, `delete_memory`, …) while `approval.requested` / `approval.resolved` / `approval.expired` (§29.6) originate from tool-layer gating (`exec`, `shell`, `process`, `code_execution`). The durable store is unified, so when an entry transitions both channels emit: the controller fires `confirmation.resolved` and `approval.resolved` together on user POST, and the confirmation action fires `approval.expired` when it claims a timeout. Consumers match by `confirmationID` against whichever `.required`/`.requested` event they originally observed.
+
 ---
 
 ## 13. Memory System

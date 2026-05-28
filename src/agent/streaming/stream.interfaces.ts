@@ -116,6 +116,17 @@ export interface ConfirmationResolvedData {
   approved: boolean;
 }
 
+export interface ApprovalResolvedData {
+  confirmationID: string;
+  approved: boolean;
+  actionName: string;
+}
+
+export interface ApprovalExpiredData {
+  confirmationID: string;
+  actionName: string;
+}
+
 export interface SubagentSpawnedData {
   toolCallID: string;
   subagentRunID: string;

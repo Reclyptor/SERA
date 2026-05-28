@@ -51,7 +51,7 @@ export class RequestConfirmationAction implements BackendAction<
       context.runID,
     );
 
-    this.emitter.emitEvent(
+    void this.emitter.emitEvent(
       context.runID,
       context.threadID,
       'confirmation.required',
@@ -116,6 +116,20 @@ export class RequestConfirmationAction implements BackendAction<
         },
       };
     }
+
+    // We won the race — the pending confirmation has been removed from
+    // the durable store. SPEC §29.6 requires emitting `approval.expired`
+    // so SSE consumers (the UI confirmation widget) can dismiss the
+    // pending prompt instead of waiting forever.
+    void this.emitter.emitEvent(
+      context.runID,
+      context.threadID,
+      'approval.expired',
+      {
+        confirmationID,
+        actionName: args.actionName,
+      },
+    );
 
     return {
       success: true,

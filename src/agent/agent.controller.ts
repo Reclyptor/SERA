@@ -270,6 +270,13 @@ export class AgentController {
     );
 
     if (resolved && confirmation.runID) {
+      // Emit BOTH event channels: `confirmation.resolved` is the
+      // historical name for action-side confirmations (request_confirmation
+      // action, memory-management approvals) and `approval.resolved` is
+      // the SPEC §29.6 name for tool-side approvals (exec/shell/process/
+      // code_execution). The underlying store is unified, so consumers
+      // match by confirmationID against whichever .required/.requested
+      // event they originally observed.
       await this.eventEmitter.emitEvent(
         confirmation.runID,
         threadID,
@@ -277,6 +284,16 @@ export class AgentController {
         {
           confirmationID,
           approved: body.approved,
+        },
+      );
+      await this.eventEmitter.emitEvent(
+        confirmation.runID,
+        threadID,
+        'approval.resolved',
+        {
+          confirmationID,
+          approved: body.approved,
+          actionName: confirmation.actionName,
         },
       );
     }
