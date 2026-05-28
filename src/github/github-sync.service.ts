@@ -1,12 +1,19 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
-import { createHash } from 'crypto';
-import * as yaml from 'js-yaml';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import type { PromptDocument } from '../prompts/prompt.schema';
 import type { SkillDocument } from '../agent/skills/skill.schema';
+import {
+  parseFrontmatter,
+  parseSkillFrontmatter,
+  serializePromptFile,
+  serializeSkillFile,
+  computeCompositeSha,
+  type PromptFrontmatterData,
+  type SkillFrontmatterData,
+} from './frontmatter-codec';
 
 interface TreeEntry {
   path: string;
@@ -225,7 +232,7 @@ export class GitHubSyncService {
           }
 
           const file = await this.fetchFile(this.promptsRepo, entry.path);
-          const { meta, content } = this.parseFrontmatter(file.content);
+          const { meta, content } = parseFrontmatter(file.content);
 
           const update: Record<string, unknown> = {
             content,
@@ -304,7 +311,7 @@ export class GitHubSyncService {
 
         try {
           // Composite hash from all file SHAs in the directory
-          const compositeSha = this.computeCompositeSha(entries);
+          const compositeSha = computeCompositeSha(entries);
           const existing = await skillModel.findOne({ name }).exec();
 
           if (existing && existing.seedHash === compositeSha) {
@@ -313,7 +320,7 @@ export class GitHubSyncService {
           }
 
           const file = await this.fetchFile(this.skillsRepo, skillMd.path);
-          const { meta, content } = this.parseSkillFrontmatter(file.content);
+          const { meta, content } = parseSkillFrontmatter(file.content);
 
           // Fetch supplementary files
           const supplementary: { path: string; content: string }[] = [];
@@ -368,17 +375,12 @@ export class GitHubSyncService {
 
   async pushPrompt(
     slug: string,
-    data: {
-      content: string;
-      extends?: string;
-      description?: string;
-      metadata?: Record<string, unknown>;
-    },
+    data: PromptFrontmatterData,
   ): Promise<string | null> {
     if (!this.enabled) return null;
 
     try {
-      const fileContent = this.serializePromptFile(data);
+      const fileContent = serializePromptFile(data);
       const existing = await this.fetchFile(
         this.promptsRepo,
         `${slug}.md`,
@@ -399,20 +401,14 @@ export class GitHubSyncService {
 
   async pushSkill(
     name: string,
-    data: {
-      content: string;
-      description?: string;
-      license?: string;
-      compatibility?: string;
-      allowedTools?: string[];
-      metadata?: Record<string, unknown>;
+    data: SkillFrontmatterData & {
       files?: { path: string; content: string }[];
     },
   ): Promise<void> {
     if (!this.enabled) return;
 
     try {
-      const skillMdContent = this.serializeSkillFile(data);
+      const skillMdContent = serializeSkillFile(data);
       const existing = await this.fetchFile(
         this.skillsRepo,
         `${name}/SKILL.md`,
@@ -480,89 +476,5 @@ export class GitHubSyncService {
     } catch (err) {
       this.logger.warn(`Failed to delete skill "${name}" from GitHub:`, err);
     }
-  }
-
-  // ── Serialization ───────────────────────────────────────────────────
-
-  private serializePromptFile(data: {
-    content: string;
-    extends?: string;
-    description?: string;
-    metadata?: Record<string, unknown>;
-  }): string {
-    const fm: Record<string, unknown> = {};
-    if (data.description) fm.description = data.description;
-    if (data.extends) fm.extends = data.extends;
-    if (data.metadata && Object.keys(data.metadata).length > 0)
-      fm.metadata = data.metadata;
-
-    if (Object.keys(fm).length === 0) return data.content;
-
-    const fmStr = yaml.dump(fm, { lineWidth: -1 }).trimEnd();
-    return `---\n${fmStr}\n---\n\n${data.content}`;
-  }
-
-  private serializeSkillFile(data: {
-    content: string;
-    description?: string;
-    license?: string;
-    compatibility?: string;
-    allowedTools?: string[];
-    metadata?: Record<string, unknown>;
-  }): string {
-    const fm: Record<string, unknown> = {};
-    if (data.description) fm.description = data.description;
-    if (data.license) fm.license = data.license;
-    if (data.compatibility) fm.compatibility = data.compatibility;
-    if (data.allowedTools?.length)
-      fm['allowed-tools'] = data.allowedTools.join(' ');
-    if (data.metadata && Object.keys(data.metadata).length > 0)
-      fm.metadata = data.metadata;
-
-    const fmStr = yaml.dump(fm, { lineWidth: -1 }).trimEnd();
-    return `---\n${fmStr}\n---\n\n${data.content}`;
-  }
-
-  // ── Frontmatter Parsing ─────────────────────────────────────────────
-
-  private parseFrontmatter(raw: string): {
-    meta: Record<string, any>;
-    content: string;
-  } {
-    if (!raw.startsWith('---')) return { meta: {}, content: raw };
-
-    const endIndex = raw.indexOf('---', 3);
-    if (endIndex === -1) return { meta: {}, content: raw };
-
-    const frontmatter = raw.slice(3, endIndex).trim();
-    const content = raw.slice(endIndex + 3).trim();
-
-    try {
-      const parsed = yaml.load(frontmatter) as Record<string, any>;
-      if (!parsed || typeof parsed !== 'object') return { meta: {}, content };
-      return { meta: parsed, content };
-    } catch {
-      return { meta: {}, content: raw };
-    }
-  }
-
-  private parseSkillFrontmatter(raw: string): {
-    meta: Record<string, any>;
-    content: string;
-  } {
-    const { meta, content } = this.parseFrontmatter(raw);
-
-    if (meta['allowed-tools']) {
-      meta.allowedTools = (meta['allowed-tools'] as string).split(/\s+/);
-      delete meta['allowed-tools'];
-    }
-
-    return { meta, content };
-  }
-
-  private computeCompositeSha(entries: TreeEntry[]): string {
-    const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
-    const input = sorted.map((e) => `${e.path}:${e.sha}`).join('\0');
-    return createHash('sha256').update(input).digest('hex');
   }
 }
