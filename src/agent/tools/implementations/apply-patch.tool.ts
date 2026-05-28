@@ -7,7 +7,6 @@ import type {
   ToolExecutionResult,
   ToolResource,
 } from '../tool.interface';
-import { resolveWorkspace } from './tool-utils';
 
 interface Hunk {
   oldStart: number;
@@ -40,14 +39,11 @@ export class ApplyPatchTool implements Tool<typeof parameters> {
 
   async execute(
     args: z.infer<typeof parameters>,
-    context: ToolExecutionContext,
+    _context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { path: filePath, patch } = args;
 
-    const validation = validatePath(
-      filePath,
-      resolveWorkspace(context, this.workspaceDir),
-    );
+    const validation = validatePath(filePath, this.workspaceDir);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
