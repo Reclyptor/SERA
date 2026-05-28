@@ -19,6 +19,7 @@ import { CommitmentsModule } from '../commitments/commitments.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
+import { RunLifecycleService } from './run-lifecycle.service';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
     AiSdkAgentRuntimeService,
     PromptBuilderService,
     AttachmentMessageResolverService,
+    RunLifecycleService,
   ],
   exports: [OrchestratorService, StreamingModule],
 })

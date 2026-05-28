@@ -27,8 +27,8 @@ describe('OrchestratorService', () => {
       stateService: {
         getOrCreateThread: vi.fn().mockResolvedValue({}),
         startRun: vi.fn().mockResolvedValue({}),
-        failRun: vi.fn().mockResolvedValue({}),
-        cancelRun: vi.fn().mockResolvedValue({}),
+        getCustomState: vi.fn().mockResolvedValue(undefined),
+        setCustomState: vi.fn().mockResolvedValue(undefined),
       },
       memoryService: { getContextForQuery: vi.fn().mockResolvedValue('') },
       eventEmitter: {
@@ -43,7 +43,6 @@ describe('OrchestratorService', () => {
           toolPolicy: { mode: 'allow', tools: [] },
         }),
       },
-      skillReview: {},
       contextCompressor: {
         compress: vi.fn().mockImplementation((messages) => messages),
       },
@@ -52,8 +51,6 @@ describe('OrchestratorService', () => {
         detect: vi.fn().mockReturnValue(undefined),
         clear: vi.fn(),
       },
-      insightsService: {},
-      commitmentExtractor: {},
       configService: { get: vi.fn().mockReturnValue('0') },
       moduleRef: { get: vi.fn().mockReturnValue(null) },
       attachmentMessageResolver: {
@@ -65,6 +62,11 @@ describe('OrchestratorService', () => {
           steps: Promise.resolve([{ toolCalls: [{}] }]),
           response: Promise.resolve({}),
         }),
+      },
+      lifecycle: {
+        failRun: vi.fn().mockResolvedValue(undefined),
+        cancelRun: vi.fn().mockResolvedValue(undefined),
+        completeRun: vi.fn().mockResolvedValue(undefined),
       },
       redis: {
         duplicate: vi.fn().mockReturnValue(redisSubscriber),
@@ -83,16 +85,14 @@ describe('OrchestratorService', () => {
         deps.eventEmitter as never,
         deps.chatsService as never,
         deps.agentsService as never,
-        deps.skillReview as never,
         deps.contextCompressor as never,
         deps.promptBuilder as never,
         deps.loopDetection as never,
-        deps.insightsService as never,
-        deps.commitmentExtractor as never,
         deps.configService as never,
         deps.moduleRef as never,
         deps.attachmentMessageResolver as never,
         deps.agentRuntime as never,
+        deps.lifecycle as never,
         deps.redis as never,
       ),
       deps,
@@ -114,17 +114,10 @@ describe('OrchestratorService', () => {
       { maxIterations: 1, maxSteps: 1, wallClockTimeoutMs: 0 },
     );
 
-    expect(deps.stateService.failRun).toHaveBeenCalledWith(
-      'run-1',
-      expect.stringContaining('max_iterations_exceeded'),
-    );
-    expect(deps.eventEmitter.emitEvent).toHaveBeenCalledWith(
+    expect(deps.lifecycle.failRun).toHaveBeenCalledWith(
       'run-1',
       'thread-1',
-      'run.failed',
-      expect.objectContaining({
-        error: expect.stringContaining('max_iterations_exceeded'),
-      }),
+      expect.stringContaining('max_iterations_exceeded'),
     );
   });
 });

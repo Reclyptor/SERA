@@ -22,9 +22,6 @@ import {
 } from './orchestration.interfaces';
 import type {
   RunStartedData,
-  RunCompletedData,
-  RunFailedData,
-  RunCancelledData,
   ThinkingDeltaData,
   ThinkingDoneData,
   TextDeltaData,
@@ -44,11 +41,10 @@ import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { LoopDetectionService } from '../tools/loop-detection.service';
 import { classifyError } from '../model/error-classifier';
-import { InsightsService } from '../insights/insights.service';
-import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
 import type { PluginLoaderService } from '../plugins/plugin-loader.service';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
+import { RunLifecycleService } from './run-lifecycle.service';
 
 const SUBAGENT_TOOL_NAMES = new Set(['sessions_spawn', 'agent_message']);
 const MAX_EVENT_RESULT_LENGTH = 5000;
@@ -77,16 +73,14 @@ export class OrchestratorService {
     private readonly eventEmitter: AgentEventEmitter,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
-    private readonly skillReview: SkillReviewService,
     private readonly contextCompressor: ContextCompressorService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly loopDetection: LoopDetectionService,
-    private readonly insightsService: InsightsService,
-    private readonly commitmentExtractor: CommitmentExtractorService,
     private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
     private readonly attachmentMessageResolver: AttachmentMessageResolverService,
     private readonly agentRuntime: AiSdkAgentRuntimeService,
+    private readonly lifecycle: RunLifecycleService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -615,14 +609,12 @@ export class OrchestratorService {
                 } satisfies TextDoneData);
               }
               terminalStateReached = true;
-              await this.completeRun(
-                goal,
-                finalText,
-                lastReasoningText,
-                lastThinkingDuration,
+              await this.lifecycle.completeRun(goal, finalText, {
+                thinking: lastReasoningText,
+                thinkingDuration: lastThinkingDuration,
                 totalToolCalls,
-                toolCallBlocks,
-                {
+                toolCalls: toolCallBlocks,
+                usage: {
                   provider: activeModel.provider,
                   modelID: activeModel.modelID,
                   inputTokens: totalInputTokens,
@@ -630,7 +622,8 @@ export class OrchestratorService {
                   durationMs: Date.now() - runStartTime,
                   iterationCount,
                 },
-              );
+              });
+              await this.maybeResumeYield(goal, finalText);
               break;
             }
             messages.push({
@@ -654,14 +647,13 @@ export class OrchestratorService {
 
           if (yieldRequested) {
             terminalStateReached = true;
-            await this.completeRun(
-              goal,
-              finalText || 'Yielded.',
-              lastReasoningText,
-              lastThinkingDuration,
+            const yieldResponse = finalText || 'Yielded.';
+            await this.lifecycle.completeRun(goal, yieldResponse, {
+              thinking: lastReasoningText,
+              thinkingDuration: lastThinkingDuration,
               totalToolCalls,
-              toolCallBlocks,
-              {
+              toolCalls: toolCallBlocks,
+              usage: {
                 provider: activeModel.provider,
                 modelID: activeModel.modelID,
                 inputTokens: totalInputTokens,
@@ -669,7 +661,8 @@ export class OrchestratorService {
                 durationMs: Date.now() - runStartTime,
                 iterationCount,
               },
-            );
+            });
+            await this.maybeResumeYield(goal, yieldResponse);
             break;
           }
 
@@ -678,14 +671,12 @@ export class OrchestratorService {
 
           if (modelFinished) {
             terminalStateReached = true;
-            await this.completeRun(
-              goal,
-              finalText,
-              lastReasoningText,
-              lastThinkingDuration,
+            await this.lifecycle.completeRun(goal, finalText, {
+              thinking: lastReasoningText,
+              thinkingDuration: lastThinkingDuration,
               totalToolCalls,
-              toolCallBlocks,
-              {
+              toolCalls: toolCallBlocks,
+              usage: {
                 provider: activeModel.provider,
                 modelID: activeModel.modelID,
                 inputTokens: totalInputTokens,
@@ -693,7 +684,8 @@ export class OrchestratorService {
                 durationMs: Date.now() - runStartTime,
                 iterationCount,
               },
-            );
+            });
+            await this.maybeResumeYield(goal, finalText);
             break;
           }
         } catch (streamError) {
@@ -713,14 +705,11 @@ export class OrchestratorService {
       if (!terminalStateReached && iterationCount >= cfg.maxIterations) {
         if (finalText) {
           terminalStateReached = true;
-          await this.completeRun(
-            goal,
-            finalText,
-            lastReasoningText,
-            lastThinkingDuration,
+          await this.lifecycle.completeRun(goal, finalText, {
+            thinking: lastReasoningText,
+            thinkingDuration: lastThinkingDuration,
             totalToolCalls,
-            undefined,
-            {
+            usage: {
               provider: activeModel.provider,
               modelID: activeModel.modelID,
               inputTokens: totalInputTokens,
@@ -728,31 +717,23 @@ export class OrchestratorService {
               durationMs: Date.now() - runStartTime,
               iterationCount,
             },
-          );
+          });
+          await this.maybeResumeYield(goal, finalText);
         } else {
           const error = `max_iterations_exceeded: run reached ${cfg.maxIterations} iterations without final text`;
           terminalStateReached = true;
-          await this.stateService.failRun(runID, error);
-          await this.emitEvent(runID, threadID, 'run.failed', {
-            error,
-          } satisfies RunFailedData);
+          await this.lifecycle.failRun(runID, threadID, error);
         }
       }
     } catch (error) {
       if (error instanceof AbortedError) {
         this.logger.debug(`Run ${runID} was cancelled`);
-        await this.stateService.cancelRun(runID);
-        await this.emitEvent(runID, threadID, 'run.cancelled', {
-          reason: 'Run cancelled',
-        } satisfies RunCancelledData);
+        await this.lifecycle.cancelRun(runID, threadID);
       } else {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`Run ${runID} failed:`, error);
-        await this.stateService.failRun(runID, errorMessage);
-        await this.emitEvent(runID, threadID, 'run.failed', {
-          error: errorMessage,
-        } satisfies RunFailedData);
+        await this.lifecycle.failRun(runID, threadID, errorMessage);
       }
     } finally {
       await this.runPluginHooks('onSessionEnd', {
@@ -776,219 +757,69 @@ export class OrchestratorService {
     return listeners > 0;
   }
 
-  private async completeRun(
+  /**
+   * After a run completes, check if its parent thread is yielding for
+   * subagent results (via `sessions_yield`) and, if so, schedule a
+   * resume run on the parent with this run's response as the new
+   * message. Stays in the orchestrator because it SCHEDULES another
+   * run rather than finalizing this one — the lifecycle service only
+   * owns terminal-state side effects, not run scheduling.
+   */
+  private async maybeResumeYield(
     goal: AgentGoal,
     response: string,
-    thinking?: string,
-    thinkingDuration?: number,
-    totalToolCalls?: number,
-    toolCalls?: ToolCallBlock[],
-    usageData?: {
-      provider: string;
-      modelID: string;
-      inputTokens: number;
-      outputTokens: number;
-      durationMs: number;
-      iterationCount: number;
-    },
   ): Promise<void> {
-    const { runID, threadID, userID } = goal;
-
-    await this.stateService.completeRun(runID, response);
-
-    if (usageData) {
-      this.insightsService
-        .recordUsage({
-          runID,
-          userID,
-          provider: usageData.provider,
-          modelID: usageData.modelID,
-          tokens: {
-            input: usageData.inputTokens,
-            output: usageData.outputTokens,
-          },
-          toolCallCount: totalToolCalls ?? 0,
-          durationMs: usageData.durationMs,
-          iterationCount: usageData.iterationCount,
-        })
-        .catch((err) => {
-          this.logger.warn('Usage recording failed:', err);
-        });
-    }
-
-    if (goal.chatID && response) {
-      try {
-        await this.chatsService.appendMessage(goal.chatID, {
-          id: randomUUID(),
-          role: 'assistant',
-          content: response,
-          thinking,
-          thinkingDuration,
-          toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-          createdAt: new Date(),
-        });
-      } catch (err) {
-        this.logger.warn('Failed to persist assistant message:', err);
-      }
-    }
-
-    await this.emitEvent(runID, threadID, 'run.completed', {
-      response,
-    } satisfies RunCompletedData);
-
-    if (!goal.isHeartbeat) {
-      const lastUserMsg = goal.userMessage;
-      if (lastUserMsg && response) {
-        this.memoryService
-          .extractAndStore(
-            userID,
-            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
-          )
-          .catch((err) => {
-            this.logger.warn('Memory extraction failed:', err);
-          });
-
-        this.commitmentExtractor
-          .extract(
-            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
-            goal.agentID,
-            userID,
-            threadID,
-            runID,
-          )
-          .catch((err) => {
-            this.logger.warn('Commitment extraction failed:', err);
-          });
-      }
-
-      this.maybeRunSkillReview(goal, response, totalToolCalls ?? 0).catch(
-        (err) => {
-          this.logger.warn('Skill review trigger failed:', err);
-        },
-      );
-    }
-
     try {
       const parentThreadID = await this.stateService.getCustomState<string>(
-        threadID,
+        goal.threadID,
         'parentThreadID',
       );
-      if (parentThreadID) {
-        const yielding = await this.stateService.getCustomState<boolean>(
+      if (!parentThreadID) return;
+      const yielding = await this.stateService.getCustomState<boolean>(
+        parentThreadID,
+        'yielding',
+      );
+      if (!yielding) return;
+
+      const yieldAgentID =
+        (await this.stateService.getCustomState<string>(
           parentThreadID,
-          'yielding',
+          'yieldAgentID',
+        )) ?? goal.agentID;
+      const yieldUserID =
+        (await this.stateService.getCustomState<string>(
+          parentThreadID,
+          'yieldUserID',
+        )) ?? goal.userID;
+      const yieldChatID = await this.stateService.getCustomState<string>(
+        parentThreadID,
+        'yieldChatID',
+      );
+
+      await this.stateService.setCustomState(parentThreadID, 'yielding', false);
+
+      const resumeRunID = randomUUID();
+      const resumeMessage = `[Subagent completed]\nThread: ${goal.threadID}\nRun: ${goal.runID}\n\n${response || '(no response)'}`;
+      this.executeGoal(
+        {
+          threadID: parentThreadID,
+          runID: resumeRunID,
+          userID: yieldUserID,
+          agentID: yieldAgentID,
+          chatID: yieldChatID || undefined,
+          userMessage: resumeMessage,
+          conversationHistory: [],
+          isHeartbeat: true,
+        },
+        this.getAutonomousRunConfig(),
+      ).catch((err) => {
+        this.logger.warn(
+          `Failed to resume yielded parent ${parentThreadID}:`,
+          err,
         );
-        if (yielding) {
-          const yieldAgentID =
-            (await this.stateService.getCustomState<string>(
-              parentThreadID,
-              'yieldAgentID',
-            )) ?? goal.agentID;
-          const yieldUserID =
-            (await this.stateService.getCustomState<string>(
-              parentThreadID,
-              'yieldUserID',
-            )) ?? userID;
-          const yieldChatID = await this.stateService.getCustomState<string>(
-            parentThreadID,
-            'yieldChatID',
-          );
-          await this.stateService.setCustomState(
-            parentThreadID,
-            'yielding',
-            false,
-          );
-          const resumeRunID = randomUUID();
-          const resumeMessage = `[Subagent completed]\nThread: ${threadID}\nRun: ${runID}\n\n${response || '(no response)'}`;
-          this.executeGoal(
-            {
-              threadID: parentThreadID,
-              runID: resumeRunID,
-              userID: yieldUserID,
-              agentID: yieldAgentID,
-              chatID: yieldChatID || undefined,
-              userMessage: resumeMessage,
-              conversationHistory: [],
-              isHeartbeat: true,
-            },
-            this.getAutonomousRunConfig(),
-          ).catch((err) => {
-            this.logger.warn(
-              `Failed to resume yielded parent ${parentThreadID}:`,
-              err,
-            );
-          });
-        }
-      }
+      });
     } catch {
       // Non-critical — ignore
-    }
-  }
-
-  private async maybeRunSkillReview(
-    goal: AgentGoal,
-    response: string,
-    totalToolCalls: number,
-  ): Promise<void> {
-    const { threadID } = goal;
-
-    const prevTurns =
-      (await this.stateService.getCustomState<number>(
-        threadID,
-        'turnsSinceReview',
-      )) ?? 0;
-    const prevToolCalls =
-      (await this.stateService.getCustomState<number>(
-        threadID,
-        'toolCallsSinceReview',
-      )) ?? 0;
-
-    const newTurns = prevTurns + 1;
-    const newToolCalls = prevToolCalls + totalToolCalls;
-
-    const turnThreshold =
-      parseInt(
-        this.configService.get<string>('SKILL_REVIEW_TURN_THRESHOLD', '3'),
-        10,
-      ) || 3;
-    const toolThreshold =
-      parseInt(
-        this.configService.get<string>('SKILL_REVIEW_TOOL_THRESHOLD', '5'),
-        10,
-      ) || 5;
-
-    if (newTurns >= turnThreshold || newToolCalls >= toolThreshold) {
-      await this.stateService.setCustomState(threadID, 'turnsSinceReview', 0);
-      await this.stateService.setCustomState(
-        threadID,
-        'toolCallsSinceReview',
-        0,
-      );
-
-      this.skillReview
-        .review({
-          userMessage: goal.userMessage,
-          response,
-          conversationHistory: goal.conversationHistory,
-          agentID: goal.agentID,
-          threadID: goal.threadID,
-          runID: goal.runID,
-          toolCallCount: totalToolCalls,
-        })
-        .catch((err) => {
-          this.logger.warn('Skill review failed:', err);
-        });
-    } else {
-      await this.stateService.setCustomState(
-        threadID,
-        'turnsSinceReview',
-        newTurns,
-      );
-      await this.stateService.setCustomState(
-        threadID,
-        'toolCallsSinceReview',
-        newToolCalls,
-      );
     }
   }
 
