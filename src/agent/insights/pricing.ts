@@ -66,9 +66,7 @@ export function calculateCost(
     ? ((tokens.cacheWrite ?? 0) / 1_000_000) * pricing.cacheWritePerMTok
     : 0;
 
-  return (
-    Math.round(
-      (inputCost + outputCost + cacheReadCost + cacheWriteCost) * 100,
-    ) / 100
+  return Math.round(
+    (inputCost + outputCost + cacheReadCost + cacheWriteCost) * 100,
   );
 }

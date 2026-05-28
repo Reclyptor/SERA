@@ -1612,6 +1612,8 @@ Skills sync bidirectionally with a GitHub repository:
 
 Matched skills are formatted into the system prompt via `formatForPrompt(skills)` with their content and metadata.
 
+Calling `findRelevant` also updates `lastUsedAt`, increments `usageCount`, and re-activates `stale` skills via a single `bulkWrite`. This bookkeeping is fire-and-forget — a failure logs a warning but does not block the prompt build. `lastUsedAt` is not consumed from the Redis cache (the curator queries Mongo directly), so cache invalidation is intentionally skipped to avoid a write storm on every prompt build.
+
 ---
 
 ## 16. Plugins System
@@ -1816,7 +1818,7 @@ Every completed run records usage metrics including token counts, cost, duration
 | `o3`                | 2.00           | 8.00            | —                   | —                    |
 | `gemini-2.0-flash`  | 0.10           | 0.40            | —                   | —                    |
 
-Cost is calculated as: `(inputTokens + thinkingTokens) * inputRate + outputTokens * outputRate + cacheReadTokens * cacheReadRate + cacheWriteTokens * cacheWriteRate`. Result is rounded to 2 decimal places (cents).
+Cost is calculated as: `(inputTokens + thinkingTokens) * inputRate + outputTokens * outputRate + cacheReadTokens * cacheReadRate + cacheWriteTokens * cacheWriteRate`. The result is stored as **integer cents** (USD × 100, rounded to the nearest cent). The `costCents` field, all aggregate totals (`totalCostCents`, per-provider and per-model `costCents`), and the runtime cost log line all express whole cents.
 
 ### Aggregation
 

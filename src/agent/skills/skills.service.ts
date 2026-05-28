@@ -284,7 +284,7 @@ export class SkillsService implements OnModuleInit {
       .split(/\s+/)
       .filter((w) => w.length >= 3);
 
-    return skills
+    const matched = skills
       .filter((skill) => {
         if (skill.allowedTools.length > 0 && availableTools) {
           const hasRequired = skill.allowedTools.every((t) =>
@@ -309,6 +309,34 @@ export class SkillsService implements OnModuleInit {
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((entry) => entry.skill);
+
+    if (matched.length > 0) {
+      void this.recordSkillUsage(matched.map((s) => s.name));
+    }
+
+    return matched;
+  }
+
+  private async recordSkillUsage(names: string[]): Promise<void> {
+    // lastUsedAt / usageCount are not consumed from the Redis cache (the
+    // curator queries Mongo directly), so we intentionally skip cache
+    // invalidation here to avoid a write storm on every prompt build.
+    try {
+      await this.skillModel.bulkWrite(
+        names.map((name) => ({
+          updateOne: {
+            filter: { name },
+            update: {
+              $set: { lastUsedAt: new Date(), status: 'active' },
+              $inc: { usageCount: 1 },
+            },
+          },
+        })),
+        { ordered: false },
+      );
+    } catch (err) {
+      this.logger.warn('Failed to record skill usage:', err);
+    }
   }
 
   formatForPrompt(skills: Skill[]): string {
