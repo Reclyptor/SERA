@@ -92,10 +92,30 @@ export class RequestConfirmationAction implements BackendAction<
       };
     }
 
-    await this.stateService.removePendingConfirmation(
+    // Atomic timeout claim: if the user resolved between the last poll
+    // and now, tryExpireConfirmation surfaces their decision instead of
+    // silently dropping it. Only when we win the race do we emit
+    // `timed_out`.
+    const expired = await this.stateService.tryExpireConfirmation(
       context.threadID,
       confirmationID,
     );
+
+    if (!expired.claimed && expired.resolution) {
+      await this.stateService.removePendingConfirmation(
+        context.threadID,
+        confirmationID,
+      );
+      return {
+        success: true,
+        result: {
+          confirmationID,
+          decision: expired.resolution.status,
+          approved: expired.resolution.status === 'approved',
+          feedback: expired.resolution.feedback ?? null,
+        },
+      };
+    }
 
     return {
       success: true,

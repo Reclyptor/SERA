@@ -320,6 +320,56 @@ export class StateStore {
     return result !== null;
   }
 
+  // Atomic "claim and remove if still pending" — used by the confirmation
+  // action when its timeout fires. Mongo's per-document update is atomic,
+  // so a concurrent resolveConfirmation that has already transitioned
+  // pending → approved/rejected will leave the $pull filter unmatched and
+  // the entry untouched. The pre-update document tells us which path we
+  // took: if it held a pending entry, we claimed it; otherwise the user
+  // resolved first and we surface their decision.
+  async tryExpireConfirmation(
+    threadID: string,
+    confirmationID: string,
+  ): Promise<{
+    claimed: boolean;
+    resolution?: {
+      status: 'approved' | 'rejected';
+      feedback?: string;
+    };
+  }> {
+    const before = await this.agentStateModel
+      .findOneAndUpdate(
+        { threadID },
+        {
+          $pull: {
+            pendingConfirmations: { id: confirmationID, status: 'pending' },
+          },
+        },
+        { returnDocument: 'before' },
+      )
+      .exec();
+
+    const preEntry = before?.pendingConfirmations?.find(
+      (c: { id: string }) => c.id === confirmationID,
+    );
+
+    if (preEntry?.status === 'pending') {
+      return { claimed: true };
+    }
+
+    if (preEntry && preEntry.status !== 'pending') {
+      return {
+        claimed: false,
+        resolution: {
+          status: preEntry.status as 'approved' | 'rejected',
+          feedback: preEntry.feedback,
+        },
+      };
+    }
+
+    return { claimed: false };
+  }
+
   // Snapshot
 
   async getSnapshot(

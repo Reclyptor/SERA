@@ -218,6 +218,16 @@ export class StateService {
     return this.store.removePendingConfirmation(threadID, confirmationID);
   }
 
+  async tryExpireConfirmation(
+    threadID: string,
+    confirmationID: string,
+  ): Promise<{
+    claimed: boolean;
+    resolution?: { status: 'approved' | 'rejected'; feedback?: string };
+  }> {
+    return this.store.tryExpireConfirmation(threadID, confirmationID);
+  }
+
   async getPendingConfirmations(
     threadID: string,
   ): Promise<AgentState['pendingConfirmations']> {

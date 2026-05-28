@@ -1459,7 +1459,9 @@ interface BackendAction<TParams extends z.ZodType> {
 5. User calls `POST /agent/confirm/:threadID/:confirmationID`
 6. `StateService.resolveConfirmation()` updates status
 7. `confirmation.resolved` SSE event is emitted
-8. Action returns with decision (`approved` / `timed_out`)
+8. Action returns with decision (`approved` / `rejected` / `timed_out`)
+
+When the timeout deadline is reached, the action calls `StateService.tryExpireConfirmation()`, which atomically removes the confirmation **only if** it is still `pending`. If a concurrent `resolveConfirmation` already transitioned the entry to `approved`/`rejected`, the atomic claim fails and the resolved decision is returned to the agent instead of a silent `timed_out`. This closes a race where a slow user response could be silently dropped.
 
 ---
 
