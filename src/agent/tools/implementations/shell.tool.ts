@@ -9,7 +9,12 @@ import type {
   ToolResource,
 } from '../tool.interface';
 import type { SandboxRunnerLike } from './sandbox.types';
-import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
+import {
+  buildToolEnv,
+  resolveWorkspace,
+  truncateOutput,
+  disabledError,
+} from './tool-utils';
 import type { ToolApprovalRequester } from './exec.tool';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
@@ -109,7 +114,7 @@ export class ShellTool implements Tool<typeof parameters> {
         resolve({ success: false, error: 'Script cancelled' });
         return;
       }
-      let timeout: NodeJS.Timeout | undefined;
+      let timeout: NodeJS.Timeout | undefined = undefined;
       const child = exec(
         script,
         {
@@ -117,7 +122,7 @@ export class ShellTool implements Tool<typeof parameters> {
           shell: '/bin/sh',
           timeout: timeoutMs,
           maxBuffer: MAX_OUTPUT_SIZE,
-          env: { ...process.env, PATH: process.env.PATH },
+          env: buildToolEnv(),
         },
         (error, stdout, stderr) => {
           if (timeout) clearTimeout(timeout);

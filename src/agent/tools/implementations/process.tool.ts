@@ -8,7 +8,12 @@ import type {
   ToolExecutionResult,
   ToolResource,
 } from '../tool.interface';
-import { resolveWorkspace, truncateOutput, disabledError } from './tool-utils';
+import {
+  buildToolEnv,
+  resolveWorkspace,
+  truncateOutput,
+  disabledError,
+} from './tool-utils';
 import type { ToolApprovalRequester } from './exec.tool';
 
 export interface ProcessOrchestratorLike {
@@ -152,7 +157,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     const child = spawn(command, {
       shell: true,
       cwd: resolveWorkspace(context, this.workspaceDir),
-      env: { ...process.env, PATH: process.env.PATH },
+      env: buildToolEnv(),
     });
 
     const tracked: TrackedProcess = {
@@ -229,7 +234,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     };
   }
 
-  private async list(): Promise<ToolExecutionResult> {
+  private list(): ToolExecutionResult {
     const entries = Array.from(ProcessTool.processes.entries()).map(
       ([processID, tracked]) => ({
         processID,
@@ -243,7 +248,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     return { success: true, result: entries };
   }
 
-  private async output(processID?: string): Promise<ToolExecutionResult> {
+  private output(processID?: string): ToolExecutionResult {
     if (!processID) {
       return { success: false, error: 'processID is required for output' };
     }
@@ -264,7 +269,7 @@ export class ProcessTool implements Tool<typeof parameters> {
     };
   }
 
-  private async kill(processID?: string): Promise<ToolExecutionResult> {
+  private kill(processID?: string): ToolExecutionResult {
     if (!this.enabled) {
       return disabledError('Shell execution', 'ENABLE_SHELL_TOOL');
     }

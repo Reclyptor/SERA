@@ -11,6 +11,7 @@ import type {
 import type { SandboxRunnerLike } from './sandbox.types';
 import type { ToolsRegistry } from '../tools.registry';
 import { startToolBridge, writeHelperLibraries } from './tool-bridge';
+import { buildToolEnv } from './tool-utils';
 
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
@@ -119,7 +120,7 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
             cwd: workspace,
             timeout: timeoutMs,
             maxBuffer: MAX_OUTPUT_SIZE,
-            env: { ...process.env, ...bridgeEnv, PATH: process.env.PATH },
+            env: buildToolEnv(bridgeEnv),
           },
           (error, stdout, stderr) => {
             if (error && error.killed) {

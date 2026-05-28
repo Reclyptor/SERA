@@ -28,6 +28,17 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
+      // Allow `_`-prefixed args/vars to mark intentionally-unused values
+      // (standard JS convention; required for interface conformance where
+      // a method doesn't actually consume a contextual parameter).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },

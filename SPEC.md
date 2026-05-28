@@ -1914,6 +1914,10 @@ Content is marked safe only if no high-severity threats are detected.
 
 Environment is sanitized to: `HOME`, `PATH`, `TMPDIR`, `LANG`, plus custom `envVars`.
 
+### Runtime Tool Environment
+
+`exec`, `shell`, `process`, and `code_execution` all apply the same `HOME` / `PATH` / `TMPDIR` / `LANG` allowlist to the child-process env even when the sandbox is OFF, via the shared `buildToolEnv()` helper in `tool-utils`. This prevents `AUTH_SECRET`, provider API keys, the Mongo URI, NTFY tokens, and other process-level secrets from leaking into user-supplied scripts. `code_execution` additionally injects `SERA_BRIDGE_URL` / `SERA_BRIDGE_SECRET` for the tool-bridge helper libraries.
+
 ---
 
 ## 24. Chat Management
