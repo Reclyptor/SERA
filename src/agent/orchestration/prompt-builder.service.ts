@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PromptsService, PromptVariables } from '../../prompts/prompts.service';
 import { MemoryService } from '../memory/memory.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
-import { SkillsService } from '../skills/skills.service';
+import { SkillsMatcher } from '../skills/skills-matcher.service';
 import { ToolsService } from '../tools/tools.service';
 import { MemoryKnowledgeProvider } from '../knowledge/providers';
 import type { AgentConfig } from '../../agents/agent-config.schema';
@@ -24,7 +24,7 @@ export class PromptBuilderService {
     private readonly promptsService: PromptsService,
     private readonly memoryService: MemoryService,
     private readonly knowledgeService: KnowledgeService,
-    private readonly skillsService: SkillsService,
+    private readonly skillsMatcher: SkillsMatcher,
     private readonly toolsService: ToolsService,
   ) {}
 
@@ -85,11 +85,11 @@ export class PromptBuilderService {
 
     try {
       const availableTools = this.toolsService.getAllToolNames();
-      const skills = await this.skillsService.findRelevant(
+      const skills = await this.skillsMatcher.findRelevant(
         query,
         availableTools,
       );
-      const skillsPrompt = this.skillsService.formatForPrompt(skills);
+      const skillsPrompt = this.skillsMatcher.formatForPrompt(skills);
       if (skillsPrompt) parts.push(skillsPrompt);
     } catch {
       // Supplementary context — safe to skip
