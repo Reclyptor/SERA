@@ -197,37 +197,81 @@ export class PromptsService implements OnModuleInit {
   }
 
   private async loadPromptChain(slug: string): Promise<Prompt[]> {
-    const visited = new Set<string>();
-    let currentSlug: string | undefined = slug;
-    let depth = 0;
-    const chain: Prompt[] = [];
+    // Single round trip: fetch the leaf plus its entire `extends`
+    // ancestry via $graphLookup, then assemble in memory. Previously
+    // this issued N queries for a chain of length N (one per hop).
+    interface ChainNode {
+      slug: string;
+      extends?: string | null;
+      content: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+      seedHash?: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+    }
 
-    while (currentSlug) {
-      depth++;
-      if (depth > MAX_EXTENDS_DEPTH) {
+    interface LeafWithAncestors extends ChainNode {
+      ancestors: ChainNode[];
+    }
+
+    const collection = this.promptModel.collection.name;
+    const results = await this.promptModel
+      .aggregate<LeafWithAncestors>([
+        { $match: { slug } },
+        {
+          $graphLookup: {
+            from: collection,
+            startWith: '$extends',
+            connectFromField: 'extends',
+            connectToField: 'slug',
+            as: 'ancestors',
+            // maxDepth is 0-based; MAX_EXTENDS_DEPTH - 1 lets the chain
+            // include up to MAX_EXTENDS_DEPTH total documents (leaf + N
+            // ancestors).
+            maxDepth: MAX_EXTENDS_DEPTH - 1,
+            depthField: '_chainDepth',
+          },
+        },
+      ])
+      .exec();
+
+    if (results.length === 0) return [];
+
+    const leaf = results[0];
+    const ancestorBySlug = new Map<string, ChainNode>();
+    for (const a of leaf.ancestors) {
+      ancestorBySlug.set(a.slug, a);
+    }
+
+    // Walk from leaf up the chain via `extends`, detecting cycles and
+    // capping the apparent depth defensively (the maxDepth above is the
+    // primary guard; this is belt-and-suspenders).
+    const chain: ChainNode[] = [leaf];
+    const visited = new Set<string>([leaf.slug]);
+    let cursor: string | null | undefined = leaf.extends;
+    let hops = 0;
+
+    while (cursor) {
+      hops++;
+      if (hops > MAX_EXTENDS_DEPTH) {
         throw new BadRequestException(
           `Prompt inheritance exceeds max depth of ${MAX_EXTENDS_DEPTH}`,
         );
       }
-      if (visited.has(currentSlug)) {
+      if (visited.has(cursor)) {
         throw new BadRequestException(
-          `Circular prompt inheritance detected at "${currentSlug}"`,
+          `Circular prompt inheritance detected at "${cursor}"`,
         );
       }
-
-      visited.add(currentSlug);
-
-      const prompt = await this.getDocument(currentSlug);
-      if (!prompt) {
-        if (chain.length === 0) return [];
-        break;
-      }
-
-      chain.unshift(prompt);
-      currentSlug = prompt.extends ?? undefined;
+      const parent = ancestorBySlug.get(cursor);
+      if (!parent) break; // referenced extends doesn't exist — stop
+      visited.add(parent.slug);
+      chain.unshift(parent);
+      cursor = parent.extends;
     }
 
-    return chain;
+    return chain as Prompt[];
   }
 
   private async assertValidExtendsChain(
