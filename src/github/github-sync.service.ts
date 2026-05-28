@@ -1,15 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
-import type { PromptDocument } from '../prompts/prompt.schema';
 import type { SkillDocument } from '../agent/skills/skill.schema';
 import {
-  parseFrontmatter,
   parseSkillFrontmatter,
-  serializePromptFile,
   serializeSkillFile,
   computeCompositeSha,
-  type PromptFrontmatterData,
   type SkillFrontmatterData,
 } from './frontmatter-codec';
 import { GitHubHttpClient } from './github-http-client.service';
@@ -31,7 +27,6 @@ export interface SyncResult {
 @Injectable()
 export class GitHubSyncService {
   private readonly logger = new Logger(GitHubSyncService.name);
-  readonly promptsRepo: string;
   readonly skillsRepo: string;
 
   constructor(
@@ -39,10 +34,6 @@ export class GitHubSyncService {
     private readonly http: GitHubHttpClient,
     private readonly shaTracker: GitHubShaTracker,
   ) {
-    this.promptsRepo = this.configService.get<string>(
-      'GITHUB_PROMPTS_REPO',
-      'Reclyptor/Prompts',
-    );
     this.skillsRepo = this.configService.get<string>(
       'GITHUB_SKILLS_REPO',
       'Reclyptor/Skills',
@@ -51,84 +42,6 @@ export class GitHubSyncService {
 
   get enabled(): boolean {
     return this.http.enabled;
-  }
-
-  // ── Prompt Sync ─────────────────────────────────────────────────────
-
-  async syncPrompts(promptModel: Model<PromptDocument>): Promise<SyncResult> {
-    if (!this.enabled)
-      return { created: 0, updated: 0, unchanged: 0, errors: [] };
-
-    const result: SyncResult = {
-      created: 0,
-      updated: 0,
-      unchanged: 0,
-      errors: [],
-    };
-
-    try {
-      const headSha = await this.http.getHeadSha(this.promptsRepo);
-      const storedSha = await this.shaTracker.get(this.promptsRepo);
-
-      if (headSha === storedSha) {
-        this.logger.debug('Prompts repo unchanged, skipping sync');
-        return result;
-      }
-
-      const tree = await this.http.fetchTree(this.promptsRepo);
-      const mdFiles = tree.filter(
-        (e) => e.path.endsWith('.md') && !e.path.includes('/'),
-      );
-
-      for (const entry of mdFiles) {
-        const slug = entry.path.replace(/\.md$/, '');
-
-        try {
-          const existing = await promptModel.findOne({ slug }).exec();
-
-          if (existing && existing.seedHash === entry.sha) {
-            result.unchanged++;
-            continue;
-          }
-
-          const file = await this.http.fetchFile(this.promptsRepo, entry.path);
-          const { meta, content } = parseFrontmatter(file.content);
-
-          const update: Record<string, unknown> = {
-            content,
-            seedHash: entry.sha,
-          };
-          if (meta.description) update.description = meta.description;
-          if (meta.extends) update.extends = meta.extends;
-          if (meta.metadata) update.metadata = meta.metadata;
-
-          if (existing) {
-            await promptModel.updateOne({ slug }, { $set: update });
-            result.updated++;
-            this.logger.log(`Updated prompt "${slug}" from GitHub`);
-          } else {
-            await promptModel.create({ slug, ...update });
-            result.created++;
-            this.logger.log(`Created prompt "${slug}" from GitHub`);
-          }
-        } catch (err) {
-          const msg = `Failed to sync prompt "${slug}": ${err instanceof Error ? err.message : String(err)}`;
-          result.errors.push(msg);
-          this.logger.error(msg);
-        }
-      }
-
-      await this.shaTracker.set(this.promptsRepo, headSha);
-      this.logger.log(
-        `Prompts sync complete: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`,
-      );
-    } catch (err) {
-      const msg = `Prompts sync failed: ${err instanceof Error ? err.message : String(err)}`;
-      result.errors.push(msg);
-      this.logger.error(msg);
-    }
-
-    return result;
   }
 
   // ── Skill Sync ──────────────────────────────────────────────────────
@@ -234,31 +147,6 @@ export class GitHubSyncService {
 
   // ── Push to GitHub ──────────────────────────────────────────────────
 
-  async pushPrompt(
-    slug: string,
-    data: PromptFrontmatterData,
-  ): Promise<string | null> {
-    if (!this.enabled) return null;
-
-    try {
-      const fileContent = serializePromptFile(data);
-      const existing = await this.http
-        .fetchFile(this.promptsRepo, `${slug}.md`)
-        .catch(() => null);
-      const newSha = await this.http.putFile(
-        this.promptsRepo,
-        `${slug}.md`,
-        fileContent,
-        existing?.sha,
-        `Update prompt: ${slug}`,
-      );
-      return newSha;
-    } catch (err) {
-      this.logger.warn(`Failed to push prompt "${slug}" to GitHub:`, err);
-      return null;
-    }
-  }
-
   async pushSkill(
     name: string,
     data: SkillFrontmatterData & {
@@ -297,25 +185,6 @@ export class GitHubSyncService {
       }
     } catch (err) {
       this.logger.warn(`Failed to push skill "${name}" to GitHub:`, err);
-    }
-  }
-
-  async deletePromptFile(slug: string): Promise<void> {
-    if (!this.enabled) return;
-
-    try {
-      const existing = await this.http.fetchFile(
-        this.promptsRepo,
-        `${slug}.md`,
-      );
-      await this.http.deleteFile(
-        this.promptsRepo,
-        `${slug}.md`,
-        existing.sha,
-        `Delete prompt: ${slug}`,
-      );
-    } catch (err) {
-      this.logger.warn(`Failed to delete prompt "${slug}" from GitHub:`, err);
     }
   }
 

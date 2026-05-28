@@ -10,7 +10,7 @@ import { Model } from 'mongoose';
 import Redis from 'ioredis';
 import { Prompt, PromptDocument } from './prompt.schema';
 import { REDIS_CLIENT } from '../redis/redis.constants';
-import { GitHubSyncService } from '../github/github-sync.service';
+import { PromptSyncStrategy } from './prompt-sync.strategy';
 
 const CACHE_PREFIX = 'prompt:';
 const CACHE_TTL = 300;
@@ -30,7 +30,7 @@ export class PromptsService implements OnModuleInit {
   constructor(
     @InjectModel(Prompt.name) private promptModel: Model<PromptDocument>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    private readonly githubSync: GitHubSyncService,
+    private readonly syncStrategy: PromptSyncStrategy,
   ) {}
 
   onModuleInit(): void {
@@ -43,7 +43,7 @@ export class PromptsService implements OnModuleInit {
   }
 
   async syncFromGitHub() {
-    return this.githubSync.syncPrompts(this.promptModel);
+    return this.syncStrategy.syncFromGitHub();
   }
 
   async resolve(
@@ -115,7 +115,7 @@ export class PromptsService implements OnModuleInit {
     await this.invalidateCache(slug);
     this.logger.log(`Prompt "${slug}" upserted`);
 
-    const newSha = await this.githubSync.pushPrompt(slug, data);
+    const newSha = await this.syncStrategy.pushPrompt(slug, data);
     if (newSha) {
       await this.promptModel.updateOne(
         { slug },
@@ -136,7 +136,7 @@ export class PromptsService implements OnModuleInit {
     await this.invalidateCache(slug);
 
     if (result.deletedCount > 0) {
-      this.githubSync
+      this.syncStrategy
         .deletePromptFile(slug)
         .catch((err) =>
           this.logger.warn(
