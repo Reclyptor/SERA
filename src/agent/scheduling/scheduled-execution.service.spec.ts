@@ -77,7 +77,7 @@ describe('ScheduledExecutionService', () => {
     });
   });
 
-  it('claims only due pending or lease-expired executions atomically', async () => {
+  it('claims a pending occurrence without incrementing attempts', async () => {
     const now = new Date('2026-05-16T12:00:00.000Z');
     const claimed = { executionID: 'execution-1' };
     const model = {
@@ -87,28 +87,67 @@ describe('ScheduledExecutionService', () => {
 
     await expect(service.claimNext('heartbeat', now)).resolves.toBe(claimed);
 
-    expect(model.findOneAndUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'heartbeat',
-        scheduledFor: { $lte: now },
-        status: { $in: ['pending', 'running'] },
-        attempts: { $lt: 3 },
-        $or: [
-          { status: 'pending' },
-          { leaseExpiresAt: { $lte: now } },
-          { leaseExpiresAt: { $exists: false } },
-        ],
-      }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          status: 'running',
-          leaseOwner: service.ownerID,
-          startedAt: now,
-        }),
-        $inc: { attempts: 1 },
-      }),
-      { new: true, sort: { scheduledFor: 1, createdAt: 1 } },
+    expect(model.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    const [filter, update, options] = model.findOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({
+      kind: 'heartbeat',
+      scheduledFor: { $lte: now },
+      status: 'pending',
+    });
+    expect(update).not.toHaveProperty('$inc');
+    expect((update as { $set: { leaseOwner: string } }).$set.leaseOwner).toBe(
+      service.ownerID,
     );
+    expect(options).toEqual({
+      new: true,
+      sort: { scheduledFor: 1, createdAt: 1 },
+    });
+  });
+
+  it('reclaims an expired-lease execution and increments attempts when no pending is available', async () => {
+    const now = new Date('2026-05-16T12:00:00.000Z');
+    const claimed = { executionID: 'execution-1' };
+    const model = {
+      findOneAndUpdate: vi
+        .fn()
+        .mockReturnValueOnce(execResult(null))
+        .mockReturnValueOnce(execResult(claimed)),
+    };
+    const service = createService(model);
+
+    await expect(service.claimNext('heartbeat', now)).resolves.toBe(claimed);
+
+    expect(model.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    const [filter, update, options] =
+      model.findOneAndUpdate.mock.calls[1] ?? [];
+    expect(filter).toMatchObject({
+      kind: 'heartbeat',
+      status: 'running',
+      attempts: { $lt: 3 },
+      $or: [
+        { leaseExpiresAt: { $lte: now } },
+        { leaseExpiresAt: { $exists: false } },
+      ],
+    });
+    expect(update).toMatchObject({ $inc: { attempts: 1 } });
+    expect(options).toEqual({
+      new: true,
+      sort: { scheduledFor: 1, createdAt: 1 },
+    });
+  });
+
+  it('returns null when neither a pending nor an expired-lease execution is available', async () => {
+    const now = new Date('2026-05-16T12:00:00.000Z');
+    const model = {
+      findOneAndUpdate: vi
+        .fn()
+        .mockReturnValueOnce(execResult(null))
+        .mockReturnValueOnce(execResult(null)),
+    };
+    const service = createService(model);
+
+    await expect(service.claimNext('heartbeat', now)).resolves.toBeNull();
+    expect(model.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
   it('renews and clears leases only for the owning scheduler instance', async () => {

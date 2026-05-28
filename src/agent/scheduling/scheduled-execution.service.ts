@@ -78,29 +78,52 @@ export class ScheduledExecutionService {
     const runID = crypto.randomUUID();
     const threadID = crypto.randomUUID();
 
+    const runningPatch = {
+      status: 'running',
+      runID,
+      threadID,
+      leaseOwner: this.ownerID,
+      leaseExpiresAt: new Date(now.getTime() + leaseMs),
+      startedAt: now,
+      error: '',
+    };
+
+    // 1. Prefer a fresh pending occurrence. The initial claim does NOT
+    // consume the attempts cap — only lease-expiry reclaims do, matching
+    // SPEC §20 ("Max claim attempts for expired scheduled executions").
+    // A process that crashes between claim and any user-visible work
+    // therefore does not burn one of the configured retries.
+    const fromPending = await this.executionModel
+      .findOneAndUpdate(
+        {
+          kind,
+          scheduledFor: { $lte: now },
+          status: 'pending',
+        },
+        { $set: runningPatch },
+        { new: true, sort: { scheduledFor: 1, createdAt: 1 } },
+      )
+      .exec();
+
+    if (fromPending) return fromPending;
+
+    // 2. Otherwise reclaim a stale-lease running occurrence and bump
+    // `attempts`. The `attempts: { $lt: maxAttempts }` filter halts
+    // persistent crash loops at the configured cap.
     return this.executionModel
       .findOneAndUpdate(
         {
           kind,
           scheduledFor: { $lte: now },
-          status: { $in: ['pending', 'running'] },
+          status: 'running',
           attempts: { $lt: maxAttempts },
           $or: [
-            { status: 'pending' },
             { leaseExpiresAt: { $lte: now } },
             { leaseExpiresAt: { $exists: false } },
           ],
         },
         {
-          $set: {
-            status: 'running',
-            runID,
-            threadID,
-            leaseOwner: this.ownerID,
-            leaseExpiresAt: new Date(now.getTime() + leaseMs),
-            startedAt: now,
-            error: '',
-          },
+          $set: runningPatch,
           $inc: { attempts: 1 },
         },
         { new: true, sort: { scheduledFor: 1, createdAt: 1 } },

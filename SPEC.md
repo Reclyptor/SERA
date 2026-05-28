@@ -1765,6 +1765,8 @@ Validated by regex: `^(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(\*|[0-9,\-\/]+)\s+(
 
 Cron execution is at-least-once under crash recovery and duplicate-safe under normal horizontal operation. If a process dies while owning an execution, the lease expires and another instance can reclaim it until `SCHEDULED_EXECUTION_MAX_ATTEMPTS` is reached.
 
+The `attempts` counter is incremented only on lease-expiry reclaims, not on the initial `pending → running` transition. A process that crashes between claim and the start of user-visible work therefore does not burn one of the configured retries — only an owner that actually held the lease (and lost it via expiry) consumes an attempt. `SCHEDULED_EXECUTION_MAX_ATTEMPTS` bounds reclaims, which means up to `MAX_ATTEMPTS + 1` total claims (one initial + N reclaims) before the occurrence is abandoned.
+
 ---
 
 ## 21. Heartbeat System
