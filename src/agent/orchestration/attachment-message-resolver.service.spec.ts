@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 
@@ -7,7 +8,7 @@ describe('AttachmentMessageResolverService', () => {
   const attachmentID = '00000000-0000-4000-8000-000000000001';
 
   function createResolver(
-    getContentForUser: jest.Mock,
+    getContentForUser: Mock,
   ): AttachmentMessageResolverService {
     return new AttachmentMessageResolverService({
       getContentForUser,
@@ -16,7 +17,7 @@ describe('AttachmentMessageResolverService', () => {
 
   it('adds image attachments as AI SDK image parts', async () => {
     const data = Buffer.from('image-bytes');
-    const getContentForUser = jest.fn().mockResolvedValue({ data });
+    const getContentForUser = vi.fn().mockResolvedValue({ data });
     const resolver = createResolver(getContentForUser);
     const messages = [
       {
@@ -47,7 +48,7 @@ describe('AttachmentMessageResolverService', () => {
 
   it('adds non-image attachments as AI SDK file parts', async () => {
     const data = Buffer.from('file-bytes');
-    const getContentForUser = jest.fn().mockResolvedValue({ data });
+    const getContentForUser = vi.fn().mockResolvedValue({ data });
     const resolver = createResolver(getContentForUser);
     const messages = [
       {
@@ -80,7 +81,7 @@ describe('AttachmentMessageResolverService', () => {
   });
 
   it('leaves messages without attachments unchanged', async () => {
-    const getContentForUser = jest.fn();
+    const getContentForUser = vi.fn();
     const resolver = createResolver(getContentForUser);
     const messages: ModelMessage[] = [{ role: 'user', content: 'hello' }];
 

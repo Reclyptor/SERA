@@ -1,19 +1,19 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { ConfigService } from '@nestjs/config';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { ScheduledExecutionService } from './scheduled-execution.service';
 
 function execResult<T>(value: T) {
-  return { exec: jest.fn().mockResolvedValue(value) };
+  return { exec: vi.fn().mockResolvedValue(value) };
 }
 
 function execRejected(error: unknown) {
-  return { exec: jest.fn().mockRejectedValue(error) };
+  return { exec: vi.fn().mockRejectedValue(error) };
 }
 
 describe('ScheduledExecutionService', () => {
-  function createService(model: Record<string, jest.Mock>) {
+  function createService(model: Record<string, Mock>) {
     const config = {
-      get: jest.fn((key: string, fallback: string) => fallback),
+      get: vi.fn((key: string, fallback: string) => fallback),
     } as unknown as ConfigService;
 
     return new ScheduledExecutionService(model as never, config);
@@ -23,7 +23,7 @@ describe('ScheduledExecutionService', () => {
     const scheduledFor = new Date('2026-05-16T12:00:00.000Z');
     const saved = { executionID: 'execution-1' };
     const model = {
-      findOneAndUpdate: jest.fn().mockReturnValue(execResult(saved)),
+      findOneAndUpdate: vi.fn().mockReturnValue(execResult(saved)),
     };
     const service = createService(model);
 
@@ -56,10 +56,8 @@ describe('ScheduledExecutionService', () => {
     const scheduledFor = new Date('2026-05-16T12:00:00.000Z');
     const existing = { executionID: 'execution-1' };
     const model = {
-      findOneAndUpdate: jest
-        .fn()
-        .mockReturnValue(execRejected({ code: 11000 })),
-      findOne: jest.fn().mockReturnValue(execResult(existing)),
+      findOneAndUpdate: vi.fn().mockReturnValue(execRejected({ code: 11000 })),
+      findOne: vi.fn().mockReturnValue(execResult(existing)),
     };
     const service = createService(model);
 
@@ -83,7 +81,7 @@ describe('ScheduledExecutionService', () => {
     const now = new Date('2026-05-16T12:00:00.000Z');
     const claimed = { executionID: 'execution-1' };
     const model = {
-      findOneAndUpdate: jest.fn().mockReturnValue(execResult(claimed)),
+      findOneAndUpdate: vi.fn().mockReturnValue(execResult(claimed)),
     };
     const service = createService(model);
 
@@ -115,7 +113,7 @@ describe('ScheduledExecutionService', () => {
 
   it('renews and clears leases only for the owning scheduler instance', async () => {
     const model = {
-      updateOne: jest.fn().mockReturnValue(execResult({ modifiedCount: 1 })),
+      updateOne: vi.fn().mockReturnValue(execResult({ modifiedCount: 1 })),
     };
     const service = createService(model);
 

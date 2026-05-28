@@ -16,7 +16,12 @@ export class ScheduledExecution {
   @Prop({ required: true, unique: true, index: true })
   executionID: string;
 
-  @Prop({ required: true, enum: ['cron', 'heartbeat'], index: true })
+  @Prop({
+    type: String,
+    required: true,
+    enum: ['cron', 'heartbeat'],
+    index: true,
+  })
   kind: ScheduledExecutionKind;
 
   @Prop({ required: true, index: true })
@@ -29,6 +34,7 @@ export class ScheduledExecution {
   scheduledFor: Date;
 
   @Prop({
+    type: String,
     required: true,
     enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
     default: 'pending',

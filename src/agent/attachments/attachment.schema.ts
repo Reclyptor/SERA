@@ -18,7 +18,7 @@ export class Attachment {
   @Prop({ index: true })
   messageID?: string;
 
-  @Prop({ required: true, enum: ['image', 'file'] })
+  @Prop({ type: String, required: true, enum: ['image', 'file'] })
   kind: AttachmentKind;
 
   @Prop({ required: true })

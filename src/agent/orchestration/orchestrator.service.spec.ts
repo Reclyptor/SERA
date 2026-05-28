@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from 'vitest';
 import { OrchestratorService } from './orchestrator.service';
 
 const emptyAsyncIterable = {
@@ -9,65 +10,65 @@ const emptyAsyncIterable = {
 describe('OrchestratorService', () => {
   function createService(overrides: Partial<Record<string, unknown>> = {}) {
     const redisSubscriber = {
-      on: jest.fn(),
-      subscribe: jest.fn().mockResolvedValue(1),
-      unsubscribe: jest.fn().mockResolvedValue(1),
+      on: vi.fn(),
+      subscribe: vi.fn().mockResolvedValue(1),
+      unsubscribe: vi.fn().mockResolvedValue(1),
     };
     const deps = {
       modelRouter: {
-        resolveModel: jest.fn().mockReturnValue({
+        resolveModel: vi.fn().mockReturnValue({
           provider: 'openai',
           modelID: 'gpt-4o',
           model: {},
         }),
       },
-      toolsService: { getToolSet: jest.fn().mockReturnValue({}) },
-      actionsService: { getToolSet: jest.fn().mockReturnValue({}) },
+      toolsService: { getToolSet: vi.fn().mockReturnValue({}) },
+      actionsService: { getToolSet: vi.fn().mockReturnValue({}) },
       stateService: {
-        getOrCreateThread: jest.fn().mockResolvedValue({}),
-        startRun: jest.fn().mockResolvedValue({}),
-        failRun: jest.fn().mockResolvedValue({}),
-        cancelRun: jest.fn().mockResolvedValue({}),
+        getOrCreateThread: vi.fn().mockResolvedValue({}),
+        startRun: vi.fn().mockResolvedValue({}),
+        failRun: vi.fn().mockResolvedValue({}),
+        cancelRun: vi.fn().mockResolvedValue({}),
       },
-      memoryService: { getContextForQuery: jest.fn().mockResolvedValue('') },
+      memoryService: { getContextForQuery: vi.fn().mockResolvedValue('') },
       eventEmitter: {
-        initRun: jest.fn().mockResolvedValue(undefined),
-        emitEvent: jest.fn().mockResolvedValue(undefined),
-        complete: jest.fn().mockResolvedValue(undefined),
+        initRun: vi.fn().mockResolvedValue(undefined),
+        emitEvent: vi.fn().mockResolvedValue(undefined),
+        complete: vi.fn().mockResolvedValue(undefined),
       },
       chatsService: {},
       agentsService: {
-        findByIDOrThrow: jest.fn().mockResolvedValue({
+        findByIDOrThrow: vi.fn().mockResolvedValue({
           modelOptions: {},
           toolPolicy: { mode: 'allow', tools: [] },
         }),
       },
       skillReview: {},
       contextCompressor: {
-        compress: jest.fn().mockImplementation((messages) => messages),
+        compress: vi.fn().mockImplementation((messages) => messages),
       },
-      promptBuilder: { build: jest.fn().mockResolvedValue('system') },
+      promptBuilder: { build: vi.fn().mockResolvedValue('system') },
       loopDetection: {
-        detect: jest.fn().mockReturnValue(undefined),
-        clear: jest.fn(),
+        detect: vi.fn().mockReturnValue(undefined),
+        clear: vi.fn(),
       },
       insightsService: {},
       commitmentExtractor: {},
-      configService: { get: jest.fn().mockReturnValue('0') },
-      moduleRef: { get: jest.fn().mockReturnValue(null) },
+      configService: { get: vi.fn().mockReturnValue('0') },
+      moduleRef: { get: vi.fn().mockReturnValue(null) },
       attachmentMessageResolver: {
-        resolve: jest.fn().mockImplementation((messages) => messages),
+        resolve: vi.fn().mockImplementation((messages) => messages),
       },
       agentRuntime: {
-        streamAttempt: jest.fn().mockReturnValue({
+        streamAttempt: vi.fn().mockReturnValue({
           fullStream: emptyAsyncIterable,
           steps: Promise.resolve([{ toolCalls: [{}] }]),
           response: Promise.resolve({}),
         }),
       },
       redis: {
-        duplicate: jest.fn().mockReturnValue(redisSubscriber),
-        publish: jest.fn(),
+        duplicate: vi.fn().mockReturnValue(redisSubscriber),
+        publish: vi.fn(),
       },
       ...overrides,
     };

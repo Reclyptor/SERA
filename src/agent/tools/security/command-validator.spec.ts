@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { validateCommand } from './command-validator';
 
 describe('validateCommand', () => {

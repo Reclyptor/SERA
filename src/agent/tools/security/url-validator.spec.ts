@@ -1,11 +1,19 @@
 import { lookup } from 'dns/promises';
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockedFunction,
+} from 'vitest';
 import { validateUrl } from './url-validator';
 
-jest.mock('dns/promises', () => ({
-  lookup: jest.fn(),
+vi.mock('dns/promises', () => ({
+  lookup: vi.fn(),
 }));
 
-const mockedLookup = lookup as jest.MockedFunction<typeof lookup>;
+const mockedLookup = lookup as MockedFunction<typeof lookup>;
 
 describe('validateUrl', () => {
   beforeEach(() => {

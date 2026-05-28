@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { ExecTool } from './exec.tool';
 
 describe('ExecTool', () => {

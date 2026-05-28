@@ -1,7 +1,7 @@
 # SERA Application Specification
 
 > **Version:** 1.0
-> **Last Updated:** 2026-05-18
+> **Last Updated:** 2026-05-27
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -40,6 +40,7 @@
 30. [Appendix A: Deployment](#appendix-a-deployment)
 31. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
 32. [Appendix C: SyncResult](#appendix-c-syncresult)
+33. [Appendix D: Test Tooling](#appendix-d-test-tooling)
 
 ---
 
@@ -2275,3 +2276,37 @@ interface SyncResult {
   errors: string[];
 }
 ```
+
+---
+
+## Appendix D: Test Tooling
+
+The test suite runs on **Vitest** (v3.x) with the **swc** transform via `unplugin-swc`.
+
+### Why swc
+
+NestJS depends on `experimentalDecorators` + `emitDecoratorMetadata` to wire dependency injection and Mongoose `@Prop()` types. swc is configured with `legacyDecorator: true`, `decoratorMetadata: true`, and `keepClassNames: true` to preserve this contract.
+
+### Target Alignment
+
+swc compiles spec files to `es2022` (its maximum stable target). The runtime build (`nest build` via `ts-loader`) targets `ES2023` per `tsconfig.json`. No ES2023-only language features are used in spec files, so the target gap is inert.
+
+### Union-Type `@Prop()` Pattern
+
+For schema fields with union-of-string-literals types (e.g., `kind: 'image' | 'file'`), `@Prop()` MUST declare an explicit `type: String`. swc's `decoratorMetadata` emits `Object` for unions where TypeScript emits `String`; `@nestjs/mongoose` rejects the ambiguous metadata. Examples in `attachment.schema.ts` and `scheduled-execution.schema.ts`. This pattern is also the NestJS-recommended approach for enum fields and is more robust than relying on reflection of the literal-union type.
+
+### Scripts
+
+| Script               | Behavior                            |
+| -------------------- | ----------------------------------- |
+| `npm test`           | Single-pass run (CI mode)           |
+| `npm run test:watch` | Watch mode                          |
+| `npm run test:cov`   | Single-pass run with v8 coverage    |
+
+### Coverage
+
+Provider: `v8`. Reports written to `./coverage`. Excludes `*.module.ts`, `*.dto.ts`, `*.schema.ts`, `*.interface.ts`, `*.interfaces.ts`, `main.ts`, and spec files themselves.
+
+### ESLint
+
+The base config disallows `@typescript-eslint/no-unsafe-*`. A `**/*.spec.ts` override turns these off, since test mocks have inherently loose types.
