@@ -8,6 +8,7 @@ import { SecurityModule } from '../security/security.module';
 import { SkillCuratorService } from './skill-curator.service';
 import { SkillReviewService } from './skill-review.service';
 import { SkillsMatcher } from './skills-matcher.service';
+import { SkillSyncStrategy } from './skill-sync.strategy';
 import { ModelModule } from '../model/model.module';
 import { ToolsModule } from '../tools/tools.module';
 
@@ -25,6 +26,7 @@ import { ToolsModule } from '../tools/tools.module';
     SkillCuratorService,
     SkillReviewService,
     SkillsMatcher,
+    SkillSyncStrategy,
   ],
   exports: [SkillsService, SkillReviewService, SkillsMatcher],
 })

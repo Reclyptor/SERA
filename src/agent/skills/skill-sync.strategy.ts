@@ -1,15 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import type { SkillDocument } from '../agent/skills/skill.schema';
+import { Skill, SkillDocument } from './skill.schema';
+import { GitHubHttpClient } from '../../github/github-http-client.service';
+import { GitHubShaTracker } from '../../github/github-sha-tracker.service';
 import {
   parseSkillFrontmatter,
   serializeSkillFile,
   computeCompositeSha,
   type SkillFrontmatterData,
-} from './frontmatter-codec';
-import { GitHubHttpClient } from './github-http-client.service';
-import { GitHubShaTracker } from './github-sha-tracker.service';
+} from '../../github/frontmatter-codec';
 
 export interface SyncResult {
   created: number;
@@ -19,22 +20,25 @@ export interface SyncResult {
 }
 
 /**
- * Coordinates bidirectional GitHub sync for prompts and skills.
- * Delegates HTTP I/O to `GitHubHttpClient`, last-synced commit tracking
- * to `GitHubShaTracker`, and frontmatter parsing/serialization to the
- * `frontmatter-codec` module.
+ * Owns the skill ↔ GitHub flow end-to-end: pull (syncFromGitHub), push
+ * (pushSkill including supplementary files), and delete
+ * (deleteSkillFiles). Holds the `SkillModel` directly so the audit's
+ * "inverted DI" complaint against the prior
+ * `GitHubSyncService.syncSkills(model)` shape is resolved here.
  */
 @Injectable()
-export class GitHubSyncService {
-  private readonly logger = new Logger(GitHubSyncService.name);
-  readonly skillsRepo: string;
+export class SkillSyncStrategy {
+  private readonly logger = new Logger(SkillSyncStrategy.name);
+  readonly repo: string;
 
   constructor(
+    @InjectModel(Skill.name)
+    private readonly skillModel: Model<SkillDocument>,
     private readonly configService: ConfigService,
     private readonly http: GitHubHttpClient,
     private readonly shaTracker: GitHubShaTracker,
   ) {
-    this.skillsRepo = this.configService.get<string>(
+    this.repo = this.configService.get<string>(
       'GITHUB_SKILLS_REPO',
       'Reclyptor/Skills',
     );
@@ -44,9 +48,7 @@ export class GitHubSyncService {
     return this.http.enabled;
   }
 
-  // ── Skill Sync ──────────────────────────────────────────────────────
-
-  async syncSkills(skillModel: Model<SkillDocument>): Promise<SyncResult> {
+  async syncFromGitHub(): Promise<SyncResult> {
     if (!this.enabled)
       return { created: 0, updated: 0, unchanged: 0, errors: [] };
 
@@ -58,21 +60,21 @@ export class GitHubSyncService {
     };
 
     try {
-      const headSha = await this.http.getHeadSha(this.skillsRepo);
-      const storedSha = await this.shaTracker.get(this.skillsRepo);
+      const headSha = await this.http.getHeadSha(this.repo);
+      const storedSha = await this.shaTracker.get(this.repo);
 
       if (headSha === storedSha) {
         this.logger.debug('Skills repo unchanged, skipping sync');
         return result;
       }
 
-      const tree = await this.http.fetchTree(this.skillsRepo);
+      const tree = await this.http.fetchTree(this.repo);
 
       // Group files by top-level directory
       const skillDirs = new Map<string, typeof tree>();
       for (const entry of tree) {
         const slashIdx = entry.path.indexOf('/');
-        if (slashIdx === -1) continue; // skip root-level files
+        if (slashIdx === -1) continue;
         const dirName = entry.path.slice(0, slashIdx);
         if (!skillDirs.has(dirName)) skillDirs.set(dirName, []);
         skillDirs.get(dirName)!.push(entry);
@@ -84,24 +86,21 @@ export class GitHubSyncService {
 
         try {
           const compositeSha = computeCompositeSha(entries);
-          const existing = await skillModel.findOne({ name }).exec();
+          const existing = await this.skillModel.findOne({ name }).exec();
 
           if (existing && existing.seedHash === compositeSha) {
             result.unchanged++;
             continue;
           }
 
-          const file = await this.http.fetchFile(this.skillsRepo, skillMd.path);
+          const file = await this.http.fetchFile(this.repo, skillMd.path);
           const { meta, content } = parseSkillFrontmatter(file.content);
 
           const supplementary: { path: string; content: string }[] = [];
           for (const entry of entries) {
             if (entry.path === `${name}/SKILL.md`) continue;
             const relPath = entry.path.slice(name.length + 1);
-            const fetched = await this.http.fetchFile(
-              this.skillsRepo,
-              entry.path,
-            );
+            const fetched = await this.http.fetchFile(this.repo, entry.path);
             supplementary.push({ path: relPath, content: fetched.content });
           }
 
@@ -117,11 +116,11 @@ export class GitHubSyncService {
           if (meta.metadata) update.metadata = meta.metadata;
 
           if (existing) {
-            await skillModel.updateOne({ name }, { $set: update });
+            await this.skillModel.updateOne({ name }, { $set: update });
             result.updated++;
             this.logger.log(`Updated skill "${name}" from GitHub`);
           } else {
-            await skillModel.create({ name, ...update });
+            await this.skillModel.create({ name, ...update });
             result.created++;
             this.logger.log(`Created skill "${name}" from GitHub`);
           }
@@ -132,7 +131,7 @@ export class GitHubSyncService {
         }
       }
 
-      await this.shaTracker.set(this.skillsRepo, headSha);
+      await this.shaTracker.set(this.repo, headSha);
       this.logger.log(
         `Skills sync complete: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`,
       );
@@ -145,8 +144,6 @@ export class GitHubSyncService {
     return result;
   }
 
-  // ── Push to GitHub ──────────────────────────────────────────────────
-
   async pushSkill(
     name: string,
     data: SkillFrontmatterData & {
@@ -158,10 +155,10 @@ export class GitHubSyncService {
     try {
       const skillMdContent = serializeSkillFile(data);
       const existing = await this.http
-        .fetchFile(this.skillsRepo, `${name}/SKILL.md`)
+        .fetchFile(this.repo, `${name}/SKILL.md`)
         .catch(() => null);
       await this.http.putFile(
-        this.skillsRepo,
+        this.repo,
         `${name}/SKILL.md`,
         skillMdContent,
         existing?.sha,
@@ -172,10 +169,10 @@ export class GitHubSyncService {
         for (const file of data.files) {
           const filePath = `${name}/${file.path}`;
           const existingFile = await this.http
-            .fetchFile(this.skillsRepo, filePath)
+            .fetchFile(this.repo, filePath)
             .catch(() => null);
           await this.http.putFile(
-            this.skillsRepo,
+            this.repo,
             filePath,
             file.content,
             existingFile?.sha,
@@ -192,12 +189,12 @@ export class GitHubSyncService {
     if (!this.enabled) return;
 
     try {
-      const tree = await this.http.fetchTree(this.skillsRepo);
+      const tree = await this.http.fetchTree(this.repo);
       const skillFiles = tree.filter((e) => e.path.startsWith(`${name}/`));
 
       for (const entry of skillFiles) {
         await this.http.deleteFile(
-          this.skillsRepo,
+          this.repo,
           entry.path,
           entry.sha,
           `Delete skill: ${name}`,

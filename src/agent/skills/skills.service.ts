@@ -13,7 +13,7 @@ import { Skill, SkillDocument } from './skill.schema';
 import type { CreateSkillDto, UpdateSkillDto } from './skills.dto';
 import { ContentScannerService } from '../security/content-scanner.service';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
-import { GitHubSyncService } from '../../github/github-sync.service';
+import { SkillSyncStrategy } from './skill-sync.strategy';
 
 const CACHE_PREFIX = 'skill:';
 const CACHE_TTL = 300;
@@ -26,7 +26,7 @@ export class SkillsService implements OnModuleInit {
     @InjectModel(Skill.name)
     private readonly skillModel: Model<SkillDocument>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    private readonly githubSync: GitHubSyncService,
+    private readonly syncStrategy: SkillSyncStrategy,
     @Optional() private readonly contentScanner?: ContentScannerService,
   ) {}
 
@@ -40,7 +40,7 @@ export class SkillsService implements OnModuleInit {
   }
 
   async syncFromGitHub() {
-    return this.githubSync.syncSkills(this.skillModel);
+    return this.syncStrategy.syncFromGitHub();
   }
 
   async create(dto: CreateSkillDto): Promise<Skill> {
@@ -70,7 +70,7 @@ export class SkillsService implements OnModuleInit {
     const saved = await skill.save();
     await this.invalidateCache(dto.name);
 
-    this.githubSync
+    this.syncStrategy
       .pushSkill(dto.name, {
         content: dto.content,
         description: dto.description,
@@ -137,7 +137,7 @@ export class SkillsService implements OnModuleInit {
     }
     await this.invalidateCache(name);
 
-    this.githubSync
+    this.syncStrategy
       .pushSkill(name, {
         content: skill.content,
         description: skill.description,
@@ -158,7 +158,7 @@ export class SkillsService implements OnModuleInit {
     const result = await this.skillModel.deleteOne({ name }).exec();
     if (result.deletedCount > 0) {
       await this.invalidateCache(name);
-      this.githubSync
+      this.syncStrategy
         .deleteSkillFiles(name)
         .catch((err) =>
           this.logger.warn(
