@@ -12,11 +12,13 @@ import { RedisModule } from './redis/redis.module';
 import { GitHubModule } from './github/github.module';
 import { ChatsModule } from './chats/chats.module';
 import { PromptsModule } from './prompts/prompts.module';
+import { validateEnv } from './config/env.schema';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      validate: validateEnv,
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],

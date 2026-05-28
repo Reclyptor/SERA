@@ -3,31 +3,11 @@ import { Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
-const requiredEnvVars = [
-  'AUTH_SECRET',
-  'ANTHROPIC_API_KEY',
-  'PRIMARY_MODEL',
-  'CORS_ORIGIN',
-  'AUTHENTIK_ISSUER',
-  'AUTHENTIK_CLIENT_ID',
-  'MONGODB_URI',
-  'OPENAI_API_KEY',
-  'REDIS_URL',
-  'WEBHOOK_API_KEY',
-] as const;
-
-function validateEnv(): void {
-  const missing: string[] = requiredEnvVars.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(', ')}`,
-    );
-  }
-}
-
 async function bootstrap() {
-  validateEnv();
-
+  // Env validation lives on `ConfigModule.forRoot({ validate })` in
+  // app.module — see src/config/env.schema.ts. NestFactory.create()
+  // surfaces validation errors and aborts boot if any required
+  // variable is missing or malformed.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
@@ -46,6 +26,10 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Cookie'],
     credentials: true,
   });
+
+  // Hook SIGTERM/SIGINT so providers implementing OnApplicationShutdown
+  // (e.g., RedisModule) get a chance to drain in-flight work cleanly.
+  app.enableShutdownHooks();
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
