@@ -80,7 +80,6 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
   async curate(): Promise<{
     staled: number;
     archived: number;
-    reactivated: number;
     consolidated: number;
   }> {
     // Phase 1: Automatic lifecycle transitions (no LLM)
@@ -103,7 +102,6 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
   private async applyLifecycleTransitions(): Promise<{
     staled: number;
     archived: number;
-    reactivated: number;
   }> {
     const now = new Date();
     const staleThreshold = new Date(now.getTime() - STALE_DAYS * 86_400_000);
@@ -161,7 +159,6 @@ export class SkillCuratorService implements OnModuleInit, OnModuleDestroy {
     const counts = {
       staled: staleResult.modifiedCount,
       archived: archiveResult.modifiedCount,
-      reactivated: 0,
     };
 
     if (counts.staled > 0 || counts.archived > 0) {

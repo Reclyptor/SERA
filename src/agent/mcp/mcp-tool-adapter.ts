@@ -61,9 +61,14 @@ export function adaptMcpTool(
     name: def.name,
     description: `[MCP:${def.serverName}] ${def.description}`,
     parameters: params,
-    parallelSafe: def.safety?.parallelSafe ?? def.safety?.readOnly ?? false,
+    // SPEC §29.7: MCP tools default to conservative mutation/session
+    // locking. `parallelSafe` requires an EXPLICIT `true` from the server
+    // metadata — `readOnly` is orthogonal (no persistent mutation) and
+    // does not imply parallel safety (a read-only tool can still have
+    // internal state that breaks concurrent invocation).
+    parallelSafe: def.safety?.parallelSafe === true,
     getResources(): ToolResource[] {
-      if (def.safety?.readOnly) return [];
+      if (def.safety?.readOnly === true) return [];
       return [
         { type: 'session-state', key: `mcp:${def.serverName}:${def.name}` },
       ];
