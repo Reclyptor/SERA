@@ -5,7 +5,6 @@ export interface PluginCapabilities {
   tools?: string[];
   permissions?: Array<
     | 'tools.register'
-    | 'knowledge.register'
     | 'hooks.llm'
     | 'hooks.tools'
     | 'network'
@@ -53,7 +52,6 @@ export type PluginHookFn<T> = (args: T) => Promise<void> | void;
 
 export interface PluginContext {
   registerTool(tool: Tool): void;
-  registerKnowledge(key: string, content: string): void;
   getConfig<T = unknown>(key: string): T | undefined;
   onPreToolCall(fn: PluginHookFn<PreToolCallHookArgs>): void;
   onPostToolCall(fn: PluginHookFn<PostToolCallHookArgs>): void;

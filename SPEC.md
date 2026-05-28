@@ -1639,7 +1639,6 @@ interface SeraPlugin {
 
 interface PluginContext {
   registerTool(tool: Tool): void;
-  registerKnowledge(key: string, content: string): void;
   getConfig<T>(key: string): T | undefined;
   onPreToolCall(fn): void;
   onPostToolCall(fn): void;

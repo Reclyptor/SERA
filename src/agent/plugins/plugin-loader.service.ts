@@ -20,7 +20,6 @@ import { ToolsService } from '../tools/tools.service';
 export class PluginLoaderService implements OnModuleInit {
   private readonly logger = new Logger(PluginLoaderService.name);
   private readonly loadedPlugins = new Map<string, SeraPlugin>();
-  private readonly knowledgeStore = new Map<string, string>();
   private readonly hooks = new Map<string, PluginHookFn<any>[]>();
 
   constructor(
@@ -124,13 +123,6 @@ export class PluginLoaderService implements OnModuleInit {
           `Plugin "${config.name}" registered tool "${tool.name}"`,
         );
       },
-      registerKnowledge: (key, content) => {
-        if (!hasPermission('knowledge.register')) {
-          denyAccess('knowledge.register', `knowledge key "${key}"`);
-          return;
-        }
-        this.knowledgeStore.set(`${config.name}:${key}`, content);
-      },
       getConfig: <T = unknown>(key: string) => {
         return (config.config?.[key] as T) ?? undefined;
       },
@@ -207,10 +199,6 @@ export class PluginLoaderService implements OnModuleInit {
       description: plugin.description,
       capabilities: plugin.capabilities,
     }));
-  }
-
-  getKnowledge(): Map<string, string> {
-    return this.knowledgeStore;
   }
 
   async addPlugin(config: PluginConfig): Promise<void> {
