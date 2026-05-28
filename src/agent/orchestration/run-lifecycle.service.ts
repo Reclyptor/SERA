@@ -101,7 +101,7 @@ export class RunLifecycleService {
 
     if (goal.chatID && response) {
       try {
-        await this.chatsService.appendMessage(goal.chatID, {
+        await this.chatsService.appendMessage(goal.chatID, goal.userID, {
           id: randomUUID(),
           role: 'assistant',
           content: response,

@@ -105,7 +105,7 @@ export class AgentController {
     if (body.chatID) {
       chatID = body.chatID;
       await this.chatsService.findOne(chatID, userID);
-      await this.chatsService.appendMessage(chatID, userMessage);
+      await this.chatsService.appendMessage(chatID, userID, userMessage);
       if (body.model) {
         await this.chatsService.updateModel(chatID, body.model);
       }

@@ -8,6 +8,7 @@ import type {
 interface ChatServiceLike {
   appendMessage(
     chatID: string,
+    userID: string,
     message: { id: string; role: string; content: string; createdAt: Date },
   ): Promise<void>;
 }
@@ -32,13 +33,20 @@ export class MessageTool implements Tool<typeof parameters> {
 
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { chatID, content, role } = args;
+    if (!context.userID) {
+      return {
+        success: false,
+        error:
+          'message tool requires a real user context; runs without a userID cannot write to user-owned chats',
+      };
+    }
     const messageID = crypto.randomUUID();
 
     try {
-      await this.chatService.appendMessage(chatID, {
+      await this.chatService.appendMessage(chatID, context.userID, {
         id: messageID,
         role,
         content,

@@ -155,12 +155,28 @@ export class ChatsService {
     return saved;
   }
 
-  async appendMessage(chatID: string, message: Message): Promise<void> {
-    await this.chatModel
-      .findByIdAndUpdate(chatID, {
-        $push: { messages: message },
-      })
+  async appendMessage(
+    chatID: string,
+    userID: string,
+    message: Message,
+  ): Promise<void> {
+    // Filter by BOTH _id and userID so a misrouted call from one user's
+    // run cannot mutate another user's chat. A failed match throws
+    // ForbiddenException rather than silently writing — silent failure
+    // would let cross-user contamination land in chat history without
+    // the agent noticing.
+    const result = await this.chatModel
+      .findOneAndUpdate(
+        { _id: chatID, userID },
+        { $push: { messages: message } },
+      )
       .exec();
+
+    if (!result) {
+      throw new ForbiddenException(
+        `Cannot append to chat "${chatID}": not found or not owned by user`,
+      );
+    }
   }
 
   async loadConversationHistory(
