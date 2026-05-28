@@ -9,6 +9,7 @@ import { ToolsRegistry } from './tools.registry';
 import { ToolsService } from './tools.service';
 import { ToolsBootstrapService } from './tools-bootstrap.service';
 import { LoopDetectionService } from './loop-detection.service';
+import { ToolApprovalService } from './tool-approval.service';
 
 @Module({
   imports: [
@@ -24,7 +25,13 @@ import { LoopDetectionService } from './loop-detection.service';
     ToolsService,
     ToolsBootstrapService,
     LoopDetectionService,
+    ToolApprovalService,
   ],
-  exports: [ToolsService, ToolsRegistry, LoopDetectionService],
+  exports: [
+    ToolsService,
+    ToolsRegistry,
+    LoopDetectionService,
+    ToolApprovalService,
+  ],
 })
 export class ToolsModule {}

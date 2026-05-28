@@ -1,9 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
-import { createHash } from 'crypto';
 import { ToolsService } from './tools.service';
 import { ToolsRegistry } from './tools.registry';
+import { ToolApprovalService } from './tool-approval.service';
 import { MemoryService } from '../memory/memory.service';
 import { StateService } from '../state/state.service';
 import { ChatsService } from '../../chats/chats.service';
@@ -58,6 +58,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly agentsService: AgentsService,
     private readonly agentRouter: AgentRouterService,
     private readonly eventEmitter: AgentEventEmitter,
+    private readonly approvalService: ToolApprovalService,
     private readonly moduleRef: ModuleRef,
   ) {}
 
@@ -84,15 +85,7 @@ export class ToolsBootstrapService implements OnModuleInit {
       {
         exec: (opts) => this.resolveSandboxRunner().exec(opts),
       };
-    const approvalRequester = {
-      requestApproval: (input: {
-        threadID: string;
-        runID: string;
-        actionName: string;
-        args: Record<string, unknown>;
-        message: string;
-      }) => this.requestToolApproval(input),
-    };
+    const approvalRequester = this.approvalService;
 
     // Runtime
     this.toolsService.registerTool(
@@ -275,60 +268,6 @@ export class ToolsBootstrapService implements OnModuleInit {
     const svc = this.moduleRef.get(SandboxRunnerService, { strict: false });
     if (!svc) throw new Error('SandboxRunnerService not available');
     return svc;
-  }
-
-  private async requestToolApproval(input: {
-    threadID: string;
-    runID: string;
-    actionName: string;
-    args: Record<string, unknown>;
-    message: string;
-  }): Promise<{ confirmationID: string; fingerprint: string }> {
-    const fingerprint = createHash('sha256')
-      .update(
-        JSON.stringify({
-          actionName: input.actionName,
-          args: input.args,
-          runID: input.runID,
-        }),
-      )
-      .digest('hex');
-
-    const pending = await this.stateService.getPendingConfirmations(
-      input.threadID,
-    );
-    const existing = pending.find(
-      (confirmation) =>
-        confirmation.status === 'pending' &&
-        confirmation.actionName === input.actionName &&
-        confirmation.args?.fingerprint === fingerprint,
-    );
-    if (existing) {
-      return { confirmationID: existing.id, fingerprint };
-    }
-
-    const confirmationID = await this.stateService.addPendingConfirmation(
-      input.threadID,
-      input.actionName,
-      { ...input.args, fingerprint },
-      input.message,
-      input.runID,
-    );
-
-    await this.eventEmitter.emitEvent(
-      input.runID,
-      input.threadID,
-      'approval.requested',
-      {
-        confirmationID,
-        actionName: input.actionName,
-        args: input.args,
-        fingerprint,
-        message: input.message,
-      },
-    );
-
-    return { confirmationID, fingerprint };
   }
 
   private resolveCronScheduler() {

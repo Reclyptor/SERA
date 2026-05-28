@@ -73,11 +73,26 @@ export class ShellTool implements Tool<typeof parameters> {
         args: { script, cwd, timeoutMs },
         message: `Approval required to execute shell script:\n${script}`,
       });
-      return {
-        success: false,
-        result: { status: 'approval_required', ...approval },
-        error: `Script requires approval (${approval.confirmationID})`,
-      };
+      if (approval.status === 'rejected') {
+        return {
+          success: false,
+          error: `Script rejected by operator${
+            approval.feedback ? `: ${approval.feedback}` : ''
+          }`,
+        };
+      }
+      if (approval.status === 'pending') {
+        return {
+          success: false,
+          result: {
+            status: 'approval_required',
+            confirmationID: approval.confirmationID,
+            fingerprint: approval.fingerprint,
+          },
+          error: `Script requires approval (${approval.confirmationID})`,
+        };
+      }
+      // approval.status === 'approved' → fall through and execute.
     }
 
     const workspace = this.workspaceDir;

@@ -11,17 +11,11 @@ import type {
 import type { SandboxRunnerLike } from './sandbox.types';
 import { buildToolEnv, truncateOutput, disabledError } from './tool-utils';
 
+import type { ToolApprovalRequester } from '../tool-approval.service';
+
 const MAX_OUTPUT_SIZE = 64 * 1024;
 
-export interface ToolApprovalRequester {
-  requestApproval(input: {
-    threadID: string;
-    runID: string;
-    actionName: string;
-    args: Record<string, unknown>;
-    message: string;
-  }): Promise<{ confirmationID: string; fingerprint: string }>;
-}
+export type { ToolApprovalRequester };
 
 const parameters = z.object({
   command: z.string().describe('Shell command to execute'),
@@ -82,11 +76,26 @@ export class ExecTool implements Tool<typeof parameters> {
         args: { command, cwd, timeoutMs },
         message: `Approval required to execute command: ${command}`,
       });
-      return {
-        success: false,
-        result: { status: 'approval_required', ...approval },
-        error: `Command requires approval (${approval.confirmationID})`,
-      };
+      if (approval.status === 'rejected') {
+        return {
+          success: false,
+          error: `Command rejected by operator${
+            approval.feedback ? `: ${approval.feedback}` : ''
+          }`,
+        };
+      }
+      if (approval.status === 'pending') {
+        return {
+          success: false,
+          result: {
+            status: 'approval_required',
+            confirmationID: approval.confirmationID,
+            fingerprint: approval.fingerprint,
+          },
+          error: `Command requires approval (${approval.confirmationID})`,
+        };
+      }
+      // approval.status === 'approved' → fall through and execute.
     }
 
     const workspace = this.workspaceDir;

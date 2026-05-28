@@ -138,11 +138,26 @@ export class ProcessTool implements Tool<typeof parameters> {
         },
         message: `Approval required to start background process: ${command}`,
       });
-      return {
-        success: false,
-        result: { status: 'approval_required', ...approval },
-        error: `Command requires approval (${approval.confirmationID})`,
-      };
+      if (approval.status === 'rejected') {
+        return {
+          success: false,
+          error: `Command rejected by operator${
+            approval.feedback ? `: ${approval.feedback}` : ''
+          }`,
+        };
+      }
+      if (approval.status === 'pending') {
+        return {
+          success: false,
+          result: {
+            status: 'approval_required',
+            confirmationID: approval.confirmationID,
+            fingerprint: approval.fingerprint,
+          },
+          error: `Command requires approval (${approval.confirmationID})`,
+        };
+      }
+      // approval.status === 'approved' → fall through and start the process.
     }
     if (context.abortSignal?.aborted) {
       return { success: false, error: 'Process start cancelled' };
