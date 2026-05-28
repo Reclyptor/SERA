@@ -68,6 +68,15 @@ describe('OrchestratorService', () => {
         cancelRun: vi.fn().mockResolvedValue(undefined),
         completeRun: vi.fn().mockResolvedValue(undefined),
       },
+      streamReducer: {
+        reduce: vi.fn().mockResolvedValue({
+          accumulatedReasoning: '',
+          accumulatedText: '',
+          lastThinkingDuration: undefined,
+          yieldRequested: false,
+          toolCallBlocks: [],
+        }),
+      },
       redis: {
         duplicate: vi.fn().mockReturnValue(redisSubscriber),
         publish: vi.fn(),
@@ -93,6 +102,7 @@ describe('OrchestratorService', () => {
         deps.attachmentMessageResolver as never,
         deps.agentRuntime as never,
         deps.lifecycle as never,
+        deps.streamReducer as never,
         deps.redis as never,
       ),
       deps,

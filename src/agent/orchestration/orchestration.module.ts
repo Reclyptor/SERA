@@ -20,6 +20,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
+import { StreamEventReducer } from './stream-event-reducer.service';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { RunLifecycleService } from './run-lifecycle.service';
     PromptBuilderService,
     AttachmentMessageResolverService,
     RunLifecycleService,
+    StreamEventReducer,
   ],
   exports: [OrchestratorService, StreamingModule],
 })
