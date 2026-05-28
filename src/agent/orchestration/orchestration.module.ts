@@ -17,6 +17,7 @@ import { ContextModule } from '../context/context.module';
 import { InsightsModule } from '../insights/insights.module';
 import { CommitmentsModule } from '../commitments/commitments.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
+import { PluginsModule } from '../plugins/plugins.module';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
@@ -41,6 +42,7 @@ import { LoopCircuitBreakerHandler } from './loop-circuit-breaker-handler.servic
     InsightsModule,
     CommitmentsModule,
     AttachmentsModule,
+    PluginsModule,
   ],
   providers: [
     OrchestratorService,

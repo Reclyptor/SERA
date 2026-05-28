@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
@@ -31,7 +30,7 @@ import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { LoopDetectionService } from '../tools/loop-detection.service';
 import { classifyError } from '../model/error-classifier';
-import type { PluginLoaderService } from '../plugins/plugin-loader.service';
+import { PluginLoaderService } from '../plugins/plugin-loader.service';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
 import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
@@ -57,12 +56,12 @@ export class OrchestratorService {
     private readonly promptBuilder: PromptBuilderService,
     private readonly loopDetection: LoopDetectionService,
     private readonly configService: ConfigService,
-    private readonly moduleRef: ModuleRef,
     private readonly attachmentMessageResolver: AttachmentMessageResolverService,
     private readonly agentRuntime: AiSdkAgentRuntimeService,
     private readonly lifecycle: RunLifecycleService,
     private readonly streamReducer: StreamEventReducer,
     private readonly breakerHandler: LoopCircuitBreakerHandler,
+    private readonly pluginLoader: PluginLoaderService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -74,29 +73,13 @@ export class OrchestratorService {
     });
   }
 
-  private _pluginLoader: PluginLoaderService | null = null;
-
-  private get pluginLoader(): PluginLoaderService | null {
-    if (!this._pluginLoader) {
-      try {
-        const {
-          PluginLoaderService: PLS,
-        } = require('../plugins/plugin-loader.service');
-        this._pluginLoader = this.moduleRef.get(PLS, { strict: false }) ?? null;
-      } catch {
-        this._pluginLoader = null;
-      }
-    }
-    return this._pluginLoader;
-  }
-
   private cancelChannel(runID: string): string {
     return `cancel:${runID}`;
   }
 
   private async runPluginHooks<T>(type: string, args: T): Promise<void> {
     try {
-      await this.pluginLoader?.runHooks(type, args);
+      await this.pluginLoader.runHooks(type, args);
     } catch {
       // Plugin hooks must never fail the run
     }

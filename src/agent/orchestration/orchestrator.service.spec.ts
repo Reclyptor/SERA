@@ -52,7 +52,6 @@ describe('OrchestratorService', () => {
         clear: vi.fn(),
       },
       configService: { get: vi.fn().mockReturnValue('0') },
-      moduleRef: { get: vi.fn().mockReturnValue(null) },
       attachmentMessageResolver: {
         resolve: vi.fn().mockImplementation((messages) => messages),
       },
@@ -80,6 +79,9 @@ describe('OrchestratorService', () => {
       breakerHandler: {
         forceFinalAnswer: vi.fn().mockResolvedValue(''),
       },
+      pluginLoader: {
+        runHooks: vi.fn().mockResolvedValue(undefined),
+      },
       redis: {
         duplicate: vi.fn().mockReturnValue(redisSubscriber),
         publish: vi.fn(),
@@ -101,12 +103,12 @@ describe('OrchestratorService', () => {
         deps.promptBuilder as never,
         deps.loopDetection as never,
         deps.configService as never,
-        deps.moduleRef as never,
         deps.attachmentMessageResolver as never,
         deps.agentRuntime as never,
         deps.lifecycle as never,
         deps.streamReducer as never,
         deps.breakerHandler as never,
+        deps.pluginLoader as never,
         deps.redis as never,
       ),
       deps,
