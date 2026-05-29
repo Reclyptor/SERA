@@ -32,11 +32,16 @@ describe('ModelContextWindowService', () => {
     const service = new ModelContextWindowService(
       makeConfig({
         MODEL_CONTEXT_WINDOWS: JSON.stringify({
-          'Qwen3.6-27B-FP8': 32_768,
+          'Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8': 32_768,
         }),
       }),
     );
-    expect(service.get('vllm', 'Qwen3.6-27B-FP8')).toBe(32_768);
+    expect(
+      service.get(
+        'vllm',
+        'Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8',
+      ),
+    ).toBe(32_768);
     expect(service.get('vllm', 'unknown-model')).toBe(
       PROVIDER_DEFAULT_WINDOWS.vllm,
     );

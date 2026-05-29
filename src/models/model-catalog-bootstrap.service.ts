@@ -79,18 +79,11 @@ const SEED_MODELS: CreateModelInput[] = [
     outputCostCentsPerMTok: 40,
   },
   {
-    spec: 'vllm/Qwen3.6-27B-FP8',
+    spec: 'vllm/Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8',
     provider: 'vllm',
-    modelID: 'Qwen3.6-27B-FP8',
-    displayName: 'Qwen3.6 27B (FP8)',
-    contextWindow: 131_072,
-  },
-  {
-    spec: 'vllm/Huihui-Qwen3.6-27B-abliterated',
-    provider: 'vllm',
-    modelID: 'Huihui-Qwen3.6-27B-abliterated',
-    displayName: 'Qwen3.6 27B Abliterated',
-    contextWindow: 131_072,
+    modelID: 'Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8',
+    displayName: 'Huihui Qwen 3.6 35B A3B Claude 4.7 Opus Abliterated FP8',
+    contextWindow: 262_144,
   },
 ];
 

@@ -128,10 +128,9 @@ export class ModelRouterService {
         id: 'vllm',
         priority: 4,
         factory: (modelID) => vllm.chatModel(modelID),
-        defaultModel: 'Qwen3.6-27B-FP8',
+        defaultModel: 'Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8',
         allowedModels: new Set([
-          'Qwen3.6-27B-FP8',
-          'Huihui-Qwen3.6-27B-abliterated',
+          'Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8',
         ]),
       });
     }
