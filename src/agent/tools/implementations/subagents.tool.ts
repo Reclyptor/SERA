@@ -119,4 +119,21 @@ export class SubagentsTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[subagents] ${args.operation}`;
+    }
+    const r = result as { agents?: unknown[]; cancelled?: number };
+    if (Array.isArray(r.agents)) {
+      return `[subagents] ${args.operation} (${r.agents.length} agents)`;
+    }
+    if (typeof r.cancelled === 'number') {
+      return `[subagents] ${args.operation} (${r.cancelled} cancelled)`;
+    }
+    return `[subagents] ${args.operation}`;
+  }
 }

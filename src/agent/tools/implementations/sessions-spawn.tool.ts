@@ -377,4 +377,29 @@ export class SessionsSpawnTool implements Tool<typeof parameters> {
     }
     return null;
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (args.tasks && args.tasks.length > 0) {
+      if (result == null || typeof result !== 'object') {
+        return `[sessions_spawn] batch (${args.tasks.length} tasks)`;
+      }
+      const r = result as {
+        totalCount?: number;
+        completedCount?: number;
+        failedCount?: number;
+      };
+      return `[sessions_spawn] batch -> ${r.completedCount ?? 0}/${r.totalCount ?? args.tasks.length} ok, ${r.failedCount ?? 0} failed`;
+    }
+    const goal = args.goal ?? '';
+    const g = goal.length > 60 ? goal.slice(0, 57) + '...' : goal;
+    if (result == null || typeof result !== 'object') {
+      return `[sessions_spawn] '${g}'`;
+    }
+    const r = result as { agentID?: string; status?: string };
+    const status = r.status ?? 'spawned';
+    return `[sessions_spawn] '${g}' -> ${r.agentID ?? 'agent'} (${status})`;
+  }
 }

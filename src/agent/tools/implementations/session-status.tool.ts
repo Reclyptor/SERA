@@ -81,4 +81,20 @@ export class SessionStatusTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const target = args.runID
+      ? `${args.threadID}/${args.runID}`
+      : args.threadID;
+    if (result == null || typeof result !== 'object') {
+      return `[session_status] ${target}`;
+    }
+    const r = result as { run?: { status?: unknown } };
+    const status =
+      r.run && typeof r.run.status === 'string' ? r.run.status : 'no-run';
+    return `[session_status] ${target} (${status})`;
+  }
 }

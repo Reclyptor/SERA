@@ -181,4 +181,16 @@ export class ApplyPatchTool implements Tool<typeof parameters> {
     lines.splice(startIndex, removeCount, ...newLines);
     return { success: true };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[apply_patch] ${args.path}`;
+    }
+    const r = result as { hunksApplied?: number };
+    const count = typeof r.hunksApplied === 'number' ? r.hunksApplied : 0;
+    return `[apply_patch] ${args.path} (${count} hunk${count === 1 ? '' : 's'})`;
+  }
 }

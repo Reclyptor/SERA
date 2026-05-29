@@ -84,4 +84,16 @@ export class EditTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[edit] ${args.path}`;
+    }
+    const r = result as { replacements?: number };
+    const count = typeof r.replacements === 'number' ? r.replacements : 0;
+    return `[edit] ${args.path} (${count} replacement${count === 1 ? '' : 's'})`;
+  }
 }

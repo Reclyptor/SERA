@@ -96,4 +96,17 @@ export class ImageGenerateTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const prompt =
+      args.prompt.length > 60 ? args.prompt.slice(0, 57) + '...' : args.prompt;
+    if (result == null || typeof result !== 'object') {
+      return `[image_generate] prompt='${prompt}' (${args.size})`;
+    }
+    const r = result as { url?: string };
+    return `[image_generate] prompt='${prompt}' (${args.size}) -> ${r.url ? 'url' : 'no url'}`;
+  }
 }

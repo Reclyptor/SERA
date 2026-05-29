@@ -300,4 +300,29 @@ export class SkillsTool implements Tool<typeof parameters> {
       result: { name: args.name, filePath: args.filePath, action: 'removed' },
     };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const op = args.operation;
+    const target = args.filePath
+      ? `${args.name ?? ''}:${args.filePath}`.replace(/^:/, '')
+      : (args.name ?? '');
+    const header = target ? `[skills] ${op} ${target}` : `[skills] ${op}`;
+    if (result == null || typeof result !== 'object') {
+      return header;
+    }
+    if (Array.isArray(result)) {
+      return `${header} (${result.length} skills)`;
+    }
+    const r = result as { files?: unknown[]; content?: string };
+    if (Array.isArray(r.files)) {
+      return `${header} (${r.files.length} files)`;
+    }
+    if (typeof r.content === 'string') {
+      return `${header} (${r.content.length} chars)`;
+    }
+    return header;
+  }
 }

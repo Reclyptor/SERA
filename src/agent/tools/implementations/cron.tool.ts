@@ -212,4 +212,20 @@ export class CronTool implements Tool<typeof parameters> {
 
     return { success: true, result: { jobID, enabled } };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const op = args.operation;
+    if (result == null || typeof result !== 'object') {
+      return `[cron] ${op}`;
+    }
+    if (op === 'list' && Array.isArray(result)) {
+      return `[cron] list -> ${result.length} jobs`;
+    }
+    const r = result as { jobID?: string; deleted?: string };
+    const id = r.jobID ?? r.deleted ?? args.jobID;
+    return id ? `[cron] ${op} ${id}` : `[cron] ${op}`;
+  }
 }

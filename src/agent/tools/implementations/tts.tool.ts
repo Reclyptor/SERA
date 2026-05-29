@@ -100,4 +100,17 @@ export class TtsTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const text =
+      args.text.length > 60 ? args.text.slice(0, 57) + '...' : args.text;
+    if (result == null || typeof result !== 'object') {
+      return `[tts] text='${text}' (${args.voice})`;
+    }
+    const r = result as { size?: number; format?: string };
+    return `[tts] text='${text}' (${args.voice}, ${r.format ?? args.format}) -> ${r.size ?? 0} bytes`;
+  }
 }

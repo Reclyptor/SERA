@@ -123,4 +123,16 @@ export class SessionsListTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const status = args.status ?? 'all';
+    if (result == null || typeof result !== 'object') {
+      return `[sessions_list] status=${status}`;
+    }
+    const r = result as { sessionCount?: number };
+    return `[sessions_list] status=${status} -> ${r.sessionCount ?? 0} sessions`;
+  }
 }

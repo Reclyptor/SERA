@@ -378,4 +378,31 @@ export class TaskPlanTool implements Tool<typeof parameters> {
 
     return { success: true, result: { deleted: planID } };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const op = args.operation;
+    const target = args.planID ?? (args.goal ? truncate(args.goal, 60) : '');
+    const header = target ? `[task_plan] ${op} ${target}` : `[task_plan] ${op}`;
+    if (result == null || typeof result !== 'object') {
+      return header;
+    }
+    if (Array.isArray(result)) {
+      return `${header} (${result.length} plans)`;
+    }
+    const r = result as { tasks?: unknown[]; revision?: number };
+    if (Array.isArray(r.tasks)) {
+      return `${header} (${r.tasks.length} tasks)`;
+    }
+    if (typeof r.revision === 'number') {
+      return `${header} (rev ${r.revision})`;
+    }
+    return header;
+  }
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max - 3) + '...' : value;
 }

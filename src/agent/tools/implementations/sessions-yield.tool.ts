@@ -65,4 +65,18 @@ export class SessionsYieldTool implements Tool<typeof parameters> {
       },
     };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    _result: unknown,
+  ): string {
+    if (!args.message) {
+      return `[sessions_yield] yielded`;
+    }
+    const msg =
+      args.message.length > 60
+        ? args.message.slice(0, 57) + '...'
+        : args.message;
+    return `[sessions_yield] yielded '${msg}'`;
+  }
 }

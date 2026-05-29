@@ -168,4 +168,21 @@ export class ShellTool implements Tool<typeof parameters> {
       }, timeoutMs + 1000);
     });
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const firstLine = args.script.split('\n')[0] ?? '';
+    const snippet =
+      firstLine.length > 60 ? firstLine.slice(0, 57) + '...' : firstLine;
+    if (result == null || typeof result !== 'object') {
+      return `[shell] ${snippet}`;
+    }
+    const r = result as { exitCode?: number; stdout?: string };
+    const stdout = typeof r.stdout === 'string' ? r.stdout : '';
+    const lines = stdout ? stdout.split('\n').length : 0;
+    const exitCode = typeof r.exitCode === 'number' ? r.exitCode : '?';
+    return `[shell] ${snippet} -> exit ${exitCode}, ${lines} lines`;
+  }
 }

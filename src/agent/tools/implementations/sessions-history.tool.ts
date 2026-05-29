@@ -61,4 +61,15 @@ export class SessionsHistoryTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[sessions_history] ${args.chatID}`;
+    }
+    const r = result as { returned?: number; totalMessages?: number };
+    return `[sessions_history] ${args.chatID} -> ${r.returned ?? 0}/${r.totalMessages ?? 0} messages`;
+  }
 }

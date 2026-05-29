@@ -160,4 +160,18 @@ export class CodeExecutionTool implements Tool<typeof parameters> {
       }
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[code_execution] ${args.language}`;
+    }
+    const r = result as { exitCode?: number; stdout?: string };
+    const stdout = typeof r.stdout === 'string' ? r.stdout : '';
+    const lines = stdout ? stdout.split('\n').length : 0;
+    const exitCode = typeof r.exitCode === 'number' ? r.exitCode : '?';
+    return `[code_execution] ${args.language} -> exit ${exitCode}, ${lines} lines`;
+  }
 }

@@ -149,4 +149,17 @@ export class ImageTool implements Tool<typeof parameters> {
     const base64 = buffer.toString('base64');
     return `data:${mimeType};base64,${base64}`;
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const source =
+      args.source.length > 60 ? args.source.slice(0, 57) + '...' : args.source;
+    if (result == null || typeof result !== 'object') {
+      return `[image] ${source}`;
+    }
+    const r = result as { analysis?: string };
+    return `[image] ${source} (${r.analysis?.length ?? 0} chars)`;
+  }
 }

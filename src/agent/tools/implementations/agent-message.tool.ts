@@ -205,4 +205,23 @@ export class AgentMessageTool implements Tool<typeof parameters> {
       result: { ...baseResult, messageSent: true },
     };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const msg =
+      args.message.length > 60
+        ? args.message.slice(0, 57) + '...'
+        : args.message;
+    if (result == null || typeof result !== 'object') {
+      return `[agent_message] -> ${args.targetAgentID} '${msg}'`;
+    }
+    const r = result as { status?: string; timedOut?: boolean };
+    if (r.timedOut) {
+      return `[agent_message] -> ${args.targetAgentID} '${msg}' (timeout)`;
+    }
+    const status = r.status ?? (args.waitForResult ? 'completed' : 'sent');
+    return `[agent_message] -> ${args.targetAgentID} '${msg}' (${status})`;
+  }
 }

@@ -71,4 +71,17 @@ export class AgentsListTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const scope = args.enabledOnly ? 'enabled' : 'all';
+    if (result == null || typeof result !== 'object') {
+      return `[agents_list] ${scope}`;
+    }
+    const r = result as { agentCount?: number };
+    const count = typeof r.agentCount === 'number' ? r.agentCount : 0;
+    return `[agents_list] ${scope} (${count} agents)`;
+  }
 }

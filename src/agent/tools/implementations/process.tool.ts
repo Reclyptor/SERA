@@ -310,4 +310,44 @@ export class ProcessTool implements Tool<typeof parameters> {
 
     return { success: true, result: { killed: true } };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const op = args.operation;
+    if (result == null || typeof result !== 'object') {
+      return `[process] ${op}`;
+    }
+    if (op === 'start') {
+      const r = result as { processID?: string; command?: string };
+      const cmd = typeof r.command === 'string' ? r.command : '';
+      const snippet = cmd.length > 60 ? cmd.slice(0, 57) + '...' : cmd;
+      return `[process] start ${snippet} (${r.processID ?? '?'})`;
+    }
+    if (op === 'list') {
+      const count = Array.isArray(result) ? result.length : 0;
+      return `[process] list (${count} process${count === 1 ? '' : 'es'})`;
+    }
+    if (op === 'output') {
+      const r = result as {
+        stdout?: string;
+        exitCode?: number | null;
+        running?: boolean;
+      };
+      const stdout = typeof r.stdout === 'string' ? r.stdout : '';
+      const lines = stdout ? stdout.split('\n').length : 0;
+      const state =
+        r.running === true
+          ? 'running'
+          : typeof r.exitCode === 'number'
+            ? `exit ${r.exitCode}`
+            : 'finished';
+      return `[process] output ${args.processID ?? '?'} -> ${state}, ${lines} lines`;
+    }
+    if (op === 'kill') {
+      return `[process] kill ${args.processID ?? '?'}`;
+    }
+    return `[process] ${op as string}`;
+  }
 }

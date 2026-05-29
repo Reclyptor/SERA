@@ -197,4 +197,20 @@ export class TriggerTool implements Tool<typeof parameters> {
 
     return { success: true, result: { deleted: args.triggerID } };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const op = args.operation;
+    const target = args.triggerID ?? args.webhookPath ?? '';
+    const header = target ? `[trigger] ${op} ${target}` : `[trigger] ${op}`;
+    if (result == null || typeof result !== 'object') {
+      return header;
+    }
+    if (Array.isArray(result)) {
+      return `${header} (${result.length} triggers)`;
+    }
+    return header;
+  }
 }

@@ -92,4 +92,19 @@ export class MemoryGetTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const filter =
+      args.tags && args.tags.length > 0
+        ? `tags=[${args.tags.join(',')}]`
+        : 'all';
+    if (result == null || typeof result !== 'object') {
+      return `[memory_get] ${filter}`;
+    }
+    const r = result as { resultCount?: number };
+    return `[memory_get] ${filter} -> ${r.resultCount ?? 0} memories`;
+  }
 }

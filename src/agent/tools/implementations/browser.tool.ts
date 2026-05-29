@@ -245,4 +245,35 @@ export class BrowserTool implements Tool<typeof parameters> {
     const result = await this.page.evaluate(javascript);
     return { success: true, result: { result } };
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[browser] ${args.action}`;
+    }
+    const r = result as {
+      url?: string;
+      title?: string;
+      length?: number;
+      screenshot?: string;
+      clicked?: string;
+      selector?: string;
+    };
+    switch (args.action) {
+      case 'navigate':
+        return `[browser] navigate ${r.url ?? args.url ?? '?'} (title='${r.title ?? ''}')`;
+      case 'screenshot':
+        return `[browser] screenshot (${r.screenshot?.length ?? 0} b64 chars)`;
+      case 'content':
+        return `[browser] content (${r.length ?? 0} chars)`;
+      case 'click':
+        return `[browser] click ${r.clicked ?? args.selector ?? '?'}`;
+      case 'type':
+        return `[browser] type into ${r.selector ?? args.selector ?? '?'}`;
+      case 'evaluate':
+        return `[browser] evaluate`;
+    }
+  }
 }

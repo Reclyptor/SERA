@@ -65,4 +65,13 @@ export class MessageTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    _result: unknown,
+  ): string {
+    const role = args.role ?? 'assistant';
+    const len = args.content.length;
+    return `[message] ${role} -> ${args.chatID} (${len} chars)`;
+  }
 }
