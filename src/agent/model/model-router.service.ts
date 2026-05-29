@@ -20,6 +20,7 @@ import { PromptCacheService } from './prompt-cache.service';
 import { CredentialPoolService } from './credential-pool.service';
 import { classifyError } from './error-classifier';
 import { withRetry } from './retry-utils';
+import { ModelCatalogService } from '../../models/model-catalog.service';
 
 interface ProviderEntry {
   id: string;
@@ -42,6 +43,7 @@ export class ModelRouterService {
     private readonly configService: ConfigService,
     private readonly promptCache: PromptCacheService,
     private readonly credentialPool: CredentialPoolService,
+    private readonly catalog: ModelCatalogService,
   ) {
     this.primaryModel = this.configService.getOrThrow<string>('PRIMARY_MODEL');
     this.fallbackModels = this.configService
@@ -135,6 +137,17 @@ export class ModelRouterService {
     }
 
     this.providers.sort((a, b) => a.priority - b.priority);
+  }
+
+  /**
+   * Check whether `spec` (`provider/modelID`) names an enabled entry in the
+   * model catalog. This is the allowlist used by upfront request validation.
+   * Runtime resolution (resolveModel / generate / stream) keeps its own
+   * provider/key plumbing — the catalog is the source of truth for *which*
+   * models are admissible, not *how* to call them.
+   */
+  async isValidModel(spec: string): Promise<boolean> {
+    return this.catalog.isValidActiveModel(spec);
   }
 
   /**
