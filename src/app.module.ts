@@ -12,6 +12,7 @@ import { RedisModule } from './redis/redis.module';
 import { GitHubModule } from './github/github.module';
 import { ChatsModule } from './chats/chats.module';
 import { PromptsModule } from './prompts/prompts.module';
+import { ModelsModule } from './models/models.module';
 import { validateEnv } from './config/env.schema';
 
 @Module({
@@ -35,6 +36,7 @@ import { validateEnv } from './config/env.schema';
     SkillsModule,
     ChatsModule,
     PromptsModule,
+    ModelsModule,
   ],
   controllers: [AppController],
   providers: [
