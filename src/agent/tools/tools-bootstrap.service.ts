@@ -52,6 +52,7 @@ import {
   SessionStatusTool,
   SubagentsTool,
   AgentsListTool,
+  AgentManagementTool,
   TaskPlanTool,
   SkillsTool,
   TriggerTool,
@@ -204,6 +205,9 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new SessionStatusTool(this.stateService));
     this.toolsService.registerTool(new SubagentsTool(this.stateService));
     this.toolsService.registerTool(new AgentsListTool(this.agentsService));
+    this.toolsService.registerTool(
+      new AgentManagementTool(this.agentsService, this.approvalService),
+    );
 
     // Task decomposition
     this.toolsService.registerTool(new TaskPlanTool(this.tasksService));

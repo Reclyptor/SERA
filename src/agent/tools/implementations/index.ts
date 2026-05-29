@@ -41,6 +41,7 @@ export { SessionsYieldTool } from './sessions-yield.tool';
 export { SessionStatusTool } from './session-status.tool';
 export { SubagentsTool } from './subagents.tool';
 export { AgentsListTool } from './agents-list.tool';
+export { AgentManagementTool } from './agent-management.tool';
 export { TaskPlanTool } from './task-plan.tool';
 export { SkillsTool } from './skills.tool';
 export { TriggerTool } from './trigger.tool';

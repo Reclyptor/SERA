@@ -1661,6 +1661,25 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 | `skills`  | `operation` (list/get/create/update/delete/list_files/read_file/add_file/update_file/remove_file), `name?`, `description?`, `content?`, etc. | No       | Manage reusable skills with versioned files. |
 | `trigger` | `operation` (create/list/update/delete), `webhookPath?`, `command?`, `secret?`, `triggerID?`                                                 | No       | Manage webhook triggers.                     |
 
+#### Agent Catalog Management
+
+The `agent_management` tool exposes `AgentsService` CRUD to the agent. It is gated by `toolPolicy` only (the operator opts in by adding `agent_management` to a specific agent's allow-list — the default agent does not have it). Hard-blocks:
+
+- **Self-mutation:** any operation where `args.agentID === context.agentID` is rejected. Agents cannot escalate their own privileges or pull the rug on themselves mid-run.
+- **Default agent protection:** `delete` and `disable` are rejected when `agentID === 'default'`. The default agent is the router's last-resort fallback (§11); losing it locks operators out.
+
+Approval gate (via `ToolApprovalService`, §29.6) fires for `toolPolicy.tools` mutations only:
+
+- `create` with non-empty `toolPolicy.tools` — approval requested with the full tools list in the message.
+- `update` whose `toolPolicy` differs from the current agent's (mode change or any tool added/removed) — approval requested.
+- All other operations (rename, description, `enabled` flip, `modelOptions`, `messagingPolicy`, `sandboxConfig`, etc.) run without approval, consistent with the `cron`/`skills`/`trigger` pattern.
+
+`agentID` must match `^[a-z0-9][a-z0-9-]*$` on create. `agentID` is never mutable on update — the parameter identifies the target, not the new ID.
+
+| Tool               | Parameters                                                                                                                                                                                      | Parallel | Description                                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `agent_management` | `operation` (create/update/get/list/delete/enable/disable), `agentID?`, `name?`, `description?`, `promptSlug?`, `modelOptions?`, `toolPolicy?`, `messagingPolicy?`, `sandboxConfig?`, `enabled?` | No       | CRUD over `AgentsService`. Approval-gated on `toolPolicy.tools` changes; cannot self-mutate or affect default. |
+
 #### Cluster Git (GitOps)
 
 The `cluster_git` tool is the canonical path for declarative cluster changes. It writes to the GitHub repo identified by `CLUSTER_REPO` on branch `CLUSTER_BRANCH`; FluxCD reconciles those commits into the live cluster. Writes are atomic at the GitHub Contents API (one call = one commit), so no local clone is maintained. `write_file` and `delete_file` gate through `ToolApprovalService` with a fingerprint over `(repo, branch, path, content-sha256, message)` so each commit must be approved individually.
