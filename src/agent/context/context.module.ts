@@ -4,6 +4,9 @@ import { CompactingEngineService } from './engine/compacting-engine.service';
 import { CONTEXT_ENGINE } from './engine/context-engine.interface';
 import { TokenCounterService } from './tokens/token-counter.service';
 import { ModelContextWindowService } from './tokens/model-context-window.service';
+import { ToolResultDeduplicatorService } from './pruning/tool-result-deduplicator.service';
+import { ToolArgTruncatorService } from './pruning/tool-arg-truncator.service';
+import { ImagePrunerService } from './pruning/image-pruner.service';
 import { ModelModule } from '../model/model.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 
@@ -15,6 +18,9 @@ import { PromptsModule } from '../../prompts/prompts.module';
     { provide: CONTEXT_ENGINE, useExisting: CompactingEngineService },
     TokenCounterService,
     ModelContextWindowService,
+    ToolResultDeduplicatorService,
+    ToolArgTruncatorService,
+    ImagePrunerService,
   ],
   exports: [
     ContextOrchestrationService,
@@ -22,6 +28,9 @@ import { PromptsModule } from '../../prompts/prompts.module';
     CONTEXT_ENGINE,
     TokenCounterService,
     ModelContextWindowService,
+    ToolResultDeduplicatorService,
+    ToolArgTruncatorService,
+    ImagePrunerService,
   ],
 })
 export class ContextModule {}

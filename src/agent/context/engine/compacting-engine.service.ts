@@ -4,12 +4,14 @@ import { ModelRouterService } from '../../model/model-router.service';
 import { PromptsService } from '../../../prompts/prompts.service';
 import { TokenCounterService } from '../tokens/token-counter.service';
 import { ModelContextWindowService } from '../tokens/model-context-window.service';
-import {
-  emptyPruneStats,
-  type ContextDecision,
-  type ContextPrepareInput,
-  type ContextPrepareResult,
-  type ContextPruneStats,
+import { ToolResultDeduplicatorService } from '../pruning/tool-result-deduplicator.service';
+import { ToolArgTruncatorService } from '../pruning/tool-arg-truncator.service';
+import { ImagePrunerService } from '../pruning/image-pruner.service';
+import type {
+  ContextDecision,
+  ContextPrepareInput,
+  ContextPrepareResult,
+  ContextPruneStats,
 } from '../interfaces';
 import type { IContextEngine } from './context-engine.interface';
 
@@ -40,11 +42,6 @@ Rules:
 - If an existing summary is included, update it — merge resolved items, promote pending to resolved if done, add new items
 - Do not invent information not present in the conversation`;
 
-interface PruneOutcome {
-  messages: ModelMessage[];
-  stats: ContextPruneStats;
-}
-
 @Injectable()
 export class CompactingEngineService implements IContextEngine {
   readonly name = 'compacting';
@@ -55,6 +52,9 @@ export class CompactingEngineService implements IContextEngine {
     private readonly promptsService: PromptsService,
     private readonly tokenCounter: TokenCounterService,
     private readonly modelContextWindow: ModelContextWindowService,
+    private readonly deduplicator: ToolResultDeduplicatorService,
+    private readonly argTruncator: ToolArgTruncatorService,
+    private readonly imagePruner: ImagePrunerService,
   ) {}
 
   async prepare(input: ContextPrepareInput): Promise<ContextPrepareResult> {
@@ -66,61 +66,47 @@ export class CompactingEngineService implements IContextEngine {
     const systemTokens = systemPrompt
       ? this.tokenCounter.count(systemPrompt, provider)
       : 0;
-    const beforeMessageTokens = this.tokenCounter.countMessages(
-      messages,
-      provider,
-    );
-    const beforeTokens = systemTokens + beforeMessageTokens;
+    const beforeTokens =
+      systemTokens + this.tokenCounter.countMessages(messages, provider);
 
-    if (!force && beforeTokens <= threshold) {
+    // Tier 0 — lossless pruning ALWAYS runs.
+    const tier0 = this.runTier0(messages);
+    const afterTier0Tokens =
+      systemTokens + this.tokenCounter.countMessages(tier0.messages, provider);
+
+    const tier0DidWork =
+      tier0.stats.duplicates + tier0.stats.images + tier0.stats.toolArgs > 0;
+
+    if (!force && afterTier0Tokens <= threshold) {
       return this.result(
-        messages,
-        'noop',
+        tier0.messages,
+        tier0DidWork ? 'pruned' : 'noop',
         beforeTokens,
-        beforeTokens,
-        emptyPruneStats(),
+        afterTier0Tokens,
+        tier0.stats,
         false,
       );
     }
 
     this.logger.debug(
-      `Context at ${beforeTokens} tokens (threshold: ${threshold}), compressing...`,
+      `Context at ${beforeTokens} → ${afterTier0Tokens} after Tier 0 (threshold ${threshold}); proceeding to summarization...`,
     );
-
-    const pruneOutcome = this.pruneToolOutputs(messages);
-    const afterPruneTokens =
-      systemTokens +
-      this.tokenCounter.countMessages(pruneOutcome.messages, provider);
-
-    if (afterPruneTokens <= threshold) {
-      this.logger.debug(
-        `Tool output pruning sufficient: ${beforeTokens} → ${afterPruneTokens} tokens`,
-      );
-      return this.result(
-        pruneOutcome.messages,
-        'pruned',
-        beforeTokens,
-        afterPruneTokens,
-        pruneOutcome.stats,
-        false,
-      );
-    }
 
     const summarized = await this.summarizeStructured(
-      pruneOutcome.messages,
+      tier0.messages,
       threshold - systemTokens,
       provider,
+      tier0.stats,
     );
 
-    if (summarized === pruneOutcome.messages) {
-      const finalTokens =
-        systemTokens + this.tokenCounter.countMessages(summarized, provider);
+    if (summarized === tier0.messages) {
+      // Summarization made no change (short conversation or LLM error).
       return this.result(
-        summarized,
-        force ? 'force_failed' : 'pruned',
+        tier0.messages,
+        force ? 'force_failed' : tier0DidWork ? 'pruned' : 'noop',
         beforeTokens,
-        finalTokens,
-        pruneOutcome.stats,
+        afterTier0Tokens,
+        tier0.stats,
         false,
       );
     }
@@ -128,7 +114,7 @@ export class CompactingEngineService implements IContextEngine {
     const afterTokens =
       systemTokens + this.tokenCounter.countMessages(summarized, provider);
     this.logger.debug(
-      `LLM compression: ${afterPruneTokens} → ${afterTokens} tokens`,
+      `LLM compression: ${afterTier0Tokens} → ${afterTokens} tokens`,
     );
 
     return this.result(
@@ -136,9 +122,27 @@ export class CompactingEngineService implements IContextEngine {
       'summarized',
       beforeTokens,
       afterTokens,
-      pruneOutcome.stats,
+      tier0.stats,
       true,
     );
+  }
+
+  private runTier0(messages: ModelMessage[]): {
+    messages: ModelMessage[];
+    stats: ContextPruneStats;
+  } {
+    const dedup = this.deduplicator.dedupe(messages);
+    const trunc = this.argTruncator.truncate(dedup.messages);
+    const img = this.imagePruner.prune(trunc.messages);
+    return {
+      messages: img.messages,
+      stats: {
+        duplicates: dedup.duplicates,
+        toolArgs: trunc.truncated,
+        images: img.images,
+        toolResults: 0,
+      },
+    };
   }
 
   private result(
@@ -157,9 +161,11 @@ export class CompactingEngineService implements IContextEngine {
     };
   }
 
-  private pruneToolOutputs(messages: ModelMessage[]): PruneOutcome {
-    const stats = emptyPruneStats();
-    const pruned = messages.map((msg): ModelMessage => {
+  private pruneLargeToolOutputs(
+    messages: ModelMessage[],
+    stats: ContextPruneStats,
+  ): ModelMessage[] {
+    return messages.map((msg): ModelMessage => {
       if (msg.role !== 'tool') return msg;
       if (!Array.isArray(msg.content)) return msg;
 
@@ -189,39 +195,45 @@ export class CompactingEngineService implements IContextEngine {
 
       return { ...msg, content: prunedContent as unknown } as ModelMessage;
     });
-    return { messages: pruned, stats };
   }
 
   private async summarizeStructured(
     messages: ModelMessage[],
     tokenBudget: number,
     provider: string,
+    stats: ContextPruneStats,
   ): Promise<ModelMessage[]> {
     if (messages.length <= PROTECTED_HEAD_COUNT + 1) {
       return messages;
     }
 
-    const head = messages.slice(0, PROTECTED_HEAD_COUNT);
+    // Pre-summarization: replace any remaining large tool outputs with a size
+    // placeholder so the summarizer LLM doesn't itself blow context. This is
+    // a lossy stop-gap until Phase 4 swaps in tool-result-aware semantic
+    // rendering.
+    const prepared = this.pruneLargeToolOutputs(messages, stats);
+
+    const head = prepared.slice(0, PROTECTED_HEAD_COUNT);
 
     let tailTokens = 0;
-    let tailStart = messages.length;
+    let tailStart = prepared.length;
     const tailBudget = Math.min(
       PROTECTED_TAIL_TOKENS,
       Math.floor(tokenBudget * 0.4),
     );
 
-    for (let i = messages.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
-      const msgTokens = this.tokenCounter.countMessage(messages[i], provider);
+    for (let i = prepared.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
+      const msgTokens = this.tokenCounter.countMessage(prepared[i], provider);
       if (tailTokens + msgTokens > tailBudget) break;
       tailTokens += msgTokens;
       tailStart = i;
     }
 
-    const middle = messages.slice(PROTECTED_HEAD_COUNT, tailStart);
-    const tail = messages.slice(tailStart);
+    const middle = prepared.slice(PROTECTED_HEAD_COUNT, tailStart);
+    const tail = prepared.slice(tailStart);
 
     if (middle.length === 0) {
-      return messages;
+      return prepared;
     }
 
     const existingSummary = this.extractExistingSummary(middle);
@@ -261,7 +273,7 @@ export class CompactingEngineService implements IContextEngine {
         'LLM summarization failed, returning pruned messages:',
         err,
       );
-      return messages;
+      return prepared;
     }
   }
 
