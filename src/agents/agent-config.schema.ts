@@ -27,6 +27,11 @@ export class ModelOptions {
 
   @Prop()
   temperature?: number;
+
+  // Per-agent override for context compaction. `provider/model` format.
+  // Falls back to SUMMARY_MODEL env, then to the primary router. See SPEC §9.7.
+  @Prop()
+  summaryModel?: string;
 }
 
 export const ModelOptionsSchema = SchemaFactory.createForClass(ModelOptions);

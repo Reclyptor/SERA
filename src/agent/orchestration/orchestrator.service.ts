@@ -241,6 +241,7 @@ export class OrchestratorService {
           modelID: resolved.modelID,
           systemPrompt,
           force: forceCompress,
+          summaryModel: agentConfig.modelOptions?.summaryModel,
         });
         forceCompress = false;
         if (ctxResult.messages !== messages) {

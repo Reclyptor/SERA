@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ContextOrchestrationService } from './context-orchestration.service';
 import { CompactingEngineService } from './engine/compacting-engine.service';
+import { SummarizerService } from './engine/summarizer.service';
 import { CONTEXT_ENGINE } from './engine/context-engine.interface';
 import { TokenCounterService } from './tokens/token-counter.service';
 import { ModelContextWindowService } from './tokens/model-context-window.service';
@@ -25,6 +26,7 @@ import { StreamingModule } from '../streaming/streaming.module';
   providers: [
     ContextOrchestrationService,
     CompactingEngineService,
+    SummarizerService,
     { provide: CONTEXT_ENGINE, useExisting: CompactingEngineService },
     TokenCounterService,
     ModelContextWindowService,
@@ -38,6 +40,7 @@ import { StreamingModule } from '../streaming/streaming.module';
   exports: [
     ContextOrchestrationService,
     CompactingEngineService,
+    SummarizerService,
     CONTEXT_ENGINE,
     TokenCounterService,
     ModelContextWindowService,

@@ -10,6 +10,8 @@ export interface ContextPrepareInput {
   modelID: string;
   systemPrompt?: string;
   force?: boolean;
+  /** Per-agent override for the compaction summary model (provider/model). */
+  summaryModel?: string;
 }
 
 export type ContextDecision =
