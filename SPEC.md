@@ -958,15 +958,15 @@ Scoped to the authenticated user via `@CurrentUser()`. `MemoryController` is reg
 
 ### 5.13 Models
 
-| Method | Path             | Auth | Body / Params                    | Response             |
-| ------ | ---------------- | ---- | -------------------------------- | -------------------- |
-| POST   | `/models`        | Yes  | `CreateModelDto`                 | ModelCatalogEntry    |
-| GET    | `/models`        | Yes  | Query: `enabled=true` (optional) | ModelCatalogEntry[]  |
-| GET    | `/models/:spec`  | Yes  |                                  | ModelCatalogEntry    |
-| PATCH  | `/models/:spec`  | Yes  | `UpdateModelDto`                 | ModelCatalogEntry    |
-| DELETE | `/models/:spec`  | Yes  |                                  | `{ deleted: true }`  |
+| Method | Path                        | Auth | Body / Params                    | Response            |
+| ------ | --------------------------- | ---- | -------------------------------- | ------------------- |
+| POST   | `/models`                   | Yes  | `CreateModelDto`                 | ModelCatalogEntry   |
+| GET    | `/models`                   | Yes  | Query: `enabled=true` (optional) | ModelCatalogEntry[] |
+| GET    | `/models/:provider/:modelID`| Yes  |                                  | ModelCatalogEntry   |
+| PATCH  | `/models/:provider/:modelID`| Yes  | `UpdateModelDto`                 | ModelCatalogEntry   |
+| DELETE | `/models/:provider/:modelID`| Yes  |                                  | `{ deleted: true }` |
 
-`:spec` is the canonical `provider/modelID` form (e.g. `anthropic/claude-sonnet-4-6`); the route segment captures slashes via Express's `(*)` wildcard. `POST` requires `spec === provider + '/' + modelID`. See §4.19 for the schema and §7 for the seeded defaults.
+The two path segments are concatenated to the canonical `spec` (`provider/modelID`) used by the service. `POST` requires `spec === provider + '/' + modelID`. See §4.19 for the schema and §7 for the seeded defaults.
 
 ---
 

@@ -31,8 +31,12 @@ export class ModelsController {
     return this.catalog.findAll();
   }
 
-  @Get(':spec(*)')
-  async findOne(@Param('spec') spec: string) {
+  @Get(':provider/:modelID')
+  async findOne(
+    @Param('provider') provider: string,
+    @Param('modelID') modelID: string,
+  ) {
+    const spec = `${provider}/${modelID}`;
     const entry = await this.catalog.findBySpec(spec);
     if (!entry) {
       throw new NotFoundException(`Model "${spec}" not found`);
@@ -40,13 +44,21 @@ export class ModelsController {
     return entry;
   }
 
-  @Patch(':spec(*)')
-  async update(@Param('spec') spec: string, @Body() dto: UpdateModelDto) {
-    return this.catalog.update(spec, dto);
+  @Patch(':provider/:modelID')
+  async update(
+    @Param('provider') provider: string,
+    @Param('modelID') modelID: string,
+    @Body() dto: UpdateModelDto,
+  ) {
+    return this.catalog.update(`${provider}/${modelID}`, dto);
   }
 
-  @Delete(':spec(*)')
-  async remove(@Param('spec') spec: string) {
+  @Delete(':provider/:modelID')
+  async remove(
+    @Param('provider') provider: string,
+    @Param('modelID') modelID: string,
+  ) {
+    const spec = `${provider}/${modelID}`;
     const deleted = await this.catalog.remove(spec);
     if (!deleted) {
       throw new NotFoundException(`Model "${spec}" not found`);
