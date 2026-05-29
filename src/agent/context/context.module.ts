@@ -14,6 +14,10 @@ import { CompressionPolicyService } from './policy/compression-policy.service';
 import { ContextEventEmitterService } from './events/context-event-emitter.service';
 import { SecretRedactorService } from './redaction/secret-redactor.service';
 import { SummaryStoreService } from './persistence/summary-store.service';
+import { ContextReferencePreprocessorService } from './preprocessing/context-reference-preprocessor.service';
+import { FileReferenceResolver } from './preprocessing/reference-resolvers/file.resolver';
+import { DiffReferenceResolver } from './preprocessing/reference-resolvers/diff.resolver';
+import { UrlReferenceResolver } from './preprocessing/reference-resolvers/url.resolver';
 import {
   ContextState,
   ContextStateSchema,
@@ -48,6 +52,10 @@ import { StreamingModule } from '../streaming/streaming.module';
     ContextEventEmitterService,
     SecretRedactorService,
     SummaryStoreService,
+    FileReferenceResolver,
+    DiffReferenceResolver,
+    UrlReferenceResolver,
+    ContextReferencePreprocessorService,
   ],
   exports: [
     ContextOrchestrationService,
@@ -64,6 +72,7 @@ import { StreamingModule } from '../streaming/streaming.module';
     ContextEventEmitterService,
     SecretRedactorService,
     SummaryStoreService,
+    ContextReferencePreprocessorService,
   ],
 })
 export class ContextModule {}
