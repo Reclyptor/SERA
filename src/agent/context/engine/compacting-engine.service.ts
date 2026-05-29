@@ -8,6 +8,8 @@ import { ToolResultDeduplicatorService } from '../pruning/tool-result-deduplicat
 import { ToolArgTruncatorService } from '../pruning/tool-arg-truncator.service';
 import { ImagePrunerService } from '../pruning/image-pruner.service';
 import { ToolResultRendererService } from '../pruning/tool-result-renderer.service';
+import { CompressionPolicyService } from '../policy/compression-policy.service';
+import { ContextEventEmitterService } from '../events/context-event-emitter.service';
 import type {
   ContextDecision,
   ContextPrepareInput,
@@ -57,10 +59,20 @@ export class CompactingEngineService implements IContextEngine {
     private readonly argTruncator: ToolArgTruncatorService,
     private readonly imagePruner: ImagePrunerService,
     private readonly resultRenderer: ToolResultRendererService,
+    private readonly policy: CompressionPolicyService,
+    private readonly events: ContextEventEmitterService,
   ) {}
 
   async prepare(input: ContextPrepareInput): Promise<ContextPrepareResult> {
-    const { messages, provider, modelID, systemPrompt, force } = input;
+    const {
+      threadID,
+      runID,
+      messages,
+      provider,
+      modelID,
+      systemPrompt,
+      force,
+    } = input;
 
     const contextWindow = this.modelContextWindow.get(provider, modelID);
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
@@ -80,9 +92,38 @@ export class CompactingEngineService implements IContextEngine {
       tier0.stats.duplicates + tier0.stats.images + tier0.stats.toolArgs > 0;
 
     if (!force && afterTier0Tokens <= threshold) {
+      const decision: ContextDecision = tier0DidWork ? 'pruned' : 'noop';
+      const result = this.result(
+        tier0.messages,
+        decision,
+        beforeTokens,
+        afterTier0Tokens,
+        tier0.stats,
+        false,
+      );
+      void this.events.emitCompressionCompleted(runID, threadID, {
+        decision,
+        beforeTokens,
+        afterTokens: afterTier0Tokens,
+        pruned: tier0.stats,
+      });
+      return result;
+    }
+
+    // Policy check: anti-thrash & cooldown both gate Tier 1 (force bypasses).
+    const policyDecision = this.policy.shouldRun(threadID, !!force);
+    if (!policyDecision.allow) {
+      const decision: ContextDecision =
+        policyDecision.reason === 'thrash'
+          ? 'skipped_thrash'
+          : 'cooldown_active';
+      void this.events.emitCompressionSkipped(runID, threadID, {
+        reason: policyDecision.reason ?? 'cooldown',
+        detail: policyDecision.detail ?? '',
+      });
       return this.result(
         tier0.messages,
-        tier0DidWork ? 'pruned' : 'noop',
+        decision,
         beforeTokens,
         afterTier0Tokens,
         tier0.stats,
@@ -90,22 +131,60 @@ export class CompactingEngineService implements IContextEngine {
       );
     }
 
+    void this.events.emitCompressionStarted(runID, threadID, {
+      provider,
+      modelID,
+      beforeTokens,
+    });
+
     this.logger.debug(
       `Context at ${beforeTokens} → ${afterTier0Tokens} after Tier 0 (threshold ${threshold}); proceeding to summarization...`,
     );
 
-    const summarized = await this.summarizeStructured(
-      tier0.messages,
-      threshold - systemTokens,
-      provider,
-      tier0.stats,
-    );
-
-    if (summarized === tier0.messages) {
-      // Summarization made no change (short conversation or LLM error).
+    let summarized: ModelMessage[];
+    try {
+      summarized = await this.summarizeStructured(
+        tier0.messages,
+        threshold - systemTokens,
+        provider,
+        tier0.stats,
+      );
+    } catch (err) {
+      this.policy.noteFailure(threadID);
+      this.logger.warn('Tier 1 summarization threw, entering cooldown:', err);
+      const decision: ContextDecision = force ? 'force_failed' : 'pruned';
+      void this.events.emitCompressionCompleted(runID, threadID, {
+        decision,
+        beforeTokens,
+        afterTokens: afterTier0Tokens,
+        pruned: tier0.stats,
+      });
       return this.result(
         tier0.messages,
-        force ? 'force_failed' : tier0DidWork ? 'pruned' : 'noop',
+        decision,
+        beforeTokens,
+        afterTier0Tokens,
+        tier0.stats,
+        false,
+      );
+    }
+
+    if (summarized === tier0.messages) {
+      // Summarization made no change (short conversation).
+      const decision: ContextDecision = force
+        ? 'force_failed'
+        : tier0DidWork
+          ? 'pruned'
+          : 'noop';
+      void this.events.emitCompressionCompleted(runID, threadID, {
+        decision,
+        beforeTokens,
+        afterTokens: afterTier0Tokens,
+        pruned: tier0.stats,
+      });
+      return this.result(
+        tier0.messages,
+        decision,
         beforeTokens,
         afterTier0Tokens,
         tier0.stats,
@@ -118,6 +197,19 @@ export class CompactingEngineService implements IContextEngine {
     this.logger.debug(
       `LLM compression: ${afterTier0Tokens} → ${afterTokens} tokens`,
     );
+
+    const savingsRatio =
+      afterTier0Tokens > 0
+        ? Math.max(0, (afterTier0Tokens - afterTokens) / afterTier0Tokens)
+        : 0;
+    this.policy.noteSummarization(threadID, savingsRatio);
+
+    void this.events.emitCompressionCompleted(runID, threadID, {
+      decision: 'summarized',
+      beforeTokens,
+      afterTokens,
+      pruned: tier0.stats,
+    });
 
     return this.result(
       summarized,

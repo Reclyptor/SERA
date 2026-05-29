@@ -8,15 +8,19 @@ import { ToolResultDeduplicatorService } from './pruning/tool-result-deduplicato
 import { ToolArgTruncatorService } from './pruning/tool-arg-truncator.service';
 import { ImagePrunerService } from './pruning/image-pruner.service';
 import { ToolResultRendererService } from './pruning/tool-result-renderer.service';
+import { CompressionPolicyService } from './policy/compression-policy.service';
+import { ContextEventEmitterService } from './events/context-event-emitter.service';
 import { ModelModule } from '../model/model.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 import { ToolsModule } from '../tools/tools.module';
+import { StreamingModule } from '../streaming/streaming.module';
 
 @Module({
   imports: [
     forwardRef(() => ModelModule),
     PromptsModule,
     forwardRef(() => ToolsModule),
+    StreamingModule,
   ],
   providers: [
     ContextOrchestrationService,
@@ -28,6 +32,8 @@ import { ToolsModule } from '../tools/tools.module';
     ToolArgTruncatorService,
     ImagePrunerService,
     ToolResultRendererService,
+    CompressionPolicyService,
+    ContextEventEmitterService,
   ],
   exports: [
     ContextOrchestrationService,
@@ -39,6 +45,8 @@ import { ToolsModule } from '../tools/tools.module';
     ToolArgTruncatorService,
     ImagePrunerService,
     ToolResultRendererService,
+    CompressionPolicyService,
+    ContextEventEmitterService,
   ],
 })
 export class ContextModule {}

@@ -21,6 +21,10 @@ export type AgentEventType =
   | 'approval.requested'
   | 'approval.resolved'
   | 'approval.expired'
+  | 'context.compression.started'
+  | 'context.compression.completed'
+  | 'context.compression.skipped'
+  | 'context.reference.expanded'
   | 'replay.done'
   | 'error';
 
@@ -151,4 +155,49 @@ export interface SubagentFailedData {
 export interface ErrorData {
   error: string;
   recoverable: boolean;
+}
+
+export interface ContextPruneStatsData {
+  duplicates: number;
+  images: number;
+  toolArgs: number;
+  toolResults: number;
+}
+
+export interface ContextSummaryStatsData {
+  generatedTokens: number;
+  costCents: number;
+  model: string;
+  iterative: boolean;
+}
+
+export interface ContextAuxModelFailureData {
+  model: string;
+  error: string;
+}
+
+export interface ContextCompressionStartedData {
+  provider: string;
+  modelID: string;
+  beforeTokens: number;
+}
+
+export interface ContextCompressionCompletedData {
+  decision: string;
+  beforeTokens: number;
+  afterTokens: number;
+  pruned: ContextPruneStatsData;
+  summary?: ContextSummaryStatsData;
+  auxModelFailure?: ContextAuxModelFailureData;
+}
+
+export interface ContextCompressionSkippedData {
+  reason: 'thrash' | 'cooldown';
+  detail: string;
+}
+
+export interface ContextReferenceExpandedData {
+  kind: string;
+  target: string;
+  injectedTokens: number;
 }
