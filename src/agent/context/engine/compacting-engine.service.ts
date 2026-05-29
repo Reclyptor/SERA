@@ -7,6 +7,7 @@ import { ModelContextWindowService } from '../tokens/model-context-window.servic
 import { ToolResultDeduplicatorService } from '../pruning/tool-result-deduplicator.service';
 import { ToolArgTruncatorService } from '../pruning/tool-arg-truncator.service';
 import { ImagePrunerService } from '../pruning/image-pruner.service';
+import { ToolResultRendererService } from '../pruning/tool-result-renderer.service';
 import type {
   ContextDecision,
   ContextPrepareInput,
@@ -55,6 +56,7 @@ export class CompactingEngineService implements IContextEngine {
     private readonly deduplicator: ToolResultDeduplicatorService,
     private readonly argTruncator: ToolArgTruncatorService,
     private readonly imagePruner: ImagePrunerService,
+    private readonly resultRenderer: ToolResultRendererService,
   ) {}
 
   async prepare(input: ContextPrepareInput): Promise<ContextPrepareResult> {
@@ -165,6 +167,8 @@ export class CompactingEngineService implements IContextEngine {
     messages: ModelMessage[],
     stats: ContextPruneStats,
   ): ModelMessage[] {
+    const callMeta = this.collectToolCallMeta(messages);
+
     return messages.map((msg): ModelMessage => {
       if (msg.role !== 'tool') return msg;
       if (!Array.isArray(msg.content)) return msg;
@@ -175,6 +179,8 @@ export class CompactingEngineService implements IContextEngine {
       const prunedContent = (
         msg.content as unknown as Array<{
           type: string;
+          toolCallId?: string;
+          toolName?: string;
           output?: unknown;
           [k: string]: unknown;
         }>
@@ -185,16 +191,47 @@ export class CompactingEngineService implements IContextEngine {
             ? part.output
             : JSON.stringify(part.output ?? '');
         if (outputStr.length <= TOOL_OUTPUT_PRUNE_THRESHOLD) return part;
-        const lines = outputStr.split('\n').length;
+
+        const meta = part.toolCallId
+          ? callMeta.get(part.toolCallId)
+          : undefined;
+        const toolName = meta?.toolName ?? part.toolName ?? 'unknown';
+        const args = meta?.args ?? {};
+        const summary = this.resultRenderer.render(toolName, args, part.output);
         stats.toolResults += 1;
-        return {
-          ...part,
-          output: `[Pruned: ${outputStr.length} chars, ${lines} lines]`,
-        };
+        return { ...part, output: summary };
       });
 
       return { ...msg, content: prunedContent as unknown } as ModelMessage;
     });
+  }
+
+  private collectToolCallMeta(
+    messages: ModelMessage[],
+  ): Map<string, { toolName: string; args: unknown }> {
+    const meta = new Map<string, { toolName: string; args: unknown }>();
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue;
+      if (!Array.isArray(msg.content)) continue;
+      for (const part of msg.content as Array<{
+        type?: string;
+        toolCallId?: string;
+        toolName?: string;
+        args?: unknown;
+      }>) {
+        if (
+          part?.type === 'tool-call' &&
+          typeof part.toolCallId === 'string' &&
+          typeof part.toolName === 'string'
+        ) {
+          meta.set(part.toolCallId, {
+            toolName: part.toolName,
+            args: part.args,
+          });
+        }
+      }
+    }
+    return meta;
   }
 
   private async summarizeStructured(

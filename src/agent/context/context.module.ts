@@ -7,11 +7,17 @@ import { ModelContextWindowService } from './tokens/model-context-window.service
 import { ToolResultDeduplicatorService } from './pruning/tool-result-deduplicator.service';
 import { ToolArgTruncatorService } from './pruning/tool-arg-truncator.service';
 import { ImagePrunerService } from './pruning/image-pruner.service';
+import { ToolResultRendererService } from './pruning/tool-result-renderer.service';
 import { ModelModule } from '../model/model.module';
 import { PromptsModule } from '../../prompts/prompts.module';
+import { ToolsModule } from '../tools/tools.module';
 
 @Module({
-  imports: [forwardRef(() => ModelModule), PromptsModule],
+  imports: [
+    forwardRef(() => ModelModule),
+    PromptsModule,
+    forwardRef(() => ToolsModule),
+  ],
   providers: [
     ContextOrchestrationService,
     CompactingEngineService,
@@ -21,6 +27,7 @@ import { PromptsModule } from '../../prompts/prompts.module';
     ToolResultDeduplicatorService,
     ToolArgTruncatorService,
     ImagePrunerService,
+    ToolResultRendererService,
   ],
   exports: [
     ContextOrchestrationService,
@@ -31,6 +38,7 @@ import { PromptsModule } from '../../prompts/prompts.module';
     ToolResultDeduplicatorService,
     ToolArgTruncatorService,
     ImagePrunerService,
+    ToolResultRendererService,
   ],
 })
 export class ContextModule {}

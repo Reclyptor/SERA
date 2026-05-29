@@ -44,4 +44,10 @@ export interface Tool<TParams extends z.ZodType = z.ZodType> {
     args: z.infer<TParams>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult>;
+  /**
+   * Optional one-line summary of a completed call for context compaction.
+   * When omitted, the renderer falls back to `[name] keyArgs (size)`.
+   * See SPEC §9.6.
+   */
+  renderResultSummary?(args: z.infer<TParams>, result: unknown): string;
 }
