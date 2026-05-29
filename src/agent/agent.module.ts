@@ -14,9 +14,11 @@ import { SandboxModule } from './sandbox/sandbox.module';
 import { InsightsModule } from './insights/insights.module';
 import { McpModule } from './mcp/mcp.module';
 import { PluginsModule } from './plugins/plugins.module';
+import { ModelModule } from './model/model.module';
 
 @Module({
   imports: [
+    ModelModule,
     OrchestrationModule,
     StateModule,
     ChatsModule,
