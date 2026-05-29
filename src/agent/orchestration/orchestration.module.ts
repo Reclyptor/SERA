@@ -28,7 +28,7 @@ import { LoopCircuitBreakerHandler } from './loop-circuit-breaker-handler.servic
   imports: [
     forwardRef(() => StreamingModule),
     ModelModule,
-    ToolsModule,
+    forwardRef(() => ToolsModule),
     ActionsModule,
     StateModule,
     MemoryModule,

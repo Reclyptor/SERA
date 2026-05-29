@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { Skill, SkillSchema } from './skill.schema';
@@ -17,7 +17,7 @@ import { ToolsModule } from '../tools/tools.module';
     ConfigModule,
     SecurityModule,
     ModelModule,
-    ToolsModule,
+    forwardRef(() => ToolsModule),
     MongooseModule.forFeature([{ name: Skill.name, schema: SkillSchema }]),
   ],
   controllers: [SkillsController],
