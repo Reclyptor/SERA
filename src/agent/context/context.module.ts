@@ -1,5 +1,4 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { ContextCompressorService } from './context-compressor.service';
 import { ContextOrchestrationService } from './context-orchestration.service';
 import { CompactingEngineService } from './engine/compacting-engine.service';
 import { CONTEXT_ENGINE } from './engine/context-engine.interface';
@@ -11,7 +10,6 @@ import { PromptsModule } from '../../prompts/prompts.module';
 @Module({
   imports: [forwardRef(() => ModelModule), PromptsModule],
   providers: [
-    ContextCompressorService,
     ContextOrchestrationService,
     CompactingEngineService,
     { provide: CONTEXT_ENGINE, useExisting: CompactingEngineService },
@@ -19,7 +17,6 @@ import { PromptsModule } from '../../prompts/prompts.module';
     ModelContextWindowService,
   ],
   exports: [
-    ContextCompressorService,
     ContextOrchestrationService,
     CompactingEngineService,
     CONTEXT_ENGINE,

@@ -24,7 +24,7 @@ import type {
   ModelAttemptData,
   ModelFallbackData,
 } from '../streaming/stream.interfaces';
-import { ContextCompressorService } from '../context/context-compressor.service';
+import { ContextOrchestrationService } from '../context/context-orchestration.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { LoopDetectionService } from '../tools/loop-detection.service';
@@ -51,7 +51,7 @@ export class OrchestratorService {
     private readonly eventEmitter: AgentEventEmitter,
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
-    private readonly contextCompressor: ContextCompressorService,
+    private readonly contextOrchestration: ContextOrchestrationService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly loopDetection: LoopDetectionService,
     private readonly configService: ConfigService,
@@ -231,16 +231,21 @@ export class OrchestratorService {
           messages.push({ role: 'user', content: 'Continue.' });
         }
 
-        const compressed = await this.contextCompressor.compress(
+        const ctxResult = await this.contextOrchestration.prepare({
+          threadID,
+          runID,
+          agentID: goal.agentID,
+          userID,
           messages,
-          resolved.provider,
+          provider: resolved.provider,
+          modelID: resolved.modelID,
           systemPrompt,
-          forceCompress,
-        );
+          force: forceCompress,
+        });
         forceCompress = false;
-        if (compressed !== messages) {
+        if (ctxResult.messages !== messages) {
           messages.length = 0;
-          messages.push(...compressed);
+          messages.push(...ctxResult.messages);
         }
 
         let streamResult: ReturnType<typeof this.agentRuntime.streamAttempt>;

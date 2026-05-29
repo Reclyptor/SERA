@@ -43,8 +43,19 @@ describe('OrchestratorService', () => {
           toolPolicy: { mode: 'allow', tools: [] },
         }),
       },
-      contextCompressor: {
-        compress: vi.fn().mockImplementation((messages) => messages),
+      contextOrchestration: {
+        prepare: vi.fn().mockImplementation(({ messages }) =>
+          Promise.resolve({
+            messages,
+            decision: 'noop',
+            stats: {
+              beforeTokens: 0,
+              afterTokens: 0,
+              pruned: { duplicates: 0, images: 0, toolArgs: 0, toolResults: 0 },
+            },
+            summaryUpdated: false,
+          }),
+        ),
       },
       promptBuilder: { build: vi.fn().mockResolvedValue('system') },
       loopDetection: {
@@ -99,7 +110,7 @@ describe('OrchestratorService', () => {
         deps.eventEmitter as never,
         deps.chatsService as never,
         deps.agentsService as never,
-        deps.contextCompressor as never,
+        deps.contextOrchestration as never,
         deps.promptBuilder as never,
         deps.loopDetection as never,
         deps.configService as never,
