@@ -1,23 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { ModelMessage } from 'ai';
-import { getEncoding, type TiktokenEncoding } from 'js-tiktoken';
 import { ModelRouterService } from '../model/model-router.service';
 import { PromptsService } from '../../prompts/prompts.service';
-
-const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
-  anthropic: 200_000,
-  openai: 128_000,
-  google: 1_000_000,
-  vllm: 131_072,
-};
-
-const ENCODING_FOR_PROVIDER: Record<string, TiktokenEncoding> = {
-  anthropic: 'cl100k_base',
-  openai: 'o200k_base',
-  google: 'o200k_base',
-  vllm: 'cl100k_base',
-};
+import { TokenCounterService } from './tokens/token-counter.service';
+import { ModelContextWindowService } from './tokens/model-context-window.service';
 
 const COMPRESSION_THRESHOLD = 0.75;
 const PROTECTED_TAIL_TOKENS = 30_000;
@@ -49,53 +35,28 @@ Rules:
 @Injectable()
 export class ContextCompressorService {
   private readonly logger = new Logger(ContextCompressorService.name);
-  private readonly contextWindows: Record<string, number>;
-  private readonly encoders = new Map<string, ReturnType<typeof getEncoding>>();
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly modelRouter: ModelRouterService,
     private readonly promptsService: PromptsService,
-  ) {
-    this.contextWindows = { ...DEFAULT_CONTEXT_WINDOWS };
-
-    for (const [key, envVar] of Object.entries({
-      anthropic: 'ANTHROPIC_CONTEXT_WINDOW',
-      openai: 'OPENAI_CONTEXT_WINDOW',
-      google: 'GOOGLE_CONTEXT_WINDOW',
-      vllm: 'VLLM_CONTEXT_WINDOW',
-    })) {
-      const val = this.configService.get<string>(envVar);
-      if (val) {
-        const parsed = parseInt(val, 10);
-        if (!isNaN(parsed)) this.contextWindows[key] = parsed;
-      }
-    }
-  }
-
-  private getEncoder(provider: string) {
-    const cached = this.encoders.get(provider);
-    if (cached) return cached;
-
-    const encoding = ENCODING_FOR_PROVIDER[provider] ?? 'o200k_base';
-    const enc = getEncoding(encoding);
-    this.encoders.set(provider, enc);
-    return enc;
-  }
+    private readonly tokenCounter: TokenCounterService,
+    private readonly modelContextWindow: ModelContextWindowService,
+  ) {}
 
   async compress(
     messages: ModelMessage[],
     provider: string,
     systemPrompt?: string,
     force = false,
+    modelID?: string,
   ): Promise<ModelMessage[]> {
-    const contextWindow = this.contextWindows[provider] ?? 200_000;
+    const contextWindow = this.modelContextWindow.get(provider, modelID);
     const threshold = Math.floor(contextWindow * COMPRESSION_THRESHOLD);
 
     const systemTokens = systemPrompt
-      ? this.countTokens(systemPrompt, provider)
+      ? this.tokenCounter.count(systemPrompt, provider)
       : 0;
-    const messageTokens = this.countMessagesTokens(messages, provider);
+    const messageTokens = this.tokenCounter.countMessages(messages, provider);
     const totalTokens = systemTokens + messageTokens;
 
     if (!force && totalTokens <= threshold) {
@@ -109,7 +70,7 @@ export class ContextCompressorService {
     // Tier 1: Prune large tool outputs
     const pruned = this.pruneToolOutputs(messages);
     const prunedTokens =
-      systemTokens + this.countMessagesTokens(pruned, provider);
+      systemTokens + this.tokenCounter.countMessages(pruned, provider);
 
     if (prunedTokens <= threshold) {
       this.logger.debug(
@@ -125,7 +86,7 @@ export class ContextCompressorService {
       provider,
     );
     this.logger.debug(
-      `LLM compression: ${prunedTokens} → ${systemTokens + this.countMessagesTokens(compressed, provider)} tokens`,
+      `LLM compression: ${prunedTokens} → ${systemTokens + this.tokenCounter.countMessages(compressed, provider)} tokens`,
     );
     return compressed;
   }
@@ -184,7 +145,7 @@ export class ContextCompressorService {
     );
 
     for (let i = messages.length - 1; i >= PROTECTED_HEAD_COUNT; i--) {
-      const msgTokens = this.countMessageTokens(messages[i], provider);
+      const msgTokens = this.tokenCounter.countMessage(messages[i], provider);
       if (tailTokens + msgTokens > tailBudget) break;
       tailTokens += msgTokens;
       tailStart = i;
@@ -258,27 +219,5 @@ export class ContextCompressorService {
         return `[${role}]: ${content}`;
       })
       .join('\n\n');
-  }
-
-  private countTokens(text: string, provider: string): number {
-    return this.getEncoder(provider).encode(text).length;
-  }
-
-  private countMessageTokens(msg: ModelMessage, provider: string): number {
-    const content =
-      typeof msg.content === 'string'
-        ? msg.content
-        : JSON.stringify(msg.content);
-    return this.countTokens(content, provider) + 4;
-  }
-
-  private countMessagesTokens(
-    messages: ModelMessage[],
-    provider: string,
-  ): number {
-    return messages.reduce(
-      (sum, msg) => sum + this.countMessageTokens(msg, provider),
-      0,
-    );
   }
 }
