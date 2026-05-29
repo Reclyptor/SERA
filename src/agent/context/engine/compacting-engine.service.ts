@@ -13,6 +13,7 @@ import {
   SummarizerService,
   type SummarizerResult,
 } from './summarizer.service';
+import { SummaryStoreService } from '../persistence/summary-store.service';
 import type {
   ContextAuxModelFailure,
   ContextDecision,
@@ -43,6 +44,7 @@ export class CompactingEngineService implements IContextEngine {
     private readonly policy: CompressionPolicyService,
     private readonly events: ContextEventEmitterService,
     private readonly summarizer: SummarizerService,
+    private readonly summaryStore: SummaryStoreService,
   ) {}
 
   async prepare(input: ContextPrepareInput): Promise<ContextPrepareResult> {
@@ -123,6 +125,8 @@ export class CompactingEngineService implements IContextEngine {
       `Context at ${beforeTokens} → ${afterTier0Tokens} after Tier 0 (threshold ${threshold}); proceeding to summarization...`,
     );
 
+    const persistedSummary = await this.summaryStore.load(threadID);
+
     let summarizedOutcome: SummarizationOutcome;
     try {
       summarizedOutcome = await this.runSummarization({
@@ -132,6 +136,7 @@ export class CompactingEngineService implements IContextEngine {
         modelID,
         summaryModel,
         stats: tier0.stats,
+        persistedSummary: persistedSummary?.text,
       });
     } catch (err) {
       this.policy.noteFailure(threadID);
@@ -194,6 +199,22 @@ export class CompactingEngineService implements IContextEngine {
       model: summarizedOutcome.summary.modelUsed,
       iterative: summarizedOutcome.summary.iterative,
     };
+
+    try {
+      await this.summaryStore.save({
+        threadID,
+        summaryText: summarizedOutcome.summary.body,
+        decision: 'summarized',
+        model: summarizedOutcome.summary.modelUsed,
+        costCents: 0,
+        savingsRatio,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist context summary for thread ${threadID}:`,
+        err,
+      );
+    }
 
     void this.events.emitCompressionCompleted(runID, threadID, {
       decision: 'summarized',
@@ -336,6 +357,7 @@ export class CompactingEngineService implements IContextEngine {
     modelID: string;
     summaryModel?: string;
     stats: ContextPruneStats;
+    persistedSummary?: string;
   }): Promise<SummarizationOutcome> {
     if (opts.messages.length <= PROTECTED_HEAD_COUNT + 1) {
       return { kind: 'no_op' };
@@ -370,8 +392,14 @@ export class CompactingEngineService implements IContextEngine {
       return { kind: 'no_op' };
     }
 
-    const existingSummary = this.extractExistingSummary(middle);
-    const middleSlice = existingSummary ? middle.slice(2) : middle;
+    const inMessageSummary = this.extractExistingSummary(middle);
+    // The persisted store (ContextState) is the authoritative source for the
+    // previous summary across runs. The in-message summary is the same value
+    // re-emitted by an earlier iteration of the same run and is functionally
+    // equivalent — prefer the persisted one when both exist.
+    const previousSummary =
+      opts.persistedSummary ?? inMessageSummary ?? undefined;
+    const middleSlice = inMessageSummary ? middle.slice(2) : middle;
     const middleText = this.messagesToText(middleSlice);
     const middleTokens = this.tokenCounter.count(middleText, opts.provider);
 
@@ -381,7 +409,7 @@ export class CompactingEngineService implements IContextEngine {
       provider: opts.provider,
       modelID: opts.modelID,
       summaryModelOverride: opts.summaryModel,
-      previousSummary: existingSummary ?? undefined,
+      previousSummary,
     });
 
     const messages = [

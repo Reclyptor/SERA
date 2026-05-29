@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { ContextOrchestrationService } from './context-orchestration.service';
 import { CompactingEngineService } from './engine/compacting-engine.service';
 import { SummarizerService } from './engine/summarizer.service';
@@ -12,6 +13,11 @@ import { ToolResultRendererService } from './pruning/tool-result-renderer.servic
 import { CompressionPolicyService } from './policy/compression-policy.service';
 import { ContextEventEmitterService } from './events/context-event-emitter.service';
 import { SecretRedactorService } from './redaction/secret-redactor.service';
+import { SummaryStoreService } from './persistence/summary-store.service';
+import {
+  ContextState,
+  ContextStateSchema,
+} from './persistence/context-state.schema';
 import { ModelModule } from '../model/model.module';
 import { PromptsModule } from '../../prompts/prompts.module';
 import { ToolsModule } from '../tools/tools.module';
@@ -23,6 +29,9 @@ import { StreamingModule } from '../streaming/streaming.module';
     PromptsModule,
     forwardRef(() => ToolsModule),
     StreamingModule,
+    MongooseModule.forFeature([
+      { name: ContextState.name, schema: ContextStateSchema },
+    ]),
   ],
   providers: [
     ContextOrchestrationService,
@@ -38,6 +47,7 @@ import { StreamingModule } from '../streaming/streaming.module';
     CompressionPolicyService,
     ContextEventEmitterService,
     SecretRedactorService,
+    SummaryStoreService,
   ],
   exports: [
     ContextOrchestrationService,
@@ -53,6 +63,7 @@ import { StreamingModule } from '../streaming/streaming.module';
     CompressionPolicyService,
     ContextEventEmitterService,
     SecretRedactorService,
+    SummaryStoreService,
   ],
 })
 export class ContextModule {}
