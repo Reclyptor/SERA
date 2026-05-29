@@ -25,6 +25,7 @@ import type {
   ModelFallbackData,
 } from '../streaming/stream.interfaces';
 import { ContextOrchestrationService } from '../context/context-orchestration.service';
+import { ContextReferencePreprocessorService } from '../context/preprocessing/context-reference-preprocessor.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { AbortedError } from './aborted.error';
 import { LoopDetectionService } from '../tools/loop-detection.service';
@@ -52,6 +53,7 @@ export class OrchestratorService {
     private readonly chatsService: ChatsService,
     private readonly agentsService: AgentsService,
     private readonly contextOrchestration: ContextOrchestrationService,
+    private readonly contextRefPreprocessor: ContextReferencePreprocessorService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly loopDetection: LoopDetectionService,
     private readonly configService: ConfigService,
@@ -131,13 +133,29 @@ export class OrchestratorService {
         userID: goal.userID,
       });
 
+      // Expand inline @file:/@diff/@staged/@url: references in the user's
+      // message before any downstream consumer (memory query, prompt builder,
+      // history seed) reads it. Feature-gated by CONTEXT_REFERENCES_ENABLED.
+      const refResult = await this.contextRefPreprocessor.preprocess(
+        goal.userMessage,
+        {
+          runID,
+          threadID,
+          provider: resolved.provider,
+          modelID: resolved.modelID,
+          workspaceDir:
+            this.configService.get<string>('WORKSPACE_DIR') ?? process.cwd(),
+        },
+      );
+      const effectiveUserMessage = refResult.message;
+
       // Capture memory context once per session — mid-session memory writes
       // update the store but don't mutate the prompt, preserving prefix cache.
       let frozenMemoryContext = '';
       try {
         frozenMemoryContext = await this.memoryService.getContextForQuery(
           userID,
-          goal.userMessage,
+          effectiveUserMessage,
         );
       } catch {
         // Memory unavailable — proceed without it
@@ -145,7 +163,7 @@ export class OrchestratorService {
 
       const systemPrompt = await this.promptBuilder.build(
         userID,
-        goal.userMessage,
+        effectiveUserMessage,
         agentConfig,
         frozenMemoryContext,
         goal.userName,
@@ -195,7 +213,7 @@ export class OrchestratorService {
       const messages: ModelMessage[] =
         history.length > 0
           ? history
-          : [{ role: 'user', content: goal.userMessage }];
+          : [{ role: 'user', content: effectiveUserMessage }];
 
       let iterationCount = 0;
       let totalToolCalls = 0;

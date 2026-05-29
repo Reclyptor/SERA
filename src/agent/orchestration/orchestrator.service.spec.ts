@@ -57,6 +57,15 @@ describe('OrchestratorService', () => {
           }),
         ),
       },
+      contextRefPreprocessor: {
+        preprocess: vi.fn().mockImplementation((message: string) =>
+          Promise.resolve({
+            message,
+            expansions: 0,
+            budgetExceeded: false,
+          }),
+        ),
+      },
       promptBuilder: { build: vi.fn().mockResolvedValue('system') },
       loopDetection: {
         detect: vi.fn().mockReturnValue(undefined),
@@ -111,6 +120,7 @@ describe('OrchestratorService', () => {
         deps.chatsService as never,
         deps.agentsService as never,
         deps.contextOrchestration as never,
+        deps.contextRefPreprocessor as never,
         deps.promptBuilder as never,
         deps.loopDetection as never,
         deps.configService as never,
