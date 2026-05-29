@@ -184,15 +184,21 @@ Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set 
 
 ### Redis Key Namespace
 
-| Pattern                    | Type    | TTL                         | Purpose                    |
-| -------------------------- | ------- | --------------------------- | -------------------------- |
-| `prompt:{slug}`            | String  | 300s                        | Cached prompt content      |
-| `skill:{name}`             | String  | 300s                        | Cached skill document      |
-| `skill:{name}:file:{path}` | String  | 300s                        | Cached skill file          |
-| `github:sync:{repo}`       | String  | None                        | Last synced commit SHA     |
-| `run:{runID}:stream`       | Stream  | 1800s (300s after complete) | SSE event stream           |
-| `chat:{chatID}:activeRun`  | String  | 1800s                       | Active run tracking (JSON) |
-| `cancel:{runID}`           | Pub/Sub | N/A                         | Run cancellation channel   |
+| Pattern                    | Type    | TTL                         | Purpose                                  |
+| -------------------------- | ------- | --------------------------- | ---------------------------------------- |
+| `prompt:{slug}`            | String  | 300s                        | Cached prompt content                    |
+| `skill:{name}`             | String  | 300s                        | Cached skill document                    |
+| `skill:{name}:file:{path}` | String  | 300s                        | Cached skill file                        |
+| `agent:catalog`            | String  | 300s                        | Cached `AgentsService.findAll()`         |
+| `agent:catalog:enabled`    | String  | 300s                        | Cached `AgentsService.findEnabled()`     |
+| `agent:{agentID}`          | String  | 300s                        | Cached single `AgentConfig`              |
+| `model:catalog`            | String  | 300s                        | Cached `ModelCatalogService.findAll()`   |
+| `model:catalog:enabled`    | String  | 300s                        | Cached `ModelCatalogService.findEnabled` |
+| `model:{spec}`             | String  | 300s                        | Cached single `ModelCatalogEntry`        |
+| `github:sync:{repo}`       | String  | None                        | Last synced commit SHA                   |
+| `run:{runID}:stream`       | Stream  | 1800s (300s after complete) | SSE event stream                         |
+| `chat:{chatID}:activeRun`  | String  | 1800s                       | Active run tracking (JSON)               |
+| `cancel:{runID}`           | Pub/Sub | N/A                         | Run cancellation channel                 |
 
 ---
 
