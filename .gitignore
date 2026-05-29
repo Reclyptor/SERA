@@ -33,6 +33,9 @@ lerna-debug.log*
 .vscode
 .zed
 
+# Claude Code harness state
+.claude/
+
 # dotenv environment variable files
 .env
 .env.development.local
