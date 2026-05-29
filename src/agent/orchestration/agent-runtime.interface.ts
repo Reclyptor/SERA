@@ -30,5 +30,5 @@ export interface AgentRuntimeStreamInput {
 export interface AgentRuntime {
   streamAttempt(
     input: AgentRuntimeStreamInput,
-  ): StreamTextResult<ToolSet, never>;
+  ): Promise<StreamTextResult<ToolSet, never>>;
 }

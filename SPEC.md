@@ -174,7 +174,7 @@ AppModule
 | `SCHEDULED_EXECUTION_MAX_ATTEMPTS` | `3`                                           | Max claim attempts for expired scheduled executions                           |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 | `SUMMARY_MODEL`                    | _(none)_                                      | Global default model for context compaction (`provider/model`); falls back to primary router |
-| `MODEL_CONTEXT_WINDOWS`            | _(none)_                                      | JSON map of per-model context window overrides (e.g. `{"Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8":65536}`)             |
+| `MODEL_CONTEXT_WINDOWS`            | _(none)_                                      | JSON map of per-model context window overrides (e.g. `{"Qwen3.6-27B-FP8":131072}`)             |
 | `CONTEXT_REFERENCES_ENABLED`       | `false`                                       | Enable `@file:`/`@diff`/`@staged`/`@url:` reference preprocessing on user messages            |
 | `CONTEXT_SUMMARY_MAX_AGE_DAYS`     | `7`                                           | Days of inactivity before a persisted compaction summary is regenerated from scratch          |
 | `CONTEXT_SUMMARY_MAX_GENERATIONS`  | `10`                                          | Hard cap on iterative summary merges before regeneration from scratch                         |
@@ -1102,18 +1102,22 @@ The `ModelRouterService` manages multiple LLM providers with automatic failover,
 
 `ModelRouterService.isValidModel(spec)` delegates to `ModelCatalogService.isValidActiveModel(spec)`. Used by `POST /agent/chat` and `PATCH /chats/:id` to reject unknown or disabled specs with 400 before any run starts.
 
-The `models` collection is seeded on first boot by `ModelCatalogBootstrapService` from a built-in default list that mirrors the providers wired into `ModelRouter` below. The bootstrap is one-shot — it only seeds when the collection is empty, so operator edits persist across deploys. Pricing fields on each catalog entry are the source the cost calculator in §22 reads.
+The `models` collection is seeded on first boot by `ModelCatalogBootstrapService` from a built-in default list. The bootstrap is one-shot — it only seeds when the collection is empty, so operator edits persist across deploys. Pricing fields on each catalog entry are the source the cost calculator in §22 reads.
 
 ### Providers
 
-| Provider  | Priority | Default Model       | Allowed Models                                             | Thinking                                                   |
-| --------- | -------- | ------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
-| Anthropic | 1        | `claude-sonnet-4-6` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` | Adaptive (opus-4/sonnet-4-6/sonnet-4-5), Budgeted (others) |
-| OpenAI    | 2        | `gpt-4o`            | `gpt-4o-mini`, `gpt-4o`, `o3`                              | No                                                         |
-| Google    | 3        | `gemini-2.0-flash`  | `gemini-2.0-flash`                                         | No                                                         |
-| vLLM      | 4        | `Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8` | `Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8` | No |
+A `ProviderEntry` in `ModelRouterService` stores only the provider id, priority, and a factory closure that constructs the AI SDK `LanguageModel` for a given model id. The list of admissible models is **not** stored on the provider entry — there is no `allowedModels` Set and no `defaultModel` string in code. The catalog is the only allowlist:
 
-All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel` use `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`). The router parses this to find the correct provider entry.
+| Provider  | Priority | Thinking                                                   |
+| --------- | -------- | ---------------------------------------------------------- |
+| Anthropic | 1        | Adaptive (opus-4/sonnet-4-6/sonnet-4-5), Budgeted (others) |
+| OpenAI    | 2        | No                                                         |
+| Google    | 3        | No                                                         |
+| vLLM      | 4        | No                                                         |
+
+When a caller specifies `preferredProvider` without `preferredModel`, the router calls `ModelCatalogService.findEnabled()` and picks the first catalog row matching that provider. Same for the "try every provider" last-resort pass in resolution. Adding/removing a model is a catalog operation (`POST/DELETE /api/v1/models`); it does not require a code change or redeploy.
+
+All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel` use `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`). The router parses this to find the correct provider entry; the modelID portion is passed straight to the provider SDK without a parallel hardcoded check.
 
 ### Model Resolution Order
 
@@ -1373,7 +1377,7 @@ The orchestrator calls `prepare()` once per iteration of the outer loop before e
 
 `ModelContextWindow.get(modelID, provider)` resolves the context window in this order:
 
-1. Per-model override from `MODEL_CONTEXT_WINDOWS` (JSON map env var, e.g. `{"Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8": 65536}`).
+1. Per-model override from `MODEL_CONTEXT_WINDOWS` (JSON map env var, e.g. `{"Qwen3.6-27B-FP8": 131072}`).
 2. Provider default env var (`ANTHROPIC_CONTEXT_WINDOW`, etc.).
 3. Built-in defaults (Anthropic 200K, OpenAI 128K, Google 1M, vLLM 131K).
 

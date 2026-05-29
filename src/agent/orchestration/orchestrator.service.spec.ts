@@ -16,7 +16,7 @@ describe('OrchestratorService', () => {
     };
     const deps = {
       modelRouter: {
-        resolveModel: vi.fn().mockReturnValue({
+        resolveModel: vi.fn().mockResolvedValue({
           provider: 'openai',
           modelID: 'gpt-4o',
           model: {},
@@ -76,7 +76,7 @@ describe('OrchestratorService', () => {
         resolve: vi.fn().mockImplementation((messages) => messages),
       },
       agentRuntime: {
-        streamAttempt: vi.fn().mockReturnValue({
+        streamAttempt: vi.fn().mockResolvedValue({
           fullStream: emptyAsyncIterable,
           steps: Promise.resolve([{ toolCalls: [{}] }]),
           response: Promise.resolve({}),

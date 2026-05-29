@@ -22,12 +22,16 @@ import { classifyError } from './error-classifier';
 import { withRetry } from './retry-utils';
 import { ModelCatalogService } from '../../models/model-catalog.service';
 
+// A provider entry is purely "how to call this provider's SDK" — API key
+// plumbing and credential rotation. The list of admissible models for a
+// provider is NOT stored here; it lives in the Mongo `models` catalog and
+// is consulted via `ModelCatalogService`. Keeping a hardcoded mirror in this
+// service was the duplication that caused the rollback bug (router validated
+// against a stale Set while the catalog said something else).
 interface ProviderEntry {
   id: string;
   priority: number;
   factory: (modelID: string) => LanguageModel;
-  defaultModel: string;
-  allowedModels: Set<string>;
 }
 
 @Injectable()
@@ -80,12 +84,6 @@ export class ModelRouterService {
           const key = this.credentialPool.getKey('anthropic') ?? anthropicKey;
           return createAnthropic({ apiKey: key })(modelID);
         },
-        defaultModel: 'claude-sonnet-4-6',
-        allowedModels: new Set([
-          'claude-haiku-4-5',
-          'claude-sonnet-4-6',
-          'claude-opus-4-7',
-        ]),
       });
     }
 
@@ -98,8 +96,6 @@ export class ModelRouterService {
           const key = this.credentialPool.getKey('openai') ?? openaiKey;
           return createOpenAI({ apiKey: key })(modelID);
         },
-        defaultModel: 'gpt-4o',
-        allowedModels: new Set(['gpt-4o-mini', 'gpt-4o', 'o3']),
       });
     }
 
@@ -112,8 +108,6 @@ export class ModelRouterService {
           const key = this.credentialPool.getKey('google') ?? googleKey;
           return createGoogleGenerativeAI({ apiKey: key })(modelID);
         },
-        defaultModel: 'gemini-2.0-flash',
-        allowedModels: new Set(['gemini-2.0-flash']),
       });
     }
 
@@ -128,8 +122,6 @@ export class ModelRouterService {
         id: 'vllm',
         priority: 4,
         factory: (modelID) => vllm.chatModel(modelID),
-        defaultModel: 'Qwen3.6-27B-FP8',
-        allowedModels: new Set(['Qwen3.6-27B-FP8']),
       });
     }
 
@@ -138,10 +130,8 @@ export class ModelRouterService {
 
   /**
    * Check whether `spec` (`provider/modelID`) names an enabled entry in the
-   * model catalog. This is the allowlist used by upfront request validation.
-   * Runtime resolution (resolveModel / generate / stream) keeps its own
-   * provider/key plumbing — the catalog is the source of truth for *which*
-   * models are admissible, not *how* to call them.
+   * model catalog. This is the only allowlist — there is no parallel
+   * hardcoded set in this service.
    */
   async isValidModel(spec: string): Promise<boolean> {
     return this.catalog.isValidActiveModel(spec);
@@ -163,15 +153,7 @@ export class ModelRouterService {
     };
   }
 
-  /**
-   * Resolve a model specification to an AI SDK LanguageModel.
-   */
   private buildResolved(entry: ProviderEntry, modelID: string): ResolvedModel {
-    if (!entry.allowedModels.has(modelID)) {
-      throw new Error(
-        `Model "${modelID}" is not allowed for provider "${entry.id}"`,
-      );
-    }
     return {
       model: entry.factory(modelID),
       provider: entry.id,
@@ -179,30 +161,60 @@ export class ModelRouterService {
     };
   }
 
-  resolveModel(options?: ModelRequestOptions): ResolvedModel {
-    const first = this.resolveModelCandidates(options)[0];
+  /**
+   * Find the first enabled catalog entry for a provider. Used when a caller
+   * specifies a provider with no model (e.g. an agent config sets
+   * `preferredProvider: 'anthropic'`). The order is whatever the catalog
+   * returns; pinning a specific per-provider default belongs on the catalog
+   * row (future field), not in this service.
+   */
+  private async firstEnabledForProvider(
+    provider: string,
+  ): Promise<string | null> {
+    const enabled = await this.catalog.findEnabled();
+    const match = enabled.find((m) => m.provider === provider);
+    return match ? match.modelID : null;
+  }
+
+  async resolveModel(options?: ModelRequestOptions): Promise<ResolvedModel> {
+    const candidates = await this.resolveModelCandidates(options);
+    const first = candidates[0];
     if (!first) {
       throw new Error('No model providers available');
     }
     return first;
   }
 
-  private resolveModelCandidates(
+  private async resolveModelCandidates(
     options?: ModelRequestOptions,
-  ): ResolvedModel[] {
+  ): Promise<ResolvedModel[]> {
     const excludeSet = new Set(options?.excludeProviders ?? []);
     const candidates: ResolvedModel[] = [];
     const seen = new Set<string>();
 
-    const addCandidate = (
+    const addCandidate = async (
       provider: string,
       modelID?: string,
       strict = false,
-    ): void => {
+    ): Promise<void> => {
       if (excludeSet.has(provider)) return;
       const entry = this.providers.find((p) => p.id === provider);
       if (!entry) return;
-      const selectedModel = modelID ?? entry.defaultModel;
+
+      let selectedModel = modelID;
+      if (!selectedModel) {
+        const found = await this.firstEnabledForProvider(provider);
+        if (!found) {
+          if (strict) {
+            throw new Error(
+              `No enabled model in catalog for provider "${provider}"`,
+            );
+          }
+          return;
+        }
+        selectedModel = found;
+      }
+
       const key = `${provider}/${selectedModel}`;
       if (seen.has(key)) return;
       try {
@@ -218,24 +230,24 @@ export class ModelRouterService {
 
     if (options?.preferredModel) {
       const { provider, model } = this.parseModelSpec(options.preferredModel);
-      addCandidate(provider, model, true);
+      await addCandidate(provider, model, true);
     }
 
     if (options?.preferredProvider) {
-      addCandidate(options.preferredProvider);
+      await addCandidate(options.preferredProvider);
     }
 
     const { provider: primaryProvider, model: primaryModelID } =
       this.parseModelSpec(this.primaryModel);
-    addCandidate(primaryProvider, primaryModelID, true);
+    await addCandidate(primaryProvider, primaryModelID, true);
 
     for (const fallback of this.fallbackModels) {
       const { provider, model } = this.parseModelSpec(fallback);
-      addCandidate(provider, model);
+      await addCandidate(provider, model);
     }
 
     for (const provider of this.providers) {
-      addCandidate(provider.id);
+      await addCandidate(provider.id);
     }
 
     return candidates;
@@ -279,7 +291,7 @@ export class ModelRouterService {
     ];
 
     for (let attempt = 0; attempt < this.providers.length; attempt++) {
-      const resolved = this.resolveModel({
+      const resolved = await this.resolveModel({
         ...params.options,
         excludeProviders,
       });
@@ -361,7 +373,7 @@ export class ModelRouterService {
   /**
    * Stream text with automatic provider fallback on rate limits.
    */
-  stream(params: {
+  async stream(params: {
     messages: ModelMessage[];
     tools?: ToolSet;
     system?: string;
@@ -387,8 +399,8 @@ export class ModelRouterService {
     onChunk?: Parameters<typeof streamText>[0]['onChunk'];
     onStepFinish?: Parameters<typeof streamText>[0]['onStepFinish'];
     onFinish?: Parameters<typeof streamText>[0]['onFinish'];
-  }): StreamTextResult<ToolSet, never> {
-    const candidates = this.resolveModelCandidates(params.options);
+  }): Promise<StreamTextResult<ToolSet, never>> {
+    const candidates = await this.resolveModelCandidates(params.options);
     if (!candidates.length) {
       throw new Error('No model providers available');
     }

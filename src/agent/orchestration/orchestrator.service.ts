@@ -118,7 +118,9 @@ export class OrchestratorService {
         ...agentConfig.modelOptions,
         ...goal.modelOptions,
       };
-      const resolved = this.modelRouter.resolveModel(effectiveModelOptions);
+      const resolved = await this.modelRouter.resolveModel(
+        effectiveModelOptions,
+      );
       let activeModel = resolved;
       await this.emitEvent(runID, threadID, 'run.started', {
         provider: resolved.provider,
@@ -267,7 +269,9 @@ export class OrchestratorService {
           messages.push(...ctxResult.messages);
         }
 
-        let streamResult: ReturnType<typeof this.agentRuntime.streamAttempt>;
+        let streamResult: Awaited<
+          ReturnType<typeof this.agentRuntime.streamAttempt>
+        >;
         try {
           const llmCallStart = Date.now();
           await this.runPluginHooks('onPreLLMCall', {
@@ -282,7 +286,7 @@ export class OrchestratorService {
             messages,
             userID,
           );
-          streamResult = this.agentRuntime.streamAttempt({
+          streamResult = await this.agentRuntime.streamAttempt({
             messages: messagesForModel,
             tools,
             system: systemPrompt,

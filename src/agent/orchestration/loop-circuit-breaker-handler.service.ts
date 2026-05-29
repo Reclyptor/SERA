@@ -60,7 +60,7 @@ export class LoopCircuitBreakerHandler {
       messages,
       userID,
     );
-    const finalStream = this.agentRuntime.streamAttempt({
+    const finalStream = await this.agentRuntime.streamAttempt({
       messages: finalMessagesForModel,
       system: systemPrompt,
       options,

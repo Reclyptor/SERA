@@ -10,9 +10,9 @@ import type {
 export class AiSdkAgentRuntimeService implements AgentRuntime {
   constructor(private readonly modelRouter: ModelRouterService) {}
 
-  streamAttempt(
+  async streamAttempt(
     input: AgentRuntimeStreamInput,
-  ): StreamTextResult<ToolSet, never> {
+  ): Promise<StreamTextResult<ToolSet, never>> {
     return this.modelRouter.stream({
       messages: input.messages,
       tools: input.tools,
