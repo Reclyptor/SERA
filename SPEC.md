@@ -1667,7 +1667,7 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 
 #### Agent Catalog Management
 
-The `agent_management` tool exposes `AgentsService` CRUD to the agent. It is gated by `toolPolicy` only (the operator opts in by adding `agent_management` to a specific agent's allow-list — the default agent does not have it). Hard-blocks:
+The `agent_management` tool exposes `AgentsService` CRUD to the agent. It is gated by `toolPolicy` only. Because the seeded default agent uses `{ mode: 'deny', tools: [] }` — which §4.3 defines as "no filtering, agent gets the full tool set" — the default agent has `agent_management` implicitly and functions as the architect persona out of the box. Operators can lock it down by switching the default to `{ mode: 'allow', tools: [...] }` (explicit allow-list) or by adding `agent_management` to the deny list. Hard-blocks (still enforced regardless of policy):
 
 - **Self-mutation:** any operation where `args.agentID === context.agentID` is rejected. Agents cannot escalate their own privileges or pull the rug on themselves mid-run.
 - **Default agent protection:** `delete` and `disable` are rejected when `agentID === 'default'`. The default agent is the router's last-resort fallback (§11); losing it locks operators out.
@@ -1716,8 +1716,10 @@ SERA supports multiple named agents, each with its own configuration, tool polic
 
 On first boot, `AgentsBootstrapService` seeds:
 
-- Agent: `agentID: 'default'`, `name: 'SERA'`, `description: 'Default agent — handles all unrouted requests'`
+- Agent: `agentID: 'default'`, `name: 'SERA'`, `description: 'Default agent — handles all unrouted requests'`, `toolPolicy: { mode: 'deny', tools: [] }`
 - Binding: `bindingType: 'default'`
+
+The empty `toolPolicy.tools` array is intentional: per §4.3, an empty list means **no filtering** regardless of `mode`, so the default agent receives every registered tool — including `agent_management` (§10). This makes the default agent the de-facto **architect persona** out of the box: it can create, update, and disable other agents at the user's request without further configuration. The `agent_management` hard-blocks (self-mutation rejected; `default` cannot be deleted or disabled) still apply, so the default cannot brick itself. Operators who want a more restrictive default can switch it to `{ mode: 'allow', tools: [...] }` with an explicit list or add `agent_management` to a deny list.
 
 ### Agent Routing
 
