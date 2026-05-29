@@ -1,7 +1,7 @@
 # SERA Application Specification
 
-> **Version:** 1.0
-> **Last Updated:** 2026-05-27
+> **Version:** 1.1
+> **Last Updated:** 2026-05-28
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
