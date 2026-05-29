@@ -44,3 +44,7 @@ export { AgentsListTool } from './agents-list.tool';
 export { TaskPlanTool } from './task-plan.tool';
 export { SkillsTool } from './skills.tool';
 export { TriggerTool } from './trigger.tool';
+
+// Cluster
+export { ClusterGitTool } from './cluster-git.tool';
+export { KubectlTool } from './kubectl.tool';

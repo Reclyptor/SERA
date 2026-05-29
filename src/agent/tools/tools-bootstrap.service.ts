@@ -23,6 +23,7 @@ import { SkillsService } from '../skills/skills.service';
 import { TriggersService } from '../triggers/triggers.service';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { adaptMcpTool } from '../mcp/mcp-tool-adapter';
+import { GitHubHttpClient } from '../../github/github-http-client.service';
 import {
   ReadTool,
   WriteTool,
@@ -55,6 +56,8 @@ import {
   SkillsTool,
   TriggerTool,
   SessionSearchTool,
+  ClusterGitTool,
+  KubectlTool,
 } from './implementations';
 
 @Injectable()
@@ -76,6 +79,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     private readonly tasksService: TasksService,
     private readonly triggersService: TriggersService,
     private readonly mcpClient: McpClientService,
+    private readonly gitHubHttpClient: GitHubHttpClient,
     // The remaining three create a module-import cycle with ToolsModule
     // (Orchestration → Tools; Skills → Tools direct; Cron → Orchestration
     // → Tools). `forwardRef` defers resolution so NestJS can complete the
@@ -210,8 +214,28 @@ export class ToolsBootstrapService implements OnModuleInit {
     // Webhook triggers
     this.toolsService.registerTool(new TriggerTool(this.triggersService));
 
+    // Cluster GitOps (FluxCD-watched repo)
+    const clusterRepo = this.configService.get<string>('CLUSTER_REPO') ?? null;
+    const clusterBranch =
+      this.configService.get<string>('CLUSTER_BRANCH') ?? 'master';
+    this.toolsService.registerTool(
+      new ClusterGitTool(
+        this.gitHubHttpClient,
+        clusterRepo,
+        clusterBranch,
+        this.approvalService,
+      ),
+    );
+
+    // Kubernetes direct access
+    const kubeconfig = this.configService.get<string>('KUBECONFIG') ?? null;
+    const kubeContext = this.configService.get<string>('KUBE_CONTEXT') ?? null;
+    this.toolsService.registerTool(
+      new KubectlTool(kubeconfig, kubeContext, this.approvalService),
+    );
+
     this.logger.log(
-      `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered 33 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'}, cluster_git: ${clusterRepo ? 'configured' : 'unconfigured'})`,
     );
   }
 

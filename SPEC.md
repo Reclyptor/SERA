@@ -174,11 +174,15 @@ AppModule
 | `SCHEDULED_EXECUTION_MAX_ATTEMPTS` | `3`                                           | Max claim attempts for expired scheduled executions                           |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
 | `SUMMARY_MODEL`                    | _(none)_                                      | Global default model for context compaction (`provider/model`); falls back to primary router |
-| `MODEL_CONTEXT_WINDOWS`            | _(none)_                                      | JSON map of per-model context window overrides (e.g. `{"Qwen3.6-27B-FP8":32768}`)             |
+| `MODEL_CONTEXT_WINDOWS`            | _(none)_                                      | JSON map of per-model context window overrides (e.g. `{"Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8":65536}`)             |
 | `CONTEXT_REFERENCES_ENABLED`       | `false`                                       | Enable `@file:`/`@diff`/`@staged`/`@url:` reference preprocessing on user messages            |
 | `CONTEXT_SUMMARY_MAX_AGE_DAYS`     | `7`                                           | Days of inactivity before a persisted compaction summary is regenerated from scratch          |
 | `CONTEXT_SUMMARY_MAX_GENERATIONS`  | `10`                                          | Hard cap on iterative summary merges before regeneration from scratch                         |
 | `CONTEXT_COOLDOWN_MS`              | `600000`                                      | Cooldown applied to Tier 1 summarization after a failure                                      |
+| `KUBECONFIG`                       | _(none)_                                      | **Raw kubeconfig YAML content** (not a file path) consumed by the `kubectl` tool. Unset disables the tool. |
+| `KUBE_CONTEXT`                     | _(kubeconfig default)_                        | Optional context override for the `kubectl` tool                                              |
+| `CLUSTER_REPO`                     | _(none)_                                      | `owner/repo` of the Flux-watched cluster repo edited by the `cluster_git` tool                |
+| `CLUSTER_BRANCH`                   | `master`                                      | Branch the `cluster_git` tool writes to (Flux reconciles from this branch)                    |
 
 Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
 
@@ -1107,7 +1111,7 @@ The `models` collection is seeded on first boot by `ModelCatalogBootstrapService
 | Anthropic | 1        | `claude-sonnet-4-6` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` | Adaptive (opus-4/sonnet-4-6/sonnet-4-5), Budgeted (others) |
 | OpenAI    | 2        | `gpt-4o`            | `gpt-4o-mini`, `gpt-4o`, `o3`                              | No                                                         |
 | Google    | 3        | `gemini-2.0-flash`  | `gemini-2.0-flash`                                         | No                                                         |
-| vLLM      | 4        | `Qwen3.6-27B-FP8`   | `Qwen3.6-27B-FP8`, `Huihui-Qwen3.6-27B-abliterated`        | No                                                         |
+| vLLM      | 4        | `Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8` | `Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8` | No |
 
 All model references in `PRIMARY_MODEL`, `FALLBACK_MODELS`, and `preferredModel` use `provider/model` format (e.g., `anthropic/claude-sonnet-4-6`). The router parses this to find the correct provider entry.
 
@@ -1369,7 +1373,7 @@ The orchestrator calls `prepare()` once per iteration of the outer loop before e
 
 `ModelContextWindow.get(modelID, provider)` resolves the context window in this order:
 
-1. Per-model override from `MODEL_CONTEXT_WINDOWS` (JSON map env var, e.g. `{"Qwen3.6-27B-FP8": 32768}`).
+1. Per-model override from `MODEL_CONTEXT_WINDOWS` (JSON map env var, e.g. `{"Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-FP8": 65536}`).
 2. Provider default env var (`ANTHROPIC_CONTEXT_WINDOW`, etc.).
 3. Built-in defaults (Anthropic 200K, OpenAI 128K, Google 1M, vLLM 131K).
 
@@ -1563,7 +1567,7 @@ Args are hashed with SHA-256 for comparison. Detection data is cleared on run co
 
 **Circuit breaker behavior:** When the circuit breaker fires, the orchestrator injects a system message forcing a final answer without tools, then does one last model call (without tools in the tool set) to produce a text response before completing the run. Non-circuit-breaker loop detections inject a warning message but allow the loop to continue.
 
-### Registered Tools (31 core + MCP)
+### Registered Tools (33 core + MCP)
 
 #### File Operations
 
@@ -1656,6 +1660,22 @@ All four runtime tools are gated by `ENABLE_SHELL_TOOL=true`. When disabled (def
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------- |
 | `skills`  | `operation` (list/get/create/update/delete/list_files/read_file/add_file/update_file/remove_file), `name?`, `description?`, `content?`, etc. | No       | Manage reusable skills with versioned files. |
 | `trigger` | `operation` (create/list/update/delete), `webhookPath?`, `command?`, `secret?`, `triggerID?`                                                 | No       | Manage webhook triggers.                     |
+
+#### Cluster Git (GitOps)
+
+The `cluster_git` tool is the canonical path for declarative cluster changes. It writes to the GitHub repo identified by `CLUSTER_REPO` on branch `CLUSTER_BRANCH`; FluxCD reconciles those commits into the live cluster. Writes are atomic at the GitHub Contents API (one call = one commit), so no local clone is maintained. `write_file` and `delete_file` gate through `ToolApprovalService` with a fingerprint over `(repo, branch, path, content-sha256, message)` so each commit must be approved individually.
+
+| Tool          | Parameters                                                                                | Parallel | Description                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `cluster_git` | `operation` (list_files/read_file/write_file/delete_file/list_commits), `path?`, `content?`, `message?`, `pathPrefix?`, `limit?` | No       | Read/write the Flux-watched cluster repo. Reads run immediately; writes/deletes require approval. Disabled if `CLUSTER_REPO` or `GITHUB_PAT` is unset. |
+
+#### Kubernetes (Direct Cluster Access)
+
+The `kubectl` tool exposes the cluster directly via the `@kubernetes/client-node` SDK. `KUBECONFIG` must contain the **raw kubeconfig YAML** (not a file path) — this matches SERA's containerized deployment model where the kubeconfig is injected from a Kubernetes Secret rather than mounted as a file. `KUBE_CONTEXT` optionally pins to a specific context within that kubeconfig. Read operations run without approval. All mutating operations gate through `ToolApprovalService` with a fingerprint over `(operation, namespace, kind, name[, command, manifest-sha256])`. In normal operation the agent should prefer `cluster_git` for declarative changes (Flux will revert `kubectl`-applied state on the next reconcile); `kubectl` mutations exist as a break-glass capability for diagnostics, emergencies, or when Flux itself is degraded. `logs` and `exec` cap output at 64KB; `exec` enforces a 30s timeout. `port-forward` is intentionally omitted (synchronous-tool mismatch).
+
+| Tool      | Parameters                                                                                                                                                  | Parallel | Description                                                                                  |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `kubectl` | `operation` (list/get/describe/logs/events/top_pods/top_nodes/apply/delete/delete_pod/scale/rollout_restart/rollout_undo/cordon/uncordon/drain_pod/exec/patch), `kind?`, `name?`, `namespace?`, `allNamespaces?`, `manifest?`, `replicas?`, `tailLines?`, `container?`, `command?`, `patch?`, `patchType?`, `gracePeriodSeconds?` | No       | Direct cluster management via `@kubernetes/client-node`. Reads run immediately; mutations require approval. |
 
 #### MCP Tools
 
