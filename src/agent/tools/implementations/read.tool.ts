@@ -84,4 +84,21 @@ export class ReadTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[read] ${args.path}`;
+    }
+    const r = result as { size?: number; items?: unknown[] };
+    if (Array.isArray(r.items)) {
+      return `[read] ${args.path} (dir, ${r.items.length} entries)`;
+    }
+    if (typeof r.size === 'number') {
+      return `[read] ${args.path} (${r.size} bytes)`;
+    }
+    return `[read] ${args.path}`;
+  }
 }

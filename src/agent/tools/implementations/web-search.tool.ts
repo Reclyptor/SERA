@@ -203,4 +203,17 @@ export class WebSearchTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const q =
+      args.query.length > 60 ? args.query.slice(0, 57) + '...' : args.query;
+    if (result == null || typeof result !== 'object') {
+      return `[web_search] query='${q}'`;
+    }
+    const r = result as { resultCount?: number };
+    return `[web_search] query='${q}' -> ${r.resultCount ?? 0} results`;
+  }
 }

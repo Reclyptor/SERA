@@ -105,4 +105,11 @@ export class WriteTool implements Tool<typeof parameters> {
       };
     }
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    _result: unknown,
+  ): string {
+    return `[write] ${args.operation ?? 'write'} ${args.path}`;
+  }
 }

@@ -256,4 +256,19 @@ export class WebFetchTool implements Tool<typeof parameters> {
       },
     });
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    if (result == null || typeof result !== 'object') {
+      return `[web_fetch] ${args.url}`;
+    }
+    const r = result as { status?: number; body?: unknown };
+    const body =
+      typeof r.body === 'string'
+        ? r.body
+        : (JSON.stringify(r.body ?? '') ?? '');
+    return `[web_fetch] ${args.url} -> ${r.status ?? '?'} (${body.length} chars)`;
+  }
 }

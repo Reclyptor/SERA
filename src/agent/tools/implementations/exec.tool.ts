@@ -170,4 +170,22 @@ export class ExecTool implements Tool<typeof parameters> {
       }, timeoutMs + 1000);
     });
   }
+
+  renderResultSummary(
+    args: z.infer<typeof parameters>,
+    result: unknown,
+  ): string {
+    const cmd =
+      args.command.length > 80
+        ? args.command.slice(0, 77) + '...'
+        : args.command;
+    if (result == null || typeof result !== 'object') {
+      return `[exec] ${cmd}`;
+    }
+    const r = result as { exitCode?: number; stdout?: string };
+    const stdout = typeof r.stdout === 'string' ? r.stdout : '';
+    const lines = stdout ? stdout.split('\n').length : 0;
+    const exitCode = typeof r.exitCode === 'number' ? r.exitCode : '?';
+    return `[exec] ${cmd} -> exit ${exitCode}, ${lines} lines`;
+  }
 }
