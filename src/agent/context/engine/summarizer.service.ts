@@ -5,6 +5,7 @@ import { ModelRouterService } from '../../model/model-router.service';
 import { PromptsService } from '../../../prompts/prompts.service';
 import { TokenCounterService } from '../tokens/token-counter.service';
 import { ModelContextWindowService } from '../tokens/model-context-window.service';
+import { SecretRedactorService } from '../redaction/secret-redactor.service';
 import { classifyError, FailoverReason } from '../../model/error-classifier';
 
 export const HANDOFF_PREFIX =
@@ -99,6 +100,7 @@ export class SummarizerService {
     private readonly tokenCounter: TokenCounterService,
     private readonly modelContextWindow: ModelContextWindowService,
     private readonly configService: ConfigService,
+    private readonly redactor: SecretRedactorService,
   ) {}
 
   async summarize(input: SummarizerInput): Promise<SummarizerResult> {
@@ -108,10 +110,17 @@ export class SummarizerService {
     );
     const summaryBudget = this.computeBudget(input.middleTokens, contextWindow);
 
+    // Redact secrets BEFORE the LLM call. The summarizer might echo back
+    // values verbatim, and the result is persisted across runs (§9.10).
+    const safeMiddle = this.redactor.redact(input.middleText);
+    const safePrevious = input.previousSummary
+      ? this.redactor.redact(input.previousSummary)
+      : undefined;
+
     const summaryPrompt = await this.buildSystemPrompt();
-    const userContent = input.previousSummary
-      ? `You are updating a context compaction summary. A previous compaction produced the summary below. New conversation turns have occurred since then and need to be incorporated. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list. Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" and "## Active Task" to reflect the latest unfulfilled request.\n\nPREVIOUS SUMMARY:\n${input.previousSummary}\n\nNEW TURNS TO INCORPORATE:\n${input.middleText}\n\n${STRUCTURED_SECTIONS}`
-      : `Create a structured checkpoint summary for the conversation after earlier turns are compacted. Preserve enough detail for continuity without re-reading the original turns.\n\nTURNS TO SUMMARIZE:\n${input.middleText}\n\nUse this exact structure:\n\n${STRUCTURED_SECTIONS}`;
+    const userContent = safePrevious
+      ? `You are updating a context compaction summary. A previous compaction produced the summary below. New conversation turns have occurred since then and need to be incorporated. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list. Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" and "## Active Task" to reflect the latest unfulfilled request.\n\nPREVIOUS SUMMARY:\n${safePrevious}\n\nNEW TURNS TO INCORPORATE:\n${safeMiddle}\n\n${STRUCTURED_SECTIONS}`
+      : `Create a structured checkpoint summary for the conversation after earlier turns are compacted. Preserve enough detail for continuity without re-reading the original turns.\n\nTURNS TO SUMMARIZE:\n${safeMiddle}\n\nUse this exact structure:\n\n${STRUCTURED_SECTIONS}`;
 
     const auxOverride =
       input.summaryModelOverride ??
@@ -161,11 +170,14 @@ export class SummarizerService {
       });
     }
 
-    const wrapped = `${HANDOFF_PREFIX}\n\n${body}`;
-    const generatedTokens = this.tokenCounter.count(body, input.provider);
+    // Belt-and-suspenders: redact the model's output too. Summarizer LLMs
+    // sometimes ignore prompt instructions and echo back secrets verbatim.
+    const safeBody = this.redactor.redact(body);
+    const wrapped = `${HANDOFF_PREFIX}\n\n${safeBody}`;
+    const generatedTokens = this.tokenCounter.count(safeBody, input.provider);
 
     return {
-      body,
+      body: safeBody,
       wrappedSummary: wrapped,
       modelUsed,
       generatedTokens,
