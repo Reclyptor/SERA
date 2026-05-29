@@ -16,7 +16,7 @@
 6. [Orchestration Engine](#6-orchestration-engine)
 7. [Model Router](#7-model-router)
 8. [Streaming & Events](#8-streaming--events)
-9. [Context Compression](#9-context-compression)
+9. [Context Management](#9-context-management)
 10. [Tool System](#10-tool-system)
 11. [Agent Configuration](#11-agent-configuration)
 12. [Actions System](#12-actions-system)
@@ -173,6 +173,12 @@ AppModule
 | `SCHEDULED_EXECUTION_LEASE_MS`     | `300000`                                      | Lease duration for durable cron/heartbeat execution claims                    |
 | `SCHEDULED_EXECUTION_MAX_ATTEMPTS` | `3`                                           | Max claim attempts for expired scheduled executions                           |
 | `COMMITMENT_EXTRACTION_ENABLED`    | `true`                                        | Toggle LLM-based commitment extraction after runs                             |
+| `SUMMARY_MODEL`                    | _(none)_                                      | Global default model for context compaction (`provider/model`); falls back to primary router |
+| `MODEL_CONTEXT_WINDOWS`            | _(none)_                                      | JSON map of per-model context window overrides (e.g. `{"Qwen3.6-27B-FP8":32768}`)             |
+| `CONTEXT_REFERENCES_ENABLED`       | `false`                                       | Enable `@file:`/`@diff`/`@staged`/`@url:` reference preprocessing on user messages            |
+| `CONTEXT_SUMMARY_MAX_AGE_DAYS`     | `7`                                           | Days of inactivity before a persisted compaction summary is regenerated from scratch          |
+| `CONTEXT_SUMMARY_MAX_GENERATIONS`  | `10`                                          | Hard cap on iterative summary merges before regeneration from scratch                         |
+| `CONTEXT_COOLDOWN_MS`              | `600000`                                      | Cooldown applied to Tier 1 summarization after a failure                                      |
 
 Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
 
@@ -719,6 +725,30 @@ Unique compound index: `{ kind: 1, targetID: 1, scheduledFor: 1 }`.
 | `createdAt`       | Date                                                 | (auto)   |           |        |
 | `updatedAt`       | Date                                                 | (auto)   |           |        |
 
+### 4.18 ContextState
+
+**Collection:** `context_states`
+
+Per-thread compaction summary and policy state. Owned by the context module (§9). Survives run boundaries so iterative summary updates can resume across runs. One document per thread.
+
+| Field                  | Type   | Required | Default | Index  |
+| ---------------------- | ------ | -------- | ------- | ------ |
+| `threadID`             | String | Yes      |         | Unique |
+| `summaryText`          | String | No       | `''`    |        |
+| `summaryUpdatedAt`     | Date   | No       |         |        |
+| `summaryGenerations`   | Number | No       | `0`     |        |
+| `lastDecision`         | String | No       | `''`    |        |
+| `lastSummaryCostCents` | Number | No       | `0`     |        |
+| `lastSummaryModel`     | String | No       | `''`    |        |
+| `thrashCounter`        | Number | No       | `0`     |        |
+| `lastSavingsRatio`     | Number | No       | `0`     |        |
+| `createdAt`            | Date   | (auto)   |         |        |
+| `updatedAt`            | Date   | (auto)   |         |        |
+
+`thrashCounter` increments when a Tier 1 summarization saves <10% of input tokens; it resets to 0 on an effective compression. `summaryGenerations` increments on every persisted summary write and is the input to the `CONTEXT_SUMMARY_MAX_GENERATIONS` stale-summary guard. `lastDecision` records the most recent `ContextDecision` for operator visibility.
+
+When a thread is deleted, the corresponding `context_states` document is removed in the same call path.
+
 ---
 
 ## 5. API Surface
@@ -1149,6 +1179,10 @@ type AgentEventType =
   | 'subagent.failed' // { toolCallID, subagentRunID, error }
   | 'confirmation.required' // { confirmationID, actionName, args, message }
   | 'confirmation.resolved' // { confirmationID, approved }
+  | 'context.compression.started' // { provider, modelID, beforeTokens }
+  | 'context.compression.completed' // { decision, beforeTokens, afterTokens, pruned, summary?, auxModelFailure? }
+  | 'context.compression.skipped' // { reason: 'thrash' | 'cooldown', detail }
+  | 'context.reference.expanded' // { kind, target, injectedTokens }
   | 'replay.done' // (boundary marker for replay)
   | 'error'; // { error, recoverable }
 ```
@@ -1172,42 +1206,223 @@ When a run starts, a Redis key `chat:{chatID}:activeRun` stores `{ runID, thread
 
 ---
 
-## 9. Context Compression
+## 9. Context Management
 
-The `ContextCompressorService` manages conversation length to stay within provider context windows.
+The context management subsystem shapes the prompt window for every model call: it keeps tokens within budget, expands user references before the run starts, persists compaction summaries across runs, redacts secrets, and surfaces compression state to clients.
 
-### Compression Tiers
+### 9.1 Module Structure
 
-| Tier              | Trigger                     | Behavior                                                                       |
-| ----------------- | --------------------------- | ------------------------------------------------------------------------------ |
-| **0 - None**      | Under 75% of context window | No compression                                                                 |
-| **1 - Prune**     | Over threshold              | Replaces tool outputs >2000 chars with `[Pruned: {size} chars, {lines} lines]` |
-| **2 - Summarize** | Pruning insufficient        | LLM-powered structured summarization of middle turns                           |
+`src/agent/context/`:
 
-### Summarization Strategy
+| Path                                                              | Purpose                                                                       |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `context-orchestration.service.ts`                                | Public entry point. Coordinates preprocessing → engine → persistence → events. |
+| `interfaces.ts`                                                   | `ContextPrepareInput`, `ContextPrepareResult`, `ContextDecision` enum.        |
+| `engine/context-engine.interface.ts`                              | `IContextEngine` boundary. One method: `prepare`.                              |
+| `engine/compacting-engine.service.ts`                             | Default `IContextEngine` — Tier 0 lossless pruning + Tier 1 summarization.     |
+| `engine/summarizer.service.ts`                                    | Owns the LLM summarization call, prompt assembly, iterative merge.            |
+| `tokens/token-counter.service.ts`                                 | Model-aware token counting; image cost included.                              |
+| `tokens/model-context-window.service.ts`                          | Per-model context window resolution; falls back to provider default.          |
+| `pruning/tool-result-deduplicator.service.ts`                     | sha256 newest-wins dedup of identical tool outputs.                           |
+| `pruning/tool-arg-truncator.service.ts`                           | JSON-safe shrinking of large string leaves in `tool-call` args.               |
+| `pruning/image-pruner.service.ts`                                 | Strips image parts older than the most recent image-bearing user message.     |
+| `pruning/tool-result-renderer.service.ts`                         | Maps `(toolName, args, result) → short summary` via per-tool renderers.       |
+| `policy/compression-policy.service.ts`                            | Anti-thrash skip, cooldown after failure, force bypass.                       |
+| `redaction/secret-redactor.service.ts`                            | Pattern-based secret redaction; runs pre-summarize and post-summarize.        |
+| `persistence/context-state.schema.ts`                             | `ContextState` Mongoose schema (collection: `context_states`).                |
+| `persistence/summary-store.service.ts`                            | Load/persist per-thread compaction summary.                                   |
+| `preprocessing/context-reference-preprocessor.service.ts`         | Expands `@file:`, `@diff`, `@staged`, `@url:` references in user messages.   |
+| `preprocessing/reference-resolvers/{file,diff,staged,url}.resolver.ts` | One resolver per reference kind.                                         |
+| `events/context-event-emitter.service.ts`                         | Emits `context.*` SSE events through `RunStreamService`.                      |
 
-- **Head** (protected): First 2 messages are always kept intact
-- **Tail** (protected): Most recent messages up to 30,000 tokens
-- **Middle**: Everything between head and tail is summarized
+### 9.2 Public API
 
-The summarizer sends middle messages to the LLM with a structured prompt (loaded from `summary` slug if available). The summary is injected as a system message prefixed with `[CONTEXT SUMMARY]`, followed by an acknowledgment message.
+```typescript
+interface ContextPrepareInput {
+  threadID: string;
+  runID: string;
+  agentID: string;
+  userID: string;
+  messages: ModelMessage[];
+  provider: string;
+  modelID: string;
+  systemPrompt?: string;
+  force?: boolean;
+}
 
-### Token Counting
+type ContextDecision =
+  | 'noop'             // under threshold, no Tier 1 needed
+  | 'pruned'           // Tier 0 lossless pruning was sufficient
+  | 'summarized'       // Tier 1 summarization was performed
+  | 'skipped_thrash'   // last 2 compressions saved <10% each
+  | 'cooldown_active'  // summarizer is in failure cooldown
+  | 'force_failed';    // forced compression but summarization failed irrecoverably
 
-Uses `js-tiktoken` with provider-specific encoders:
+interface ContextPrepareStats {
+  beforeTokens: number;
+  afterTokens: number;
+  pruned: {
+    duplicates: number;
+    images: number;
+    toolArgs: number;
+    toolResults: number;
+  };
+  summary?: {
+    generatedTokens: number;
+    costCents: number;
+    model: string;
+    iterative: boolean;
+  };
+  auxModelFailure?: { model: string; error: string };
+}
 
-- Anthropic, vLLM: `cl100k_base`
-- OpenAI, Google: `o200k_base`
-- Per-message overhead: 4 tokens
+interface ContextPrepareResult {
+  messages: ModelMessage[];
+  decision: ContextDecision;
+  stats: ContextPrepareStats;
+  summaryUpdated: boolean;
+}
 
-### Context Windows
+ContextOrchestrationService.prepare(
+  input: ContextPrepareInput,
+): Promise<ContextPrepareResult>;
+```
 
-| Provider  | Default Size |
-| --------- | ------------ |
-| Anthropic | 200,000      |
-| OpenAI    | 128,000      |
-| Google    | 1,000,000    |
-| vLLM      | 131,072      |
+The orchestrator calls `prepare()` once per iteration of the outer loop before each model stream call. The result drives a single `context.compression.*` SSE event and an optional persistence write.
+
+### 9.3 Pipeline Stages
+
+1. **Hydrate** — if a prior `ContextState` exists for the thread, the persisted summary is read and used to seed iterative merge.
+2. **Tier 0 — Lossless pruning** (always runs): tool-result deduplication, JSON-safe argument truncation, image pruning.
+3. **Threshold check** — compare token count (model-aware, with image cost) against `model_context_window × 0.75`. If below and not forced, return `noop`.
+4. **Policy check** — `CompressionPolicy.shouldRun()` returns `false` if anti-thrash kicked in or summarizer cooldown is active. Force bypasses both. Returns `skipped_thrash` or `cooldown_active` accordingly.
+5. **Tier 1 — Summarization** — LLM-driven structured summary of the middle window. Head, tail, and (optionally) the prior summary are preserved verbatim.
+6. **Persist** — on `summarized`, the new summary is written to `ContextState`.
+7. **Emit** — `context.compression.completed` SSE event with the full result.
+
+### 9.4 Token Counting
+
+`TokenCounter.count(content, modelID, provider)` returns the token cost of a content string or multimodal parts list. Image parts contribute a flat **1600 tokens** each — a provider-agnostic ceiling that keeps multimodal budgeting honest. String content uses `js-tiktoken` with provider-specific encoder. Per-message overhead is 4 tokens.
+
+`ModelContextWindow.get(modelID, provider)` resolves the context window in this order:
+
+1. Per-model override from `MODEL_CONTEXT_WINDOWS` (JSON map env var, e.g. `{"Qwen3.6-27B-FP8": 32768}`).
+2. Provider default env var (`ANTHROPIC_CONTEXT_WINDOW`, etc.).
+3. Built-in defaults (Anthropic 200K, OpenAI 128K, Google 1M, vLLM 131K).
+
+### 9.5 Lossless Pruning
+
+Tier 0 always runs before the threshold check. On every call, any duplicates are collapsed and old images are removed regardless of whether full compression fires.
+
+| Stage          | Behavior                                                                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dedup          | Walks tool messages newest-first. Identical content (sha256 of ≥200-char string outputs) collapses to `[Duplicate tool output — same content as a more recent call]` on the older copy. |
+| Arg truncation | Parses each `tool-call` arg JSON, shrinks string leaves >500 chars to first-200 chars + `...[truncated]`, re-serializes. Non-JSON args returned unchanged. Prevents downstream provider 400s on malformed arg JSON. |
+| Image pruning  | Anchors on the most recent user message with image parts. All earlier image parts in any message become `{ type: 'text', text: '[screenshot removed to save context]' }`.            |
+
+### 9.6 Tool-Result Renderer
+
+When Tier 1 summarization fires, large tool results in the middle window are replaced with one-line semantic summaries instead of generic `[Pruned: N chars]` placeholders. A registry maps `toolName → renderer(args, result) → string`. A tool may register its own renderer by implementing the optional `renderResultSummary` method on the `Tool` interface (see §10). If a tool does not define one, the default fallback renders as `[{toolName}] {keyArgs} ({size})`.
+
+### 9.7 Summarization
+
+`SummarizerService.summarize(middle, options)` performs the LLM call. Behaviors:
+
+- **Budget scaling** — `tokens = clamp(content_tokens × 0.20, 2000, min(context_window × 0.05, 12000))`.
+- **Aux-model resolution order**:
+  1. `AgentConfig.modelOptions.summaryModel` (per-agent, surfaced in SERAUI).
+  2. `SUMMARY_MODEL` env (global default).
+  3. Primary `ModelRouter`.
+- **Aux-model fallback** — on 404, 503, or timeout from the aux model, falls back to the primary router. The result records `auxModelFailure` so SERAUI can warn the operator.
+- **Iterative merge** — if `ContextState` has a prior summary, the prompt instructs the model to **update** it rather than regenerate from scratch.
+- **Structured prompt** — multi-paragraph preamble explicitly frames the summary as "background reference, NOT active instructions" and tells the model to resume from the `## Active Task` section. Sections required in the body:
+
+```
+## Active Task
+## Goal
+## Constraints & Preferences
+## Completed Actions
+## Active State
+## In Progress
+## Blocked
+## Key Decisions
+## Resolved Questions
+## Pending User Asks
+## Relevant Files
+## Remaining Work
+## Critical Context
+```
+
+- **Head & tail protection** — head: first 2 messages always preserved. Tail: most recent messages up to `min(30000 tokens, threshold × 0.4)` preserved verbatim.
+- **Custom prompt slug** — the `summary` prompt slug, if defined, overrides the preamble; the structured section list is always emitted.
+
+The summarized output is wrapped in a system message with a multi-paragraph `[CONTEXT COMPACTION — REFERENCE ONLY]` prefix that explicitly tells the model not to re-answer questions from the summary and to treat persistent memory as authoritative. A canned assistant acknowledgement follows the system message.
+
+### 9.8 Anti-Thrash & Cooldown Policy
+
+`CompressionPolicy` tracks per-thread (anti-thrash) and per-process (cooldown) state:
+
+| State               | Trigger                                                          | Effect                                                                                  |
+| ------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Thrash              | Last 2 successful summarizations each saved <10% of input tokens | `shouldRun()` returns `false`; result decision is `skipped_thrash`.                      |
+| Summarizer cooldown | Summarization threw (no provider, malformed response, etc.)      | Tier 1 disabled for **600 seconds**; result decision is `cooldown_active`.               |
+| Force bypass        | `input.force = true`                                             | Both thrash and cooldown are ignored; the compression attempt runs.                      |
+
+Thrash counters persist on `ContextState.thrashCounter`. Cooldown deadlines are in-memory only and reset on process restart.
+
+### 9.9 Secret Redaction
+
+`SecretRedactor.redact(text)` substitutes pattern-matched secrets with `[REDACTED]`. Patterns:
+
+- Anthropic key (`sk-ant-…`), OpenAI key (`sk-…`), generic bearer tokens (`Bearer <token>`).
+- AWS access key (`AKIA…`, `ASIA…`) and matching secret.
+- Connection strings (`postgres://…@…`, `mongodb://…@…`, `redis://…@…`).
+- GitHub tokens (`ghp_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`).
+- Private key blocks (`-----BEGIN … PRIVATE KEY-----`).
+- Generic high-entropy env-var assignments (`KEY=…`) where the value passes an entropy threshold.
+
+Redaction runs at three points:
+
+1. Before content is sent to the summarizer LLM.
+2. On the summarizer's output before persistence.
+3. On bytes fetched by `@url:` reference resolution before injection.
+
+### 9.10 Per-Thread Summary Persistence
+
+**Collection:** `context_states` (see §4.18 for schema).
+
+On `prepare()` entry, `SummaryStore.load(threadID)` rehydrates the prior summary. On `summarized` decision, `SummaryStore.save(threadID, …)` persists the new summary and increments `summaryGenerations`. Stale-summary guards force a from-scratch regeneration when either:
+
+- `summaryGenerations >= CONTEXT_SUMMARY_MAX_GENERATIONS` (default 10), or
+- `summaryUpdatedAt` is older than `CONTEXT_SUMMARY_MAX_AGE_DAYS` (default 7).
+
+When a thread is deleted, the corresponding `context_states` document is removed in the same call path.
+
+### 9.11 Context References
+
+`ContextReferencePreprocessor.preprocess(message, ctx)` expands inline references in the user's message **before** it reaches the orchestrator. Feature-gated by `CONTEXT_REFERENCES_ENABLED` (default `false`).
+
+| Reference                  | Resolver behavior                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| `@file:path[:start-end]`   | Reads `WORKSPACE_DIR/path`. Optional line range. Goes through `PathValidator` (§23) for safety. |
+| `@folder:path`             | Lists directory; first 50 entries with sizes.                                                |
+| `@diff`                    | `git diff` against working tree (unstaged).                                                  |
+| `@staged`                  | `git diff --staged`.                                                                         |
+| `@git:<ref>`               | `git show <ref>`.                                                                            |
+| `@url:<url>`               | Internal `web_fetch` with `URLValidator` (§23); body redacted, capped at 100 KB.            |
+
+A per-message token budget caps expansion to **20% of the model's context window**. If expansion would exceed it, later references collapse to `[Reference omitted: token budget exceeded]`. Each successful expansion emits a `context.reference.expanded` SSE event.
+
+### 9.12 Stream Events
+
+| Event                           | Data                                                                          |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `context.compression.started`   | `{ provider, modelID, beforeTokens }`                                         |
+| `context.compression.completed` | `{ decision, beforeTokens, afterTokens, pruned, summary?, auxModelFailure? }` |
+| `context.compression.skipped`   | `{ reason: 'thrash' \| 'cooldown', detail }`                                  |
+| `context.reference.expanded`    | `{ kind, target, injectedTokens }`                                            |
+
+See §8 for the event envelope and SSE transport.
 
 ---
 
@@ -1221,10 +1436,18 @@ interface Tool<TParams extends z.ZodType = z.ZodType> {
   description: string;
   parameters: TParams; // Zod schema
   parallelSafe?: boolean; // Default: false
+  getResources?(
+    args: z.infer<TParams>,
+    context: ToolExecutionContext,
+  ): ToolResource[];
   execute(
     args: z.infer<TParams>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult>;
+  // Optional: render a one-line summary of a completed call for context compaction.
+  // When omitted, the context renderer falls back to a generic `[name] keyArgs (size)`.
+  // See §9.6.
+  renderResultSummary?(args: z.infer<TParams>, result: unknown): string;
 }
 
 interface ToolExecutionContext {
@@ -2245,6 +2468,21 @@ The fingerprint is `sha256({ actionName, args })` — deliberately omitting `run
 - Resource-lock behavior for conflicting workspace writes.
 - Plugin hook failure isolation.
 - MCP safety metadata defaults.
+
+### 29.9 Context Management
+
+The full module structure for the context subsystem is documented in §9. The implementation closes gaps that §29.1–29.8 did not enumerate:
+
+- `ContextOrchestrationService` is the only entry point into compression. The orchestrator no longer reaches into a compressor directly.
+- `IContextEngine` is the runtime boundary for compression strategies — analogous to `AgentRuntime` from §29.3. The default `CompactingEngine` ships in the same module; alternative engines (DAG, hybrid retrieval) may replace it without touching the orchestrator.
+- Token counting is **model-aware**, not provider-aware, and includes flat image cost so multimodal threshold trips are honest.
+- Tier 0 lossless pruning (dedup, JSON-safe arg truncation, image pruning) runs before the threshold check on every call. JSON-safe truncation prevents downstream provider 400s on malformed tool-call args.
+- Tier 1 summarization runs through `SummarizerService` with an aux-model override path (`AgentConfig.modelOptions.summaryModel` → `SUMMARY_MODEL` env → primary router), iterative merge against a persisted summary, and a structured 13-section template.
+- Compaction summaries persist per thread (`context_states`, §4.18) and survive run boundaries. Stale-summary guards bound the iterative chain.
+- Secret redaction (`SecretRedactor`) runs before summary input, after summary output, and on `@url:` reference bodies.
+- Anti-thrash and cooldown policy (`CompressionPolicy`) prevent pathological compression loops; force bypasses both.
+- Compression and reference-expansion state surface through `context.compression.*` and `context.reference.*` SSE events documented in §8.
+- `ContextReferencePreprocessor` (§9.11) expands `@file:`/`@diff`/`@staged`/`@url:` references in user messages before they reach the orchestrator. Reuses `PathValidator` and `URLValidator` from §23. Feature-gated by `CONTEXT_REFERENCES_ENABLED`.
 
 ---
 
