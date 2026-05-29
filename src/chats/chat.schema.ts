@@ -117,6 +117,12 @@ export class Chat {
   @Prop()
   model?: string;
 
+  // Sticky agent for the chat. Parallel to `model?` above. When set, the
+  // orchestrator defaults to this agent for new messages unless the request
+  // body overrides it. See SPEC §6 Execution Flow.
+  @Prop()
+  agentID?: string;
+
   @Prop({ type: [MessageSchema], default: [] })
   messages: Message[];
 

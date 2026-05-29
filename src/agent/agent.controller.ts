@@ -20,12 +20,14 @@ import { AgentEventEmitter } from './streaming/agent-event-emitter';
 import { RunStreamService } from './streaming/run-stream.service';
 import { StateService } from './state/state.service';
 import { AgentRouterService } from '../agents/agent-router.service';
+import { AgentsService } from '../agents/agents.service';
 import { AttachmentsService } from './attachments/attachments.service';
 import {
   serializeAttachment,
   type AttachmentResponseDto,
 } from './attachments/attachment.dto';
 import { ChatsService } from '../chats/chats.service';
+import { ModelRouterService } from './model/model-router.service';
 import type { SessionUser } from '../auth/session.strategy';
 import type { OrchestratorConfig } from './orchestration/orchestration.interfaces';
 
@@ -55,8 +57,10 @@ export class AgentController {
     private readonly runStream: RunStreamService,
     private readonly stateService: StateService,
     private readonly agentRouter: AgentRouterService,
+    private readonly agentsService: AgentsService,
     private readonly attachmentsService: AttachmentsService,
     private readonly chatsService: ChatsService,
+    private readonly modelRouter: ModelRouterService,
   ) {}
 
   @Post('chat')
@@ -101,21 +105,44 @@ export class AgentController {
       createdAt: new Date(),
     };
 
+    // Upfront catalog validation so a stale picker selection fails fast with
+    // 400 instead of producing a run that dies on first model call.
+    if (body.model && !(await this.modelRouter.isValidModel(body.model))) {
+      throw new BadRequestException(
+        `Model "${body.model}" is unknown or disabled`,
+      );
+    }
+    if (
+      body.agentID &&
+      !(await this.agentsService.isValidActiveAgent(body.agentID))
+    ) {
+      throw new BadRequestException(
+        `Agent "${body.agentID}" is unknown or disabled`,
+      );
+    }
+
     let chatID: string;
+    let stickyAgentID: string | undefined;
     if (body.chatID) {
       chatID = body.chatID;
-      await this.chatsService.findOne(chatID, userID);
+      const chat = await this.chatsService.findOne(chatID, userID);
+      stickyAgentID = chat.agentID;
       await this.chatsService.appendMessage(chatID, userID, userMessage);
       if (body.model) {
         await this.chatsService.updateModel(chatID, body.model);
+      }
+      if (body.agentID) {
+        await this.chatsService.updateAgent(chatID, body.agentID);
+        stickyAgentID = body.agentID;
       }
     } else {
       const chat = await this.chatsService.createWithUserMessage(
         userID,
         userMessage,
-        body.model,
+        { model: body.model, agentID: body.agentID },
       );
       chatID = String(chat._id);
+      stickyAgentID = chat.agentID;
     }
 
     await this.attachmentsService.bindToMessage({
@@ -127,6 +154,7 @@ export class AgentController {
 
     const agentID =
       body.agentID ??
+      stickyAgentID ??
       (await this.agentRouter.resolve({ userID, chatID, threadID }));
 
     if (!agentID) {

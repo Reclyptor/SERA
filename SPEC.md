@@ -1,7 +1,7 @@
 # SERA Application Specification
 
-> **Version:** 1.1
-> **Last Updated:** 2026-05-28
+> **Version:** 1.2
+> **Last Updated:** 2026-05-29
 > **Source of Truth** for architecture, data models, API surface, and runtime behavior.
 
 ---
@@ -271,9 +271,12 @@ API responses are JSON-serialized Mongoose documents. Mongo `_id` values are exp
 | `userID`    | String    | Yes      |         | `userID: 1`, `userID: 1, updatedAt: -1` |
 | `title`     | String    | Yes      |         | Text index                              |
 | `model`     | String    | No       |         |                                         |
+| `agentID`   | String    | No       |         |                                         |
 | `messages`  | Message[] | No       | `[]`    | Text index on `messages.content`        |
 | `createdAt` | Date      | (auto)   |         |                                         |
 | `updatedAt` | Date      | (auto)   |         |                                         |
+
+`model` and `agentID` are **sticky picker selections**. When set on the chat document, they default subsequent `POST /agent/chat` requests for that chat unless `body.model` / `body.agentID` overrides them. See §6 Execution Flow.
 
 **Message** (embedded):
 
@@ -755,6 +758,30 @@ Per-thread compaction summary and policy state. Owned by the context module (§9
 
 When a thread is deleted, the corresponding `context_states` document is removed in the same call path.
 
+### 4.19 ModelCatalogEntry
+
+**Collection:** `models`
+
+Authoritative allowlist of models the system will accept. Both `POST /agent/chat` and `PATCH /chats/:id` validate `body.model` / `dto.model` against this collection (`ModelRouter.isValidModel` → `ModelCatalogService.isValidActiveModel`). The collection is seeded from a built-in default on first boot (see §7); operators may CRUD it via `/models` thereafter. `ModelRouter` still owns runtime concerns (provider keys, retry, fallback) — the catalog only governs *which* `provider/modelID` specs are admissible.
+
+| Field                       | Type   | Required | Default | Index  |
+| --------------------------- | ------ | -------- | ------- | ------ |
+| `spec`                      | String | Yes      |         | Unique |
+| `provider`                  | String | Yes      |         | Yes    |
+| `modelID`                   | String | Yes      |         |        |
+| `displayName`               | String | Yes      |         |        |
+| `enabled`                   | Boolean| No       | `true`  |        |
+| `contextWindow`             | Number | No       |         |        |
+| `inputCostCentsPerMTok`     | Number | No       |         |        |
+| `outputCostCentsPerMTok`    | Number | No       |         |        |
+| `cacheReadCostCentsPerMTok` | Number | No       |         |        |
+| `cacheWriteCostCentsPerMTok`| Number | No       |         |        |
+| `metadata`                  | Mixed  | No       | `{}`    |        |
+| `createdAt`                 | Date   | (auto)   |         |        |
+| `updatedAt`                 | Date   | (auto)   |         |        |
+
+`spec` is the canonical `provider/modelID` join key used by `Chat.model`, `AgentConfig.modelOptions.preferredModel`, and request body fields. Pricing fields express **cents per million tokens** (integer); the cost calculator divides by 1,000,000 when applying to token counts.
+
 ---
 
 ## 5. API Surface
@@ -823,6 +850,18 @@ All endpoints are prefixed with `/api/v1` unless noted. Authentication is requir
 | DELETE | `/chats/:id` | Yes  |                 | void                       |
 
 Ownership enforced: users can only access their own chats.
+
+**UpdateChatDto** (partial — every field optional):
+
+```typescript
+{
+  messages?: MessageDto[];   // full replacement of the messages array
+  agentID?: string;          // sticky picker selection; validated against §4.18
+  model?: string;            // sticky picker selection; validated against §4.19
+}
+```
+
+`agentID` is validated through `AgentsService.isValidActiveAgent` (must exist + `enabled === true`). `model` is validated through `ModelRouter.isValidModel` → `ModelCatalogService.isValidActiveModel`. Either invalid value returns 400 BadRequest.
 
 ### 5.4 Agents
 
@@ -917,6 +956,18 @@ Webhook requests must include `x-webhook-api-key: <WEBHOOK_API_KEY>` or `Authori
 
 Scoped to the authenticated user via `@CurrentUser()`. `MemoryController` is registered in `MemoryModule` and reaches `AppModule` via `AgentModule → OrchestrationModule → MemoryModule`. See §13 for `MemoryEntry` shape and storage details.
 
+### 5.13 Models
+
+| Method | Path             | Auth | Body / Params                    | Response             |
+| ------ | ---------------- | ---- | -------------------------------- | -------------------- |
+| POST   | `/models`        | Yes  | `CreateModelDto`                 | ModelCatalogEntry    |
+| GET    | `/models`        | Yes  | Query: `enabled=true` (optional) | ModelCatalogEntry[]  |
+| GET    | `/models/:spec`  | Yes  |                                  | ModelCatalogEntry    |
+| PATCH  | `/models/:spec`  | Yes  | `UpdateModelDto`                 | ModelCatalogEntry    |
+| DELETE | `/models/:spec`  | Yes  |                                  | `{ deleted: true }`  |
+
+`:spec` is the canonical `provider/modelID` form (e.g. `anthropic/claude-sonnet-4-6`); the route segment captures slashes via Express's `(*)` wildcard. `POST` requires `spec === provider + '/' + modelID`. See §4.19 for the schema and §7 for the seeded defaults.
+
 ---
 
 ## 6. Orchestration Engine
@@ -929,8 +980,8 @@ The orchestrator is the core execution loop that processes user messages through
 POST /agent/chat
   |
   v
-[Resolve Agent] -- AgentRouterService.resolve(context)
-  |                 Priority: user binding > channel binding > default binding
+[Resolve Agent] -- body.agentID > chat.agentID > AgentRouterService.resolve(context)
+  |                 Router priority: user binding > channel binding > default binding
   v
 [Create/Load Chat] -- ChatsService
   |
@@ -1041,7 +1092,13 @@ After run completion, the orchestrator increments per-thread turn and tool-call 
 
 ## 7. Model Router
 
-The `ModelRouterService` manages multiple LLM providers with automatic failover, credential pooling, and prompt caching.
+The `ModelRouterService` manages multiple LLM providers with automatic failover, credential pooling, and prompt caching. Which `provider/modelID` specs are **admissible** is owned by the model catalog (§4.19); the router owns *how* to call admissible specs.
+
+### Admissibility (Model Catalog)
+
+`ModelRouterService.isValidModel(spec)` delegates to `ModelCatalogService.isValidActiveModel(spec)`. Used by `POST /agent/chat` and `PATCH /chats/:id` to reject unknown or disabled specs with 400 before any run starts.
+
+The `models` collection is seeded on first boot by `ModelCatalogBootstrapService` from a built-in default list that mirrors the providers wired into `ModelRouter` below. The bootstrap is one-shot — it only seeds when the collection is empty, so operator edits persist across deploys. Pricing fields on each catalog entry are the source the cost calculator in §22 reads.
 
 ### Providers
 

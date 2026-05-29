@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,13 +11,19 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Chat, ChatDocument, Message } from './chat.schema';
 import { CreateChatDto, MessageDto } from './create-chat.dto';
 import { UpdateChatDto } from './update-chat.dto';
+import { AgentsService } from '../agents/agents.service';
+import { ModelCatalogService } from '../models/model-catalog.service';
 
 @Injectable()
 export class ChatsService {
   private readonly logger = new Logger(ChatsService.name);
   private readonly anthropic: Anthropic;
 
-  constructor(@InjectModel(Chat.name) private chatModel: Model<ChatDocument>) {
+  constructor(
+    @InjectModel(Chat.name) private chatModel: Model<ChatDocument>,
+    private readonly agentsService: AgentsService,
+    private readonly modelCatalog: ModelCatalogService,
+  ) {
     this.anthropic = new Anthropic();
   }
 
@@ -93,18 +100,53 @@ export class ChatsService {
     userID: string,
     updateChatDto: UpdateChatDto,
   ): Promise<Chat> {
-    const chat = await this.chatModel.findById(chatID).exec();
-
-    if (!chat) {
+    const existing = await this.chatModel.findById(chatID).exec();
+    if (!existing) {
       throw new NotFoundException(`Chat with ID ${chatID} not found`);
     }
-
-    if (chat.userID !== userID) {
+    if (existing.userID !== userID) {
       throw new ForbiddenException('You do not have access to this chat');
     }
 
-    chat.messages = updateChatDto.messages.map((m) => this.normalizeMessage(m));
-    return chat.save();
+    const updates: Record<string, unknown> = {};
+
+    if (updateChatDto.agentID !== undefined) {
+      await this.assertValidAgent(updateChatDto.agentID);
+      updates.agentID = updateChatDto.agentID;
+    }
+    if (updateChatDto.model !== undefined) {
+      await this.assertValidModel(updateChatDto.model);
+      updates.model = updateChatDto.model;
+    }
+    if (updateChatDto.messages !== undefined) {
+      updates.messages = updateChatDto.messages.map((m) =>
+        this.normalizeMessage(m),
+      );
+    }
+
+    const updated = await this.chatModel
+      .findByIdAndUpdate(chatID, { $set: updates }, { new: true })
+      .exec();
+    if (!updated) {
+      throw new NotFoundException(`Chat with ID ${chatID} not found`);
+    }
+    return updated;
+  }
+
+  private async assertValidAgent(agentID: string): Promise<void> {
+    const ok = await this.agentsService.isValidActiveAgent(agentID);
+    if (!ok) {
+      throw new BadRequestException(
+        `Agent "${agentID}" is unknown or disabled`,
+      );
+    }
+  }
+
+  private async assertValidModel(spec: string): Promise<void> {
+    const ok = await this.modelCatalog.isValidActiveModel(spec);
+    if (!ok) {
+      throw new BadRequestException(`Model "${spec}" is unknown or disabled`);
+    }
   }
 
   private normalizeMessage(message: MessageDto): Message {
@@ -133,16 +175,21 @@ export class ChatsService {
     await this.chatModel.findByIdAndUpdate(chatID, { model }).exec();
   }
 
+  async updateAgent(chatID: string, agentID: string): Promise<void> {
+    await this.chatModel.findByIdAndUpdate(chatID, { agentID }).exec();
+  }
+
   async createWithUserMessage(
     userID: string,
     message: Message,
-    model?: string,
+    options?: { model?: string; agentID?: string },
   ): Promise<ChatDocument> {
     const chat = new this.chatModel({
       userID,
       title: 'New Chat',
       messages: [message],
-      ...(model && { model }),
+      ...(options?.model && { model: options.model }),
+      ...(options?.agentID && { agentID: options.agentID }),
     });
     const saved = await chat.save();
 
