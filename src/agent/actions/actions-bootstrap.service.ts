@@ -3,6 +3,7 @@ import { ActionsService } from './actions.service';
 import { MemoryService } from '../memory/memory.service';
 import { NtfyService } from '../ntfy/ntfy.service';
 import { StateService } from '../state/state.service';
+import { ConfirmationSignalService } from '../state/confirmation-signal.service';
 import { AgentEventEmitter } from '../streaming/agent-event-emitter';
 import {
   SaveMemoryAction,
@@ -22,6 +23,7 @@ export class ActionsBootstrapService implements OnModuleInit {
     private readonly memoryService: MemoryService,
     private readonly ntfyService: NtfyService,
     private readonly stateService: StateService,
+    private readonly confirmationSignal: ConfirmationSignalService,
     private readonly emitter: AgentEventEmitter,
   ) {}
 
@@ -49,7 +51,11 @@ export class ActionsBootstrapService implements OnModuleInit {
 
     // Confirmation flow
     this.actionsService.registerAction(
-      new RequestConfirmationAction(this.stateService, this.emitter),
+      new RequestConfirmationAction(
+        this.stateService,
+        this.emitter,
+        this.confirmationSignal,
+      ),
     );
 
     this.logger.log('Registered 6 core actions');

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { StateStore } from './state.store';
 import { StateService } from './state.service';
+import { ConfirmationSignalService } from './confirmation-signal.service';
 import { Thread, ThreadSchema } from './thread.schema';
 import { Run, RunSchema } from './run.schema';
 import { AgentState, AgentStateSchema } from './agent-state.schema';
@@ -14,7 +15,7 @@ import { AgentState, AgentStateSchema } from './agent-state.schema';
       { name: AgentState.name, schema: AgentStateSchema },
     ]),
   ],
-  providers: [StateStore, StateService],
-  exports: [StateService, StateStore],
+  providers: [StateStore, StateService, ConfirmationSignalService],
+  exports: [StateService, StateStore, ConfirmationSignalService],
 })
 export class StateModule {}

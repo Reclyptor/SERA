@@ -19,6 +19,7 @@ import { OrchestratorService } from './orchestration/orchestrator.service';
 import { AgentEventEmitter } from './streaming/agent-event-emitter';
 import { RunStreamService } from './streaming/run-stream.service';
 import { StateService } from './state/state.service';
+import { ConfirmationSignalService } from './state/confirmation-signal.service';
 import { AgentRouterService } from '../agents/agent-router.service';
 import { AgentsService } from '../agents/agents.service';
 import { AttachmentsService } from './attachments/attachments.service';
@@ -56,6 +57,7 @@ export class AgentController {
     private readonly eventEmitter: AgentEventEmitter,
     private readonly runStream: RunStreamService,
     private readonly stateService: StateService,
+    private readonly confirmationSignal: ConfirmationSignalService,
     private readonly agentRouter: AgentRouterService,
     private readonly agentsService: AgentsService,
     private readonly attachmentsService: AttachmentsService,
@@ -297,6 +299,16 @@ export class AgentController {
     );
 
     if (resolved && confirmation.runID) {
+      // Wake any backend wait via the ConfirmationSignal bus. Whichever
+      // pod is holding `RequestConfirmationAction.execute` for this
+      // confirmation receives the published decision and unblocks
+      // without polling Mongo. The Mongo write above is the system of
+      // record; this pub is only the wake-up wire.
+      await this.confirmationSignal.publish(threadID, confirmationID, {
+        status: body.approved ? 'approved' : 'rejected',
+        feedback: body.feedback,
+      });
+
       // Emit BOTH event channels: `confirmation.resolved` is the
       // historical name for action-side confirmations (request_confirmation
       // action, memory-management approvals) and `approval.resolved` is

@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RequestConfirmationAction } from './confirmation.action';
+import type {
+  AwaitResolutionOptions,
+  ConfirmationDecision,
+  ResolutionOutcome,
+} from '../../state/confirmation-signal.service';
 
 function makeAction(opts: {
-  getConfirmationSequence?: Array<unknown>;
+  storeResolution?: ConfirmationDecision | null;
+  signalOutcome?: ResolutionOutcome;
+  signalDelayMs?: number;
   tryExpireResult?: {
     claimed: boolean;
     resolution?: { status: 'approved' | 'rejected'; feedback?: string };
@@ -10,24 +17,55 @@ function makeAction(opts: {
 }) {
   const stateService = {
     addPendingConfirmation: vi.fn().mockResolvedValue('conf-1'),
-    getConfirmation: vi.fn().mockImplementation(
-      () =>
-        (opts.getConfirmationSequence ?? []).shift() ?? {
+    getConfirmation: vi.fn().mockImplementation(() => {
+      if (opts.storeResolution) {
+        return Promise.resolve({
           id: 'conf-1',
-          status: 'pending',
-        },
-    ),
+          status: opts.storeResolution.status,
+          feedback: opts.storeResolution.feedback,
+        });
+      }
+      return Promise.resolve({ id: 'conf-1', status: 'pending' });
+    }),
     tryExpireConfirmation: vi
       .fn()
       .mockResolvedValue(opts.tryExpireResult ?? { claimed: true }),
     removePendingConfirmation: vi.fn().mockResolvedValue(true),
   };
-  const emitter = { emitEvent: vi.fn() };
+  const emitter = { emitEvent: vi.fn().mockResolvedValue(undefined) };
+  const signal = {
+    awaitResolution: vi
+      .fn()
+      .mockImplementation(
+        async (
+          _threadID: string,
+          _confirmationID: string,
+          timeoutMs: number,
+          callerOpts: AwaitResolutionOptions = {},
+        ): Promise<ResolutionOutcome> => {
+          // Honor preCheck the same way the real service does: short-circuit
+          // when it surfaces an already-resolved entry.
+          if (callerOpts.preCheck) {
+            const fromStore = await callerOpts.preCheck();
+            if (fromStore) return fromStore;
+          }
+          if (opts.signalOutcome) {
+            if (opts.signalDelayMs != null) {
+              await new Promise((r) => setTimeout(r, opts.signalDelayMs));
+            }
+            return opts.signalOutcome;
+          }
+          await new Promise((r) => setTimeout(r, timeoutMs));
+          return 'timeout';
+        },
+      ),
+  };
   const action = new RequestConfirmationAction(
     stateService as never,
     emitter as never,
+    signal as never,
   );
-  return { action, stateService, emitter };
+  return { action, stateService, emitter, signal };
 }
 
 const ctx = {
@@ -36,16 +74,10 @@ const ctx = {
   agentID: 'agent-1',
 };
 
-describe('RequestConfirmationAction timeout-vs-resolve race', () => {
-  it('returns the user decision when poll observes a resolved confirmation', async () => {
+describe('RequestConfirmationAction', () => {
+  it('returns the user decision when the signal fires', async () => {
     const { action, stateService } = makeAction({
-      getConfirmationSequence: [
-        {
-          id: 'conf-1',
-          status: 'approved',
-          feedback: 'go ahead',
-        },
-      ],
+      signalOutcome: { status: 'approved', feedback: 'go ahead' },
     });
 
     const result = await action.execute(
@@ -71,6 +103,29 @@ describe('RequestConfirmationAction timeout-vs-resolve race', () => {
     );
   });
 
+  it('returns the user decision when preCheck observes an already-resolved store', async () => {
+    const { action, stateService, signal } = makeAction({
+      storeResolution: { status: 'approved', feedback: 'pre-resolved' },
+    });
+
+    const result = await action.execute(
+      {
+        message: 'proceed?',
+        actionName: 'delete_file',
+        actionArgs: {},
+        timeoutMs: 5_000,
+      },
+      ctx,
+    );
+
+    expect(result.result).toMatchObject({
+      decision: 'approved',
+      feedback: 'pre-resolved',
+    });
+    expect(signal.awaitResolution).toHaveBeenCalledOnce();
+    expect(stateService.tryExpireConfirmation).not.toHaveBeenCalled();
+  });
+
   it('returns timed_out when the action wins the expire race', async () => {
     const { action, stateService } = makeAction({
       tryExpireResult: { claimed: true },
@@ -81,7 +136,7 @@ describe('RequestConfirmationAction timeout-vs-resolve race', () => {
         message: 'proceed?',
         actionName: 'delete_file',
         actionArgs: {},
-        timeoutMs: 50,
+        timeoutMs: 25,
       },
       ctx,
     );
@@ -91,8 +146,6 @@ describe('RequestConfirmationAction timeout-vs-resolve race', () => {
       approved: false,
     });
     expect(stateService.tryExpireConfirmation).toHaveBeenCalledTimes(1);
-    // No second removePendingConfirmation call — the atomic claim already
-    // removed the pending entry.
     expect(stateService.removePendingConfirmation).not.toHaveBeenCalled();
   });
 
@@ -109,7 +162,7 @@ describe('RequestConfirmationAction timeout-vs-resolve race', () => {
         message: 'proceed?',
         actionName: 'delete_file',
         actionArgs: {},
-        timeoutMs: 50,
+        timeoutMs: 25,
       },
       ctx,
     );
@@ -122,6 +175,32 @@ describe('RequestConfirmationAction timeout-vs-resolve race', () => {
     expect(stateService.removePendingConfirmation).toHaveBeenCalledWith(
       'thread-1',
       'conf-1',
+    );
+  });
+
+  it('emits approval.expired when the timeout claim wins cleanly', async () => {
+    const { action, emitter } = makeAction({
+      tryExpireResult: { claimed: true },
+    });
+
+    await action.execute(
+      {
+        message: 'proceed?',
+        actionName: 'delete_file',
+        actionArgs: {},
+        timeoutMs: 25,
+      },
+      ctx,
+    );
+
+    expect(emitter.emitEvent).toHaveBeenCalledWith(
+      'run-1',
+      'thread-1',
+      'approval.expired',
+      expect.objectContaining({
+        confirmationID: 'conf-1',
+        actionName: 'delete_file',
+      }),
     );
   });
 });

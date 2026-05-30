@@ -1784,15 +1784,33 @@ interface BackendAction<TParams extends z.ZodType> {
 ### Confirmation Flow
 
 1. Action calls `request_confirmation`
-2. `StateService.addPendingConfirmation()` creates a pending confirmation
-3. `confirmation.required` SSE event is emitted
-4. Action polls every 1 second for resolution
-5. User calls `POST /agent/confirm/:threadID/:confirmationID`
-6. `StateService.resolveConfirmation()` updates status
-7. `confirmation.resolved` SSE event is emitted
-8. Action returns with decision (`approved` / `rejected` / `timed_out`)
+2. `StateService.addPendingConfirmation()` creates a pending confirmation (durable, Mongo-backed)
+3. Action subscribes to the confirmation's Redis Pub/Sub channel **before** the next step (see §12.x ConfirmationSignal). Order matters: subscribe first, then re-read the store, so a resolution landing in the gap is caught by the post-subscribe store read instead of being lost.
+4. `confirmation.required` SSE event is emitted
+5. Action awaits `Promise.race([signal, timeout])` — no polling
+6. User calls the `resolveConfirmation` Next.js Server Action in SERAUI, which proxies `POST /agent/confirm/:threadID/:confirmationID`
+7. `StateService.resolveConfirmation()` updates status in Mongo
+8. Controller publishes the decision to the Redis channel (`ConfirmationSignal.publish`) and emits `confirmation.resolved` + `approval.resolved` SSE events
+9. Whichever pod holds the awaiting action wakes from the subscription and returns the decision (`approved` / `rejected` / `timed_out`)
 
-When the timeout deadline is reached, the action calls `StateService.tryExpireConfirmation()`, which atomically removes the confirmation **only if** it is still `pending`. If a concurrent `resolveConfirmation` already transitioned the entry to `approved`/`rejected`, the atomic claim fails and the resolved decision is returned to the agent instead of a silent `timed_out`. This closes a race where a slow user response could be silently dropped.
+The Mongo write remains the system of record. Pub/Sub is only a wake-up wire; if it drops a message (Redis restart, network blip, pod reconnect), the next subscriber start performs a `getConfirmation()` re-read and surfaces an already-resolved entry without waiting. The 5-minute deadline still triggers `StateService.tryExpireConfirmation()`, which atomically removes the confirmation **only if** it is still `pending`. If a concurrent `resolveConfirmation` already transitioned the entry, the atomic claim fails and the resolved decision is returned to the agent instead of a silent `timed_out`.
+
+### ConfirmationSignal Service
+
+Located at `src/agent/state/confirmation-signal.service.ts`. Wraps a dedicated Redis client (subscriber + publisher pair — `node-redis` requires a separate connection for subscribe mode).
+
+```typescript
+interface ConfirmationSignal {
+  publish(threadID: string, confirmationID: string, decision: { status: 'approved' | 'rejected'; feedback?: string }): Promise<void>;
+  awaitResolution(threadID: string, confirmationID: string, timeoutMs: number, signal?: AbortSignal): Promise<{ status: 'approved' | 'rejected'; feedback?: string } | 'timeout'>;
+}
+```
+
+- Channel name: `sera:confirm:<threadID>:<confirmationID>`. Thread-scoped to keep per-channel cardinality bounded and to align with the existing run/thread sharding.
+- `awaitResolution` first calls `subscribe`, then performs one `StateService.getConfirmation` re-read. If the entry is already resolved, it unsubscribes and returns immediately — this is the "subscribe-then-check" race fix.
+- The returned Promise resolves on either the first published message **or** the timeout firing. The race is settled exactly once; the loser is cancelled and the subscription is torn down in a `finally` block.
+- Reuses the existing `REDIS_URL` configuration. The subscriber connection is a single shared client multiplexing all confirmation channels by `confirmationID` filter inside the message handler; no per-confirmation connection cost.
+- Unit tests must cover: (a) publish-before-subscribe race resolved via the re-read path, (b) timeout firing without a publish, (c) publish arriving while awaiter is in the re-read window, (d) Redis disconnect mid-wait reverts to the existing atomic-expire backstop.
 
 ### Approval vs Confirmation Events
 
@@ -2528,6 +2546,7 @@ This plan tracks the OpenClaw/Hermes comparison work. The goal is to improve cor
 - Approval-required tools return a structured result containing the confirmation ID and fingerprint.
 - Approval events use the stream event names `approval.requested`, `approval.resolved`, and `approval.expired`.
 - Initial enforcement applies to shell execution; plugin and MCP tools can opt into approval through capability metadata.
+- Backend wake-up signaling for action-layer waits uses the `ConfirmationSignal` service (Redis Pub/Sub on `sera:confirm:<threadID>:<confirmationID>`). Polling is forbidden in this path. Tool-layer waits do not block — they return `approval_required` and rely on a continuation run to re-evaluate after the user resolves.
 
 ### 29.7 Plugin and MCP Capabilities
 

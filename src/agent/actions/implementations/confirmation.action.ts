@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { StateService } from '../../state/state.service';
+import type { ConfirmationSignalService } from '../../state/confirmation-signal.service';
 import type { AgentEventEmitter } from '../../streaming/agent-event-emitter';
 import type {
   BackendAction,
@@ -7,7 +8,6 @@ import type {
   ActionExecutionResult,
 } from '../action.interface';
 
-const POLL_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 const parameters = z.object({
@@ -37,6 +37,7 @@ export class RequestConfirmationAction implements BackendAction<
   constructor(
     private readonly stateService: StateService,
     private readonly emitter: AgentEventEmitter,
+    private readonly signal: ConfirmationSignalService,
   ) {}
 
   async execute(
@@ -63,39 +64,51 @@ export class RequestConfirmationAction implements BackendAction<
       },
     );
 
-    const timeout = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const deadline = Date.now() + timeout;
+    const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    while (Date.now() < deadline) {
-      await this.sleep(POLL_INTERVAL_MS);
+    // Subscribe-then-reread: the listener attaches synchronously, then the
+    // pre-check re-reads the durable store. A resolution that landed during
+    // the gap between addPendingConfirmation and listener-attach is caught
+    // by the pre-check; anything later is caught by the listener.
+    const outcome = await this.signal.awaitResolution(
+      context.threadID,
+      confirmationID,
+      timeoutMs,
+      {
+        preCheck: async () => {
+          const fresh = await this.stateService.getConfirmation(
+            context.threadID,
+            confirmationID,
+          );
+          if (!fresh || fresh.status === 'pending') return null;
+          return {
+            status: fresh.status,
+            feedback: fresh.feedback,
+          };
+        },
+      },
+    );
 
-      const confirmation = await this.stateService.getConfirmation(
-        context.threadID,
-        confirmationID,
-      );
-
-      if (!confirmation || confirmation.status === 'pending') continue;
-
+    if (outcome !== 'timeout') {
       await this.stateService.removePendingConfirmation(
         context.threadID,
         confirmationID,
       );
-
       return {
         success: true,
         result: {
           confirmationID,
-          decision: confirmation.status,
-          approved: confirmation.status === 'approved',
-          feedback: confirmation.feedback ?? null,
+          decision: outcome.status,
+          approved: outcome.status === 'approved',
+          feedback: outcome.feedback ?? null,
         },
       };
     }
 
-    // Atomic timeout claim: if the user resolved between the last poll
-    // and now, tryExpireConfirmation surfaces their decision instead of
-    // silently dropping it. Only when we win the race do we emit
-    // `timed_out`.
+    // Atomic timeout claim: if the user resolved between the last signal
+    // check and the deadline (e.g., Pub/Sub dropped the message), the
+    // claim fails and the durable store hands us their decision instead
+    // of a silent timed_out.
     const expired = await this.stateService.tryExpireConfirmation(
       context.threadID,
       confirmationID,
@@ -140,9 +153,5 @@ export class RequestConfirmationAction implements BackendAction<
         feedback: null,
       },
     };
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
