@@ -169,6 +169,18 @@ AppModule
 | `ENABLE_SHELL_TOOL`                | `false`                                       | Enables `exec`, `shell`, `process`, and `code_execution` runtime tools        |
 | `AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS` | `180000`                                      | Wall-clock timeout (ms) for autonomous runs (cron/heartbeat/webhook)          |
 | `MEMORY_NUDGE_INTERVAL`            | `10`                                          | Tool calls between memory-save nudge injections (0 = disabled)                |
+| `MEMORY_COLLECTION`                | `sera_memories`                               | Qdrant collection name for the native memory backend                          |
+| `MEMORY_DECAY_TAU_DAYS`            | `90`                                          | Recency decay time constant in days                                           |
+| `MEMORY_CONFIDENCE_WEIGHT`         | `0.5`                                         | Blend `[0,1]` between flat and confidence-weighted score                      |
+| `MEMORY_RERANK_ENABLED`            | `true`                                        | Enable LLM rerank in `getContextForQuery`                                     |
+| `MEMORY_RERANK_MODEL`              | `anthropic/claude-haiku-4-5`                  | Provider/model used by `MemoryReranker`                                       |
+| `MEMORY_PREFETCH_LIMIT`            | `50`                                          | Qdrant prefetch candidates per branch (dense / sparse) before RRF             |
+| `MEMORY_CONTEXT_LIMIT`             | `5`                                           | Top-K returned by `getContextForQuery` after rerank                           |
+| `MEMORY_SEARCH_LIMIT`              | `10`                                          | Default top-K returned by `MemoryService.search`                              |
+| `MEMORY_CONSOLIDATION_INTERVAL_MS` | `86400000`                                    | Consolidator cycle period (default 24h). `0` disables the cycle.              |
+| `MEMORY_STALE_DAYS`                | `30`                                          | Days of no read access before consolidator decays a memory                    |
+| `MEMORY_MIN_CONFIDENCE`            | `0.1`                                         | Post-decay confidence floor below which a memory is expired                   |
+| `MEMORY_DUPLICATE_THRESHOLD`       | `0.95`                                        | Cosine similarity at which two memories merge during consolidation            |
 | `CRON_SCRIPT_TIMEOUT_MS`           | `10000`                                       | Max execution time (ms) for cron job pre-processing scripts                   |
 | `SCHEDULED_EXECUTION_LEASE_MS`     | `300000`                                      | Lease duration for durable cron/heartbeat execution claims                    |
 | `SCHEDULED_EXECUTION_MAX_ATTEMPTS` | `3`                                           | Max claim attempts for expired scheduled executions                           |

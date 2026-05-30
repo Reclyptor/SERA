@@ -95,6 +95,22 @@ const envSchema = z
       .positive()
       .default(180_000),
     MEMORY_NUDGE_INTERVAL: z.coerce.number().int().nonnegative().default(10),
+    MEMORY_COLLECTION: z.string().default('sera_memories'),
+    MEMORY_DECAY_TAU_DAYS: z.coerce.number().positive().default(90),
+    MEMORY_CONFIDENCE_WEIGHT: z.coerce.number().min(0).max(1).default(0.5),
+    MEMORY_RERANK_ENABLED: z.string().default('true'),
+    MEMORY_RERANK_MODEL: z.string().default('anthropic/claude-haiku-4-5'),
+    MEMORY_PREFETCH_LIMIT: z.coerce.number().int().positive().default(50),
+    MEMORY_CONTEXT_LIMIT: z.coerce.number().int().positive().default(5),
+    MEMORY_SEARCH_LIMIT: z.coerce.number().int().positive().default(10),
+    MEMORY_CONSOLIDATION_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(86_400_000),
+    MEMORY_STALE_DAYS: z.coerce.number().int().positive().default(30),
+    MEMORY_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.1),
+    MEMORY_DUPLICATE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.95),
     CRON_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
     SCHEDULED_EXECUTION_LEASE_MS: z.coerce
       .number()
