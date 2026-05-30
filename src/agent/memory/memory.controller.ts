@@ -5,9 +5,10 @@ import {
   Param,
   NotFoundException,
 } from '@nestjs/common';
-import { MemoryService, type MemoryEntry } from './memory.service';
+import { MemoryService } from './memory.service';
 import { CurrentUser } from '../../auth/user.decorator';
 import type { SessionUser } from '../../auth/session.strategy';
+import type { MemoryRecord } from './memory.types';
 
 type MemoryResponse = {
   id: string;
@@ -17,24 +18,29 @@ type MemoryResponse = {
   createdAt: string;
 };
 
+/**
+ * Drives the Manage → Memories tab in SERAUI. Routes are scoped to
+ * the authenticated user via `@CurrentUser()`; the underlying service
+ * + backend additionally enforce ownership on every read and delete.
+ */
 @Controller('memories')
 export class MemoryController {
   constructor(private readonly memoryService: MemoryService) {}
 
-  private serialize(entry: MemoryEntry): MemoryResponse {
+  private serialize(record: MemoryRecord): MemoryResponse {
     return {
-      id: entry.id,
-      content: entry.content,
-      tags: entry.tags,
-      metadata: entry.metadata,
-      createdAt: entry.createdAt.toISOString(),
+      id: record.id,
+      content: record.content,
+      tags: record.tags,
+      metadata: record.metadata,
+      createdAt: record.createdAt.toISOString(),
     };
   }
 
   @Get()
   async list(@CurrentUser() user: SessionUser): Promise<MemoryResponse[]> {
-    const entries = await this.memoryService.getAll(user.sub);
-    return entries.map((entry) => this.serialize(entry));
+    const records = await this.memoryService.getAll(user.sub);
+    return records.map((record) => this.serialize(record));
   }
 
   @Delete(':id')

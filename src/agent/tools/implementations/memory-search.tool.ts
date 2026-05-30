@@ -1,27 +1,10 @@
 import { z } from 'zod';
+import type { MemoryService } from '../../memory/memory.service';
 import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
-
-interface MemoryServiceLike {
-  search(
-    userID: string,
-    query: string,
-    limit?: number,
-    threshold?: number,
-  ): Promise<
-    Array<{
-      id: string;
-      content: string;
-      metadata: Record<string, unknown>;
-      tags: string[];
-      createdAt: Date;
-      score?: number;
-    }>
-  >;
-}
 
 const parameters = z.object({
   query: z.string().describe('Search query to find relevant memories'),
@@ -32,48 +15,53 @@ const parameters = z.object({
     .optional()
     .default(5)
     .describe('Maximum number of results'),
-  threshold: z
-    .number()
-    .min(0)
-    .max(1)
+  scoped: z
+    .boolean()
     .optional()
-    .default(0.7)
-    .describe('Minimum similarity score (0-1)'),
+    .default(false)
+    .describe(
+      'Restrict search to memories from the current agent/thread; defaults to global user-scope',
+    ),
 });
 
 export class MemorySearchTool implements Tool<typeof parameters> {
   readonly name = 'memory_search';
   readonly parallelSafe = true;
   readonly description =
-    'Search through stored memories using semantic similarity. Returns the most relevant memories matching the query.';
+    'Search through stored memories using hybrid semantic + keyword retrieval. Returns the most relevant memories matching the query.';
   readonly parameters = parameters;
 
-  constructor(private readonly memoryService: MemoryServiceLike) {}
+  constructor(private readonly memoryService: MemoryService) {}
 
   async execute(
     args: z.infer<typeof parameters>,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { query, limit, threshold } = args;
+    const { query, limit, scoped } = args;
 
     if (!context.userID) {
       return { success: false, error: 'User ID required for memory search' };
     }
 
     try {
-      const memories = await this.memoryService.search(
-        context.userID,
-        query,
-        limit,
-        threshold,
-      );
+      const scope = scoped
+        ? {
+            ...(context.agentID && { agentID: context.agentID }),
+            ...(context.threadID && { threadID: context.threadID }),
+          }
+        : undefined;
 
-      const results = memories.map((m) => ({
-        id: m.id,
-        content: m.content,
-        tags: m.tags,
-        score: m.score,
-        createdAt: m.createdAt,
+      const hits = await this.memoryService.search(context.userID, query, {
+        limit,
+        ...(scope && Object.keys(scope).length > 0 && { scope }),
+      });
+
+      const results = hits.map((hit) => ({
+        id: hit.record.id,
+        content: hit.record.content,
+        tags: hit.record.tags,
+        score: hit.effectiveScore,
+        createdAt: hit.record.createdAt,
       }));
 
       return {

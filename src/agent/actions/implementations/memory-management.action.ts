@@ -36,14 +36,18 @@ export class SaveMemoryAction implements BackendAction<
       return { success: false, error: 'User ID required to save memory' };
     }
 
-    const entry = await this.memoryService.add(context.userID, args.content, {
-      tags: args.tags,
-      metadata: { threadID: context.threadID, runID: context.runID },
+    const record = await this.memoryService.add(context.userID, {
+      content: args.content,
+      ...(args.tags && { tags: args.tags }),
+      source: 'user-saved',
+      confidence: 1.0,
+      ...(context.threadID && { scope: { threadID: context.threadID } }),
+      metadata: { runID: context.runID },
     });
 
     return {
       success: true,
-      result: { memoryID: entry.id, content: entry.content },
+      result: { memoryID: record.id, content: record.content },
     };
   }
 }
@@ -73,21 +77,19 @@ export class SearchMemoryAction implements BackendAction<
       return { success: false, error: 'User ID required to search memories' };
     }
 
-    const results = await this.memoryService.search(
-      context.userID,
-      args.query,
-      args.limit,
-    );
+    const hits = await this.memoryService.search(context.userID, args.query, {
+      limit: args.limit,
+    });
 
     return {
       success: true,
       result: {
-        count: results.length,
-        memories: results.map((m) => ({
-          id: m.id,
-          content: m.content,
-          tags: m.tags,
-          relevance: m.score,
+        count: hits.length,
+        memories: hits.map((hit) => ({
+          id: hit.record.id,
+          content: hit.record.content,
+          tags: hit.record.tags,
+          relevance: hit.effectiveScore,
         })),
       },
     };

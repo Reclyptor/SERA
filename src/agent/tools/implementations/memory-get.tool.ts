@@ -1,33 +1,10 @@
 import { z } from 'zod';
+import type { MemoryService } from '../../memory/memory.service';
 import type {
   Tool,
   ToolExecutionContext,
   ToolExecutionResult,
 } from '../tool.interface';
-
-interface MemoryServiceLike {
-  getAll(userID: string): Promise<
-    Array<{
-      id: string;
-      content: string;
-      metadata: Record<string, unknown>;
-      tags: string[];
-      createdAt: Date;
-    }>
-  >;
-  getByTags(
-    userID: string,
-    tags: string[],
-  ): Promise<
-    Array<{
-      id: string;
-      content: string;
-      metadata: Record<string, unknown>;
-      tags: string[];
-      createdAt: Date;
-    }>
-  >;
-}
 
 const parameters = z.object({
   tags: z
@@ -52,7 +29,7 @@ export class MemoryGetTool implements Tool<typeof parameters> {
     'Retrieve stored memories. Get all memories or filter by tags.';
   readonly parameters = parameters;
 
-  constructor(private readonly memoryService: MemoryServiceLike) {}
+  constructor(private readonly memoryService: MemoryService) {}
 
   async execute(
     args: z.infer<typeof parameters>,
@@ -68,16 +45,15 @@ export class MemoryGetTool implements Tool<typeof parameters> {
     }
 
     try {
-      const memories =
-        tags && tags.length > 0
-          ? await this.memoryService.getByTags(context.userID, tags)
-          : await this.memoryService.getAll(context.userID);
+      const records = await this.memoryService.getAll(context.userID, {
+        ...(tags && tags.length > 0 && { tags }),
+      });
 
-      const results = memories.slice(0, limit).map((m) => ({
-        id: m.id,
-        content: m.content,
-        tags: m.tags,
-        createdAt: m.createdAt,
+      const results = records.slice(0, limit).map((record) => ({
+        id: record.id,
+        content: record.content,
+        tags: record.tags,
+        createdAt: record.createdAt,
       }));
 
       return {

@@ -1,187 +1,203 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Memory, type MemoryItem } from 'mem0ai/oss';
+import {
+  MEMORY_BACKEND,
+  type MemoryBackend,
+} from './backend/memory-backend.interface';
+import { MemoryScorer } from './scoring/memory-scorer';
+import { MemoryReranker } from './reranker/memory-reranker';
+import type {
+  AddMemoryInput,
+  ListMemoryQuery,
+  MemoryRecord,
+  MemoryScope,
+  MemorySearchHit,
+} from './memory.types';
 
-export interface MemoryEntry {
-  id: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  tags: string[];
-  createdAt: Date;
-  score?: number;
-}
-
-export interface AddMemoryOptions {
-  metadata?: Record<string, unknown>;
+export interface SearchOptions {
+  scope?: MemoryScope;
   tags?: string[];
+  limit?: number;
+  prefetchLimit?: number;
 }
 
-const COLLECTION_NAME = 'mem0_memories';
+export interface ContextOptions {
+  scope?: MemoryScope;
+  limit?: number;
+}
 
+/**
+ * Public surface of the memory subsystem. The only thing imported by
+ * orchestrator, run-lifecycle, prompt-builder, tools, actions, the
+ * knowledge provider, and the controller. Storage details live behind
+ * the `MemoryBackend` interface; ranking lives in `MemoryScorer`;
+ * optional LLM rerank lives in `MemoryReranker`. See SPEC §13.
+ */
 @Injectable()
 export class MemoryService {
   private readonly logger = new Logger(MemoryService.name);
-  private readonly mem0: Memory;
+  private readonly searchLimit: number;
+  private readonly contextLimit: number;
+  private readonly prefetchLimit: number;
 
-  constructor(private readonly configService: ConfigService) {
-    const embeddingModel = this.configService.get<string>(
-      'OPENAI_EMBEDDING_MODEL',
-      'text-embedding-3-small',
+  constructor(
+    @Inject(MEMORY_BACKEND) private readonly backend: MemoryBackend,
+    private readonly scorer: MemoryScorer,
+    private readonly reranker: MemoryReranker,
+    private readonly configService: ConfigService,
+  ) {
+    this.searchLimit = Number(
+      this.configService.get<string>('MEMORY_SEARCH_LIMIT', '10'),
     );
-    const embeddingDims =
-      embeddingModel === 'text-embedding-3-large' ? 3072 : 1536;
-
-    const qdrantUrl = this.configService.get<string>(
-      'QDRANT_URL',
-      'http://qdrant.qdrant.svc.cluster.local:6333',
+    this.contextLimit = Number(
+      this.configService.get<string>('MEMORY_CONTEXT_LIMIT', '5'),
     );
-    const qdrantApiKey = this.configService.get<string>('QDRANT_API_KEY');
-
-    this.mem0 = new Memory({
-      vectorStore: {
-        provider: 'qdrant',
-        config: {
-          collectionName: COLLECTION_NAME,
-          dimension: embeddingDims,
-          embeddingModelDims: embeddingDims,
-          url: qdrantUrl,
-          ...(qdrantApiKey && { apiKey: qdrantApiKey }),
-        },
-      },
-      embedder: {
-        provider: 'openai',
-        config: {
-          apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-          model: embeddingModel,
-          embeddingDims,
-        },
-      },
-      llm: {
-        provider: 'anthropic',
-        config: { model: 'claude-haiku-4-5' },
-      },
-      disableHistory: true,
-    });
+    this.prefetchLimit = Number(
+      this.configService.get<string>('MEMORY_PREFETCH_LIMIT', '50'),
+    );
   }
 
-  private toEntry(item: MemoryItem): MemoryEntry {
-    const metadata = item.metadata ?? {};
-    const tags = Array.isArray(metadata.tags)
-      ? (metadata.tags as string[])
-      : [];
-    return {
-      id: item.id,
-      content: item.memory,
-      metadata,
-      tags,
-      createdAt: item.createdAt ? new Date(item.createdAt) : new Date(),
-      ...(item.score !== undefined && { score: item.score }),
-    };
+  // ─── Writes ────────────────────────────────────────────────────────
+
+  async add(userID: string, input: AddMemoryInput): Promise<MemoryRecord> {
+    return this.backend.add(userID, input);
   }
 
-  async add(
+  /**
+   * Verbatim conversation-pair write. Used by `RunLifecycleService` at
+   * run completion. Stores the round-trip text exactly as it was sent,
+   * with `source: run-extracted` and the default mid-confidence so the
+   * scorer can outrank it with explicitly user-saved memories.
+   */
+  async addPair(
     userID: string,
-    content: string,
-    options: AddMemoryOptions = {},
-  ): Promise<MemoryEntry> {
-    const metadata: Record<string, unknown> = { ...options.metadata };
-    if (options.tags?.length) {
-      metadata.tags = options.tags;
-    }
-
-    const result = await this.mem0.add(content, {
-      userId: userID,
-      metadata,
-      infer: false,
+    userText: string,
+    assistantText: string,
+    scope?: MemoryScope,
+  ): Promise<MemoryRecord> {
+    const content = `User: ${userText}\n\nAssistant: ${assistantText}`;
+    return this.backend.add(userID, {
+      content,
+      source: 'run-extracted',
+      confidence: 0.5,
+      tags: ['auto-extracted'],
+      ...(scope && { scope }),
     });
-
-    const created = result.results[0];
-    if (!created) {
-      throw new Error('Mem0 returned no results from add');
-    }
-
-    this.logger.debug(
-      `Added memory for user ${userID}: ${content.slice(0, 50)}...`,
-    );
-
-    return this.toEntry(created);
   }
+
+  // ─── Reads ─────────────────────────────────────────────────────────
 
   async search(
     userID: string,
     query: string,
-    limit: number = 5,
-    threshold: number = 0.7,
-  ): Promise<MemoryEntry[]> {
-    const result = await this.mem0.search(query, {
-      topK: limit,
-      filters: { user_id: userID },
-      threshold,
+    options: SearchOptions = {},
+  ): Promise<MemorySearchHit[]> {
+    const limit = options.limit ?? this.searchLimit;
+    const prefetchLimit = options.prefetchLimit ?? this.prefetchLimit;
+
+    const raw = await this.backend.hybridSearch({
+      userID,
+      query,
+      limit,
+      prefetchLimit,
+      ...(options.scope && { scope: options.scope }),
+      ...(options.tags && { tags: options.tags }),
     });
 
-    return result.results.map((item) => this.toEntry(item));
+    const scored = this.scorer.rescore(raw);
+    this.touchAsync(scored.map((hit) => hit.record.id));
+    return scored.slice(0, limit);
   }
 
-  async getAll(userID: string): Promise<MemoryEntry[]> {
-    const result = await this.mem0.getAll({
-      filters: { user_id: userID },
-    });
-
-    return result.results
-      .map((item) => this.toEntry(item))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }
-
-  async getByTags(userID: string, tags: string[]): Promise<MemoryEntry[]> {
-    const all = await this.getAll(userID);
-    return all.filter((entry) => tags.every((tag) => entry.tags.includes(tag)));
-  }
-
-  async delete(userID: string, memoryID: string): Promise<boolean> {
-    const ownedMemory = (await this.getAll(userID)).find(
-      (entry) => entry.id === memoryID,
-    );
-    if (!ownedMemory) return false;
-
-    await this.mem0.delete(memoryID);
-    return true;
-  }
-
-  async extractAndStore(
+  /**
+   * Per-session frozen-context capture. Hybrid search → score → LLM
+   * rerank → format as a prompt block. Failure is non-fatal:
+   * caller-visible errors here would block the run, and a missing
+   * memory block is always better than a failed run.
+   */
+  async getContextForQuery(
     userID: string,
-    conversation: string,
-  ): Promise<MemoryEntry[]> {
+    query: string,
+    options: ContextOptions = {},
+  ): Promise<string> {
     try {
-      const result = await this.mem0.add(conversation, {
-        userId: userID,
-        infer: true,
-        metadata: {
-          source: 'conversation_extraction',
-          tags: ['auto-extracted'],
-        },
+      const limit = options.limit ?? this.contextLimit;
+      const raw = await this.backend.hybridSearch({
+        userID,
+        query,
+        limit: Math.max(limit * 4, this.prefetchLimit),
+        prefetchLimit: this.prefetchLimit,
+        ...(options.scope && { scope: options.scope }),
       });
 
-      const entries = result.results.map((item) => this.toEntry(item));
+      if (raw.length === 0) return '';
 
-      this.logger.log(
-        `Extracted ${entries.length} memories for user ${userID}`,
-      );
-      return entries;
+      const scored = this.scorer.rescore(raw);
+      const reranked = await this.reranker.rerank(query, scored, limit);
+      if (reranked.length === 0) return '';
+
+      this.touchAsync(reranked.map((hit) => hit.record.id));
+
+      const lines = reranked.map((hit) => `- ${hit.record.content}`).join('\n');
+      return `Relevant information about this user:\n${lines}`;
     } catch (err) {
-      this.logger.warn(
-        'Memory extraction failed:',
-        err instanceof Error ? err.message : err,
+      this.logger.debug(
+        `getContextForQuery failed (non-fatal): ${err instanceof Error ? err.message : err}`,
       );
-      return [];
+      return '';
     }
   }
 
-  async getContextForQuery(userID: string, query: string): Promise<string> {
-    const memories = await this.search(userID, query, 5, 0.6);
+  async list(query: ListMemoryQuery): Promise<MemoryRecord[]> {
+    return this.backend.list(query);
+  }
 
-    if (memories.length === 0) return '';
+  async getAll(
+    userID: string,
+    options: { scope?: MemoryScope; tags?: string[] } = {},
+  ): Promise<MemoryRecord[]> {
+    return this.backend.list({
+      userID,
+      ...(options.scope && { scope: options.scope }),
+      ...(options.tags && { tags: options.tags }),
+    });
+  }
 
-    const memoryLines = memories.map((m) => `- ${m.content}`).join('\n');
-    return `Relevant information about this user:\n${memoryLines}`;
+  async getByID(
+    userID: string,
+    memoryID: string,
+  ): Promise<MemoryRecord | null> {
+    return this.backend.getByID(userID, memoryID);
+  }
+
+  async delete(userID: string, memoryID: string): Promise<boolean> {
+    return this.backend.delete(userID, memoryID);
+  }
+
+  /**
+   * Convenience used by `RunLifecycleService.completeRun`. Fire-and-
+   * forget by the caller; here we await internally and swallow errors
+   * so a memory write failure cannot mask a successful run.
+   */
+  async extractFromRun(
+    userID: string,
+    userMessage: string,
+    assistantMessage: string,
+    scope?: MemoryScope,
+  ): Promise<void> {
+    try {
+      await this.addPair(userID, userMessage, assistantMessage, scope);
+    } catch (err) {
+      this.logger.warn(
+        `extractFromRun failed for user ${userID}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  // ─── Internal ──────────────────────────────────────────────────────
+
+  private touchAsync(memoryIDs: string[]): void {
+    if (memoryIDs.length === 0) return;
+    void this.backend.touch(memoryIDs);
   }
 }

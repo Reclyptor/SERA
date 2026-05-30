@@ -122,11 +122,12 @@ export class RunLifecycleService {
     if (!goal.isHeartbeat) {
       const lastUserMsg = goal.userMessage;
       if (lastUserMsg && response) {
+        const scope = {
+          ...(goal.agentID && { agentID: goal.agentID }),
+          ...(threadID && { threadID }),
+        };
         this.memoryService
-          .extractAndStore(
-            userID,
-            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
-          )
+          .extractFromRun(userID, lastUserMsg, response, scope)
           .catch((err) => {
             this.logger.warn('Memory extraction failed:', err);
           });

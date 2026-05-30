@@ -6,8 +6,9 @@ import type {
 } from '../knowledge.interface';
 
 /**
- * Surfaces user memories as knowledge context. Queries the MemoryService's
- * semantic search and maps results to the KnowledgeResult format.
+ * Surfaces user memories as knowledge context. Constructed per-query
+ * by `PromptBuilderService` with the active user ID so memory results
+ * are scoped to the right tenant without leaking across users.
  */
 export class MemoryKnowledgeProvider implements KnowledgeProvider {
   readonly name = 'memory';
@@ -19,33 +20,30 @@ export class MemoryKnowledgeProvider implements KnowledgeProvider {
 
   async search(query: KnowledgeQuery): Promise<KnowledgeResult[]> {
     const limit = query.limit ?? 5;
-    const minScore = query.minScore ?? 0.6;
-
-    const memories = await this.memoryService.search(
-      this.userID,
-      query.query,
+    const hits = await this.memoryService.search(this.userID, query.query, {
       limit,
-      minScore,
-    );
+    });
 
-    return memories.map((memory) => ({
+    return hits.map(({ record, effectiveScore }) => ({
       chunk: {
-        documentID: memory.id,
-        chunkID: memory.id,
-        content: memory.content,
+        documentID: record.id,
+        chunkID: record.id,
+        content: record.content,
         startOffset: 0,
-        endOffset: memory.content.length,
+        endOffset: record.content.length,
         metadata: {
-          tags: memory.tags,
-          ...memory.metadata,
+          tags: record.tags,
+          source: record.source,
+          confidence: record.confidence,
+          ...record.metadata,
         },
       },
-      score: memory.score ?? 0,
+      score: effectiveScore,
       document: {
-        id: memory.id,
-        content: memory.content,
+        id: record.id,
+        content: record.content,
         source: 'user-memory',
-        metadata: memory.metadata,
+        metadata: record.metadata,
       },
     }));
   }
