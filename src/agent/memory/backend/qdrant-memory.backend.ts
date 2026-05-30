@@ -241,9 +241,18 @@ export class QdrantMemoryBackend implements MemoryBackend, OnModuleInit {
     const denseVector = await this.embed(query.query);
     const sparseVector = encodeSparse(query.query);
 
-    let results;
+    interface ScoredPoint {
+      id: string | number;
+      score?: number;
+      payload?: Record<string, unknown>;
+    }
+    interface QueryResponse {
+      points: ScoredPoint[];
+    }
+
+    let results: QueryResponse;
     try {
-      results = await this.client.query(this.collection, {
+      results = (await this.client.query(this.collection, {
         prefetch: [
           {
             query: denseVector,
@@ -262,7 +271,7 @@ export class QdrantMemoryBackend implements MemoryBackend, OnModuleInit {
         filter,
         limit,
         with_payload: true,
-      });
+      })) as unknown as QueryResponse;
     } catch (err) {
       this.logger.error('Hybrid search failed:', err);
       return [];
@@ -271,10 +280,11 @@ export class QdrantMemoryBackend implements MemoryBackend, OnModuleInit {
     return results.points.map((point) => {
       const payload = point.payload as unknown as MemoryPayload;
       const record = this.payloadToRecord(String(point.id), payload);
+      const score = point.score ?? 0;
       return {
         record,
-        rawScore: point.score ?? 0,
-        effectiveScore: point.score ?? 0,
+        rawScore: score,
+        effectiveScore: score,
       };
     });
   }
@@ -374,10 +384,7 @@ export class QdrantMemoryBackend implements MemoryBackend, OnModuleInit {
 
   // ─── Update confidence (consolidator) ──────────────────────────────
 
-  async updateConfidence(
-    memoryID: string,
-    confidence: number,
-  ): Promise<void> {
+  async updateConfidence(memoryID: string, confidence: number): Promise<void> {
     await this.ensureCollection();
     await this.client.setPayload(this.collection, {
       payload: { confidence },

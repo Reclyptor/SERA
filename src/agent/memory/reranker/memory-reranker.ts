@@ -116,8 +116,11 @@ export class MemoryReranker {
     for (const candidate of candidates) {
       if (!candidate) continue;
       try {
-        const parsed = JSON.parse(candidate);
-        if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+        const parsed: unknown = JSON.parse(candidate);
+        if (
+          Array.isArray(parsed) &&
+          parsed.every((x): x is string => typeof x === 'string')
+        ) {
           return parsed;
         }
       } catch {

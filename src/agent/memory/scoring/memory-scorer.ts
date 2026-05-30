@@ -49,9 +49,8 @@ export class MemoryScorer {
   }
 
   rescore(hits: MemorySearchHit[], now: Date = new Date()): MemorySearchHit[] {
-    const tau = Number.isFinite(this.tauDays) && this.tauDays > 0
-      ? this.tauDays
-      : 90;
+    const tau =
+      Number.isFinite(this.tauDays) && this.tauDays > 0 ? this.tauDays : 90;
     const cw =
       Number.isFinite(this.confidenceWeight) &&
       this.confidenceWeight >= 0 &&
