@@ -1820,41 +1820,187 @@ Two event channels surface the same underlying pending-confirmation lifecycle: `
 
 ## 13. Memory System
 
-### Backend
+### Overview
 
-User memories are stored via the **Mem0 OSS** library (`mem0ai/oss`) with:
+The memory subsystem stores per-user long-term facts and conversation context that survive across runs and threads. It is multi-tenant, scoped on every read and write to the authenticated `userID`, and structured so the same store can be sliced further by `agentID`, `threadID`, or `projectID` at query time.
 
-- **Vector Store:** Qdrant (collection: `mem0_memories`)
-- **Embeddings:** OpenAI (`text-embedding-3-small` or configured model, dimensions: 1536 default, 3072 for `text-embedding-3-large`)
-- **LLM for extraction:** Anthropic (`claude-haiku-4-5`)
-- **History:** Disabled (`disableHistory: true`)
+The implementation is native to SERA — there is no third-party memory library in the data path. The previous Mem0 OSS dependency has been removed: it forced a paraphrase-on-write (`infer:true`) extraction model that was lossy and non-deterministic, scanned the entire user corpus for ownership checks on delete, and exposed only flat tag filtering. The new system is built directly on the existing Qdrant cluster, uses native sparse + dense vectors with payload-indexed filtering, and treats the conversation as **verbatim source-of-truth** rather than as a paraphrasing target.
 
-### Operations
+### Design Principles
 
-| Method                                      | Description                                                                                                               |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `add(userID, content, options?)`            | Store a memory with optional tags and metadata (`infer: false` — stores verbatim)                                         |
-| `search(userID, query, limit?, threshold?)` | Semantic search (default threshold: 0.7)                                                                                  |
-| `getAll(userID)`                            | Retrieve all memories, sorted by createdAt desc                                                                           |
-| `getByTags(userID, tags)`                   | Filter memories containing all specified tags                                                                             |
-| `delete(userID, memoryID)`                  | Delete single memory                                                                                                      |
-| `extractAndStore(userID, conversation)`     | Use Mem0 inference (`infer: true`) to extract facts from conversation. Tags auto-extracted entries with `auto-extracted`. |
-| `getContextForQuery(userID, query)`         | Search with limit 5, threshold 0.6. Formats as `Relevant information about this user:\n- memory1\n- memory2`              |
+1. **Verbatim storage.** Conversation pairs are stored as the original user/assistant text. No LLM-driven extraction at write time. The retrieval pipeline does the smart filtering, not the writer. This makes writes deterministic, audit-friendly, and reversible — re-running the same transcript twice produces the same memory IDs, and a corrupted/over-eager paraphrase can never silently rewrite history.
+2. **Hybrid retrieval.** Every query fans out across dense (semantic) and sparse (lexical) signals, then fuses with Reciprocal Rank Fusion (RRF). Recency and confidence are applied as post-fusion modifiers so a memory that is highly relevant but stale ranks behind a recent equally-relevant one.
+3. **Scoped, not flat.** Memories carry first-class `agentID`, `threadID`, and `projectID` fields stored as payload-indexed filters in Qdrant. Tag arrays remain available for ad-hoc grouping but are not the primary scoping mechanism. Scope filters are O(log N) via payload indexes — not O(N) post-fetch as in the prior Mem0 implementation.
+4. **Lifecycle.** Memories have an explicit `confidence ∈ [0, 1]` and decay against time-since-last-access. A daily consolidator deduplicates near-identical entries and demotes long-unused ones. The store does not grow unboundedly per user.
+5. **Pluggable backend.** `MemoryService` consumes a `MemoryBackend` interface. The only shipped implementation is `QdrantMemoryBackend`, but the interface is sized so a future Postgres, hybrid, or local-disk backend can drop in without touching `RunLifecycleService`, `OrchestratorService`, `PromptBuilderService`, the tool layer, the action layer, or `MemoryKnowledgeProvider`.
 
-### Automatic Memory Extraction
+### Architecture
 
-After each completed run (unless it's a heartbeat run), the orchestrator calls `extractAndStore()` with the conversation, allowing Mem0 to automatically identify and store important facts.
+```
+MemoryService                           ← public surface (the only thing callers see)
+   │
+   ├── MemoryBackend  (interface)       ← swap point
+   │     └── QdrantMemoryBackend        ← shipped implementation
+   │           ├── dense vectors        (OpenAI embeddings)
+   │           ├── sparse vectors       (BM25-style with Qdrant IDF modifier)
+   │           └── payload indexes      (user_id, agent_id, thread_id, project_id, confidence, created_at, last_read_at)
+   │
+   ├── MemoryScorer                     ← RRF fusion + recency decay + confidence weighting
+   ├── MemoryReranker (optional)        ← Haiku 4.5 final-stage rerank for getContextForQuery
+   └── MemoryConsolidatorService        ← daily cron: dedupe + decay + expire
+```
 
-### HTTP Endpoints
+`MemoryService` is the only type imported by orchestrator, run-lifecycle, prompt-builder, tools, actions, controller, and the knowledge provider. The backend, scorer, reranker, and consolidator are private to the module.
 
-`MemoryController` (mounted at `/api/v1/memories` via `MemoryModule`, discoverable through `AgentModule → OrchestrationModule → MemoryModule` — not re-imported into `AppModule`). Routes are scoped to the authenticated user via `@CurrentUser()`; a user can only list and delete their own entries.
+### Storage Schema
 
-| Method | Path            | Description                                                                                                        |
-| ------ | --------------- | ------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/memories`     | List all memories for the current user, sorted by `createdAt` desc                                                 |
-| DELETE | `/memories/:id` | Delete a single memory. `memoryService.delete()` first checks ownership via `getAll()`; returns 404 if not present |
+**Collection:** `sera_memories` (single shared collection, multi-tenant by `user_id` filter).
 
-Response shape (`MemoryResponse`): `{ id, content, tags, metadata, createdAt }` where `createdAt` is an ISO-8601 string. The list endpoint is the source of truth for the Manage → Memories tab in SERAUI.
+**Named vectors:**
+
+| Vector  | Dimension                   | Distance | Source                                                                |
+| ------- | --------------------------- | -------- | --------------------------------------------------------------------- |
+| `dense` | 1536 (default) / 3072       | Cosine   | OpenAI `text-embedding-3-small` (default) or `text-embedding-3-large` |
+| `sparse`| variable (vocab-driven)     | Dot      | Local tokenizer with Qdrant server-side `modifier: "idf"`             |
+
+The sparse vector is a hashed-token bag-of-words computed in-process — no external service, no IDF tracking on our side. Qdrant's `modifier: "idf"` applies inverse-document-frequency weighting at query time against the collection it lives in, which gives BM25-style behavior for free.
+
+**Payload fields:**
+
+| Field           | Type       | Indexed | Purpose                                                                  |
+| --------------- | ---------- | ------- | ------------------------------------------------------------------------ |
+| `user_id`       | keyword    | yes     | Tenant isolation; always present on every filter                         |
+| `agent_id`      | keyword    | yes     | Scope by source agent (optional)                                         |
+| `thread_id`     | keyword    | yes     | Scope by source thread (optional)                                        |
+| `project_id`    | keyword    | yes     | Scope by user-defined project grouping (optional)                        |
+| `confidence`    | float      | yes     | `[0, 1]`; user-saved = 1.0, auto-captured = 0.5, decayed over time       |
+| `created_at`    | datetime   | yes     | Write timestamp; drives recency decay                                    |
+| `last_read_at`  | datetime   | yes     | Updated asynchronously on retrieval hit; drives staleness decay          |
+| `content`       | text       | no      | Verbatim memory text                                                     |
+| `tags`          | keyword[]  | no      | Free-form labels (e.g. `preference`, `auto-extracted`, `commitment`)     |
+| `source`        | keyword    | no      | `user-saved` / `run-extracted` / `imported` — provenance                 |
+| `metadata`      | object     | no      | Pass-through; opaque to retrieval                                        |
+
+`user_id` payload-indexed filter combined with vector search is the foundational pattern. Delete uses `(point_id, user_id)` filter — no full corpus scan as in the prior implementation.
+
+### Confidence and Decay
+
+| Source                                        | Initial confidence |
+| --------------------------------------------- | ------------------ |
+| `save_memory` action (explicit user save)     | `1.0`              |
+| `MemoryService.add(...)` direct call          | configurable, default `1.0`            |
+| Run extraction (`extractFromRun`)             | `0.5`              |
+
+**Recency decay** is applied at query time, not at write time, so the stored confidence never drifts on its own:
+
+```
+ageDays   = (now - last_read_at) / 86_400_000
+decay     = exp(-ageDays / MEMORY_DECAY_TAU_DAYS)        // τ default 90
+effective = baseScore × (MEMORY_CONFIDENCE_WEIGHT × confidence + 1 - MEMORY_CONFIDENCE_WEIGHT) × decay
+```
+
+A memory is "alive" for years if it keeps getting read; it ranks lower if nothing has touched it in months. `last_read_at` is bumped opportunistically on retrieval hits via a fire-and-forget batch update so the read path stays fast.
+
+### Retrieval Pipeline
+
+`MemoryService.search(query, scope, options)` and `MemoryService.getContextForQuery(...)` both go through:
+
+1. **Hybrid search.** Single Qdrant Query API call with two prefetches (dense + sparse) and `Fusion::Rrf`. Filtered by `user_id` and any provided scope. Default `prefetchLimit = 50`, `limit = 20` candidates returned for downstream scoring.
+2. **Score fusion.** `MemoryScorer` applies confidence weighting and exponential recency decay (above formula) over the RRF score, producing a final effective score per candidate.
+3. **Optional LLM rerank.** Only invoked from `getContextForQuery` (the per-session frozen-context capture) and only when `MEMORY_RERANK_ENABLED=true`. `MemoryReranker` sends top-20 candidates + the query to Haiku 4.5 via the existing `ModelRouterService` and asks it to return the most relevant top-K. Failure is non-fatal — the un-reranked top-K is returned. `memory_search` tool calls never invoke rerank to avoid per-tool-call LLM cost.
+4. **Top-K return.** Default `K = 5` for context, `K = 10` for explicit `memory_search`.
+5. **Touch.** `last_read_at` is updated on every returned point asynchronously after the response is sent to the caller.
+
+### Public Surface
+
+`MemoryService` exposes a smaller, scope-aware API than the prior implementation:
+
+| Method                                                  | Description                                                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `add(userID, content, options?)`                        | Verbatim store. Options: `tags`, `agentID`, `threadID`, `projectID`, `confidence`, `source`, `metadata`                |
+| `addPair(userID, userText, assistantText, options?)`    | Convenience for run extraction — stores one verbatim record of the round-trip with `source: run-extracted` and `confidence: 0.5` |
+| `search(userID, query, options?)`                       | Hybrid search. Options: `scope` (agent/thread/project), `limit`, `tags`, `minScore`                                    |
+| `getContextForQuery(userID, query, options?)`           | Hybrid search + rerank, formatted as a prompt block. Options: `scope`, `limit`                                         |
+| `getAll(userID, options?)`                              | Paginated list. Options: `scope`, `tags`, `limit`, `offset`. Sorted by `created_at` desc                               |
+| `delete(userID, memoryID)`                              | Ownership-checked single delete via `(point_id, user_id)` filter                                                       |
+| `extractFromRun(userID, userMessage, assistantMessage, scope)` | Called by `RunLifecycleService` after run completion (non-heartbeat). Wraps `addPair` with run-derived scope    |
+
+There is no `getByTags(userID, tags)` — the equivalent is `search` or `getAll` with `tags`. There is no separate `extractAndStore` that runs LLM inference — `extractFromRun` writes verbatim.
+
+### Tools, Actions, Controller
+
+The shape of agent-facing tools and actions is preserved so prompts and skills continue to work, but the backing implementation runs through the new service:
+
+| Surface         | Name              | Backed By                                                                              |
+| --------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| Tool (read)     | `memory_search`   | `MemoryService.search` with current run scope (agentID/threadID) applied by default     |
+| Tool (read)     | `memory_get`      | `MemoryService.getAll` with current scope                                              |
+| Action (write)  | `save_memory`     | `MemoryService.add` with `confidence: 1.0`, `source: user-saved`                        |
+| Action (read)   | `search_memory`   | `MemoryService.search`                                                                  |
+| Action (delete) | `delete_memory`   | `MemoryService.delete` (`requiresConfirmation: true` retained)                          |
+
+`MemoryController` keeps the same `/api/v1/memories` surface (`GET /` list, `DELETE /:id`) and the same `MemoryResponse` shape `{ id, content, tags, metadata, createdAt }`. The list endpoint returns memories sorted by `created_at` desc, scoped to the authenticated user. The Manage → Memories tab in SERAUI continues to work without changes.
+
+### Knowledge Integration
+
+`MemoryKnowledgeProvider` (registered per-request by `PromptBuilderService`) wraps `MemoryService.search` and exposes user memories to the knowledge layer's RRF context-builder. No change to the knowledge interface.
+
+### Frozen Context Cache
+
+`OrchestratorService` captures `getContextForQuery(...)` once per session into `frozenMemoryContext` and freezes it for the duration of the run, preserving the Anthropic prompt prefix cache. Mid-run writes update Qdrant but never mutate the system prompt within the active run. This invariant is preserved exactly as before — the only change is that the query path is now hybrid + reranked.
+
+### Consolidation (Background Lifecycle)
+
+`MemoryConsolidatorService` runs on a configurable interval (default daily) via the same `setInterval` pattern used by `SkillCuratorService`. Each cycle:
+
+1. **Scrolls** the `sera_memories` collection in pages, grouping by `user_id`.
+2. **Dedupes** within each user: any two points with cosine similarity ≥ 0.95 collapse into the higher-confidence-and-newer entry; the loser is deleted. The merged entry inherits the union of tags.
+3. **Decays** confidence by a flat amount (default `0.02`) on points whose `last_read_at` is older than `MEMORY_STALE_DAYS` (default 30).
+4. **Expires** any point whose post-decay confidence falls below `MEMORY_MIN_CONFIDENCE` (default 0.1).
+
+The cycle is idempotent, batched (default 256 points / page), and emits a structured summary to the Nest logger.
+
+### Environment Variables
+
+| Variable                       | Default              | Description                                                              |
+| ------------------------------ | -------------------- | ------------------------------------------------------------------------ |
+| `MEMORY_COLLECTION`            | `sera_memories`      | Qdrant collection name                                                   |
+| `MEMORY_DECAY_TAU_DAYS`        | `90`                 | Time constant `τ` (days) for exponential recency decay                   |
+| `MEMORY_CONFIDENCE_WEIGHT`     | `0.5`                | `[0, 1]` blend between flat score and confidence-weighted score          |
+| `MEMORY_RERANK_ENABLED`        | `true`               | Enable LLM rerank in `getContextForQuery`                                |
+| `MEMORY_RERANK_MODEL`          | `anthropic/claude-haiku-4-5` | Provider/model used by `MemoryReranker`                          |
+| `MEMORY_PREFETCH_LIMIT`        | `50`                 | Qdrant prefetch candidates per branch (dense / sparse) before RRF        |
+| `MEMORY_CONTEXT_LIMIT`         | `5`                  | Top-K returned by `getContextForQuery` after rerank                      |
+| `MEMORY_SEARCH_LIMIT`          | `10`                 | Default top-K returned by `MemoryService.search`                         |
+| `MEMORY_CONSOLIDATION_INTERVAL_MS` | `86400000`        | Consolidator cycle period (default 24h). `0` disables the cycle.         |
+| `MEMORY_STALE_DAYS`            | `30`                 | Days of no read access before consolidator decays a memory               |
+| `MEMORY_MIN_CONFIDENCE`        | `0.1`                | Post-decay confidence floor below which a memory is expired              |
+| `MEMORY_DUPLICATE_THRESHOLD`   | `0.95`               | Cosine similarity at which two memories merge during consolidation       |
+
+`OPENAI_EMBEDDING_MODEL` continues to drive the dense vector embedder. `QDRANT_URL` / `QDRANT_API_KEY` are unchanged. `MEMORY_NUDGE_INTERVAL` is retained — the in-loop reminder to save memories is independent of the storage layer.
+
+### Migration From Mem0
+
+There is no data migration. The Mem0 collection `mem0_memories` and the new collection `sera_memories` are disjoint; the old collection is orphaned at cutover. This is intentional and matches the user-approved nuke-and-rebuild scope — Mem0's paraphrased contents were not authoritative and re-extracting them would replay the original lossiness. New conversations populate `sera_memories` immediately on the first post-deploy run.
+
+The `mem0ai` package and its `overrides` block are removed from `package.json`. The Qdrant cluster operator is responsible for deleting the orphan `mem0_memories` collection at their discretion.
+
+### Phased Implementation Plan
+
+Each phase is a self-contained, reviewable commit and includes a verification step before the next phase begins.
+
+| Phase | Scope                                                                                                                                                                                                                                                          | Verification                       |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| 1     | Spec rewrite (this section).                                                                                                                                                                                                                                   | Spec review.                       |
+| 2     | `MemoryBackend` interface + shared types (`MemoryRecord`, `MemoryScope`, `MemoryQuery`, `MemorySearchResult`). New dir layout: `src/agent/memory/{backend,scoring,lifecycle,reranker}/`.                                                                       | `npm run build`.                   |
+| 3     | `QdrantMemoryBackend` with verbatim writes, hybrid (dense + sparse) search, scope filters, payload-indexed delete. Collection bootstrap on module init.                                                                                                       | `npm run build`.                   |
+| 4     | `MemoryScorer` (RRF + recency decay + confidence weighting) and `MemoryReranker` (Haiku 4.5 final pass). Configuration knobs wired to `env.schema.ts`.                                                                                                          | `npm run build`.                   |
+| 5     | `MemoryService` rewrite as the public surface over the backend + scorer + reranker. Old Mem0 service deleted in the same commit.                                                                                                                              | `npm run build`.                   |
+| 6     | Rewire callers: `OrchestratorService.getContextForQuery`, `RunLifecycleService.extractFromRun`, `PromptBuilderService` knowledge provider, `MemorySearchTool` / `MemoryGetTool`, `SaveMemoryAction` / `SearchMemoryAction` / `DeleteMemoryAction`, `MemoryController`, `MemoryKnowledgeProvider`. | `npm run build` + `npm test`.      |
+| 7     | `MemoryConsolidatorService` daily background job, registered in `MemoryModule`.                                                                                                                                                                               | `npm run build`.                   |
+| 8     | Remove `mem0ai` from `dependencies` + `overrides`. Update lockfile.                                                                                                                                                                                           | `npm run build`.                   |
+| 9     | Vitest unit tests: scorer (RRF fusion, decay, confidence), reranker (graceful fallback on LLM failure), consolidator (dedupe + decay + expire), scope filter encoding. Mocked Qdrant.                                                                          | `npm test`.                        |
+| 10    | Lint + typecheck + test gate, push to `master`, await CI image build, `kubectl rollout restart` of the SERA Deployment, push notification on completion.                                                                                                       | Image SHA published; pod ready.    |
 
 ---
 
