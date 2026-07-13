@@ -37,10 +37,11 @@
 27. [Storage](#27-storage)
 28. [Autonomy Features](#28-autonomy-features)
 29. [Agent Maturity Implementation Plan](#29-agent-maturity-implementation-plan)
-30. [Appendix A: Deployment](#appendix-a-deployment)
-31. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
-32. [Appendix C: SyncResult](#appendix-c-syncresult)
-33. [Appendix D: Test Tooling](#appendix-d-test-tooling)
+30. [Volition & Proactive Companionship](#30-volition--proactive-companionship)
+31. [Appendix A: Deployment](#appendix-a-deployment)
+32. [Appendix B: State Snapshot](#appendix-b-state-snapshot)
+33. [Appendix C: SyncResult](#appendix-c-syncresult)
+34. [Appendix D: Test Tooling](#appendix-d-test-tooling)
 
 ---
 
@@ -797,6 +798,40 @@ Authoritative allowlist of models the system will accept. Both `POST /agent/chat
 | `updatedAt`                 | Date   | (auto)   |         |        |
 
 `spec` is the canonical `provider/modelID` join key used by `Chat.model`, `AgentConfig.modelOptions.preferredModel`, and request body fields. Pricing fields express **cents per million tokens** (integer); the cost calculator divides by 1,000,000 when applying to token counts.
+
+### 4.20 Intention
+
+**Collection:** `intentions`
+
+A self-generated future follow-up the agent inferred on its own — something the user *mentioned* but never explicitly asked SERA to track. Distinct from [4.17 Commitment](#417-commitment): a Commitment records a promise the agent made out loud ("I'll send that by Friday"); an Intention records a care the agent chose ("you have an interview tomorrow — I'll check in after"). Different provenance, different trust model (see §30). Raw conversation text is **never** persisted here — only the distilled `summary` and `suggestedText`.
+
+| Field            | Type                                                                        | Required | Default   | Index    |
+| ---------------- | --------------------------------------------------------------------------- | -------- | --------- | -------- |
+| `intentionID`    | String                                                                      | Yes      |           | Unique   |
+| `agentID`        | String                                                                      | Yes      |           | Yes      |
+| `userID`         | String                                                                      | Yes      |           | Yes      |
+| `kind`           | Enum: `event_check_in`, `deadline_check`, `care_check_in`, `open_loop`      | Yes      |           |          |
+| `summary`        | String                                                                      | Yes      |           |          |
+| `suggestedText`  | String                                                                      | Yes      |           |          |
+| `confidence`     | Number (0–1)                                                                | Yes      |           |          |
+| `earliestAt`     | Date                                                                        | Yes      |           | Yes      |
+| `latestAt`       | Date                                                                        | No       |           |          |
+| `timezone`       | String                                                                      | No       | `UTC`     |          |
+| `dedupeKey`      | String                                                                      | Yes      |           | Compound |
+| `status`         | Enum: `pending`, `surfaced`, `acted`, `dismissed`, `snoozed`, `expired`     | No       | `pending` |          |
+| `snoozedUntil`   | Date                                                                        | No       |           |          |
+| `sourceRunID`    | String                                                                      | No       | `''`      |          |
+| `sourceThreadID` | String                                                                      | No       | `''`      |          |
+| `surfacedRunID`  | String                                                                      | No       | `''`      |          |
+| `tags`           | String[]                                                                    | No       | `[]`      |          |
+| `metadata`       | Mixed                                                                       | No       | `{}`      |          |
+| `createdAt`      | Date                                                                        | (auto)   |           |          |
+| `updatedAt`      | Date                                                                        | (auto)   |           |          |
+
+- `summary` is the agent's private note of what it noticed; it is never sent to the user. `suggestedText` is the candidate natural-language check-in and is treated as **untrusted data** at delivery time (§30.2).
+- `earliestAt` is anti-echo clamped: `max(inferred, now + heartbeatInterval(agentID))`, so an intention can never fire on the same tick that created it.
+- `dedupeKey` is `sha256(agentID + kind + normalizedSubject)`. A compound unique index on `{ agentID, dedupeKey }` prevents duplicate intentions; a re-inferred duplicate refreshes `confidence`/`earliestAt` instead of inserting a second row.
+- Primary query index is `{ agentID, status, earliestAt }` for the due-intention lookup performed at heartbeat time.
 
 ---
 
@@ -1785,6 +1820,7 @@ interface BackendAction<TParams extends z.ZodType> {
 | `send_notification`      | `title`, `message`, `level?` (info/warning/error/success)                                                     | No           | In-chat UI signal emitted as a `text.done` SSE event with a `notification` payload |
 | `send_push_notification` | `title?`, `message`, `priority?` (min/low/default/high/max), `tags?`, `click?`, `actions?` (view/http, max 3) | No           | Off-session device push via ntfy; surfaces transport failures as `success: false`  |
 | `request_confirmation`   | `message`, `actionName`, `actionArgs?`, `timeoutMs?` (5 min)                                                  | No           | Pause run and wait for user approval                                               |
+| `manage_intention`       | `operation` (create/act/snooze/dismiss) + per-op fields (`suggestedText`/`kind`/`delayMinutes`/`dueAt`, or `intentionID`/`snoozeMinutes`) | No | Agent curates its own future follow-ups (§30.9): create a self-check-in, or act/snooze/dismiss a surfaced intention by ID |
 
 ### Push Notification Transport
 
@@ -1971,6 +2007,8 @@ The shape of agent-facing tools and actions is preserved so prompts and skills c
 4. **Expires** any point whose post-decay confidence falls below `MEMORY_MIN_CONFIDENCE` (default 0.1).
 
 The cycle is idempotent, batched (default 256 points / page), and emits a structured summary to the Nest logger.
+
+`MemoryConsolidatorService` is the *mechanical* half of memory upkeep. Its *reflective* sibling is `DreamingService` (§30.9 Phase 5), which nightly distills durable facts from the intentions the agent acted on and writes them into this same store.
 
 ### Environment Variables
 
@@ -2281,7 +2319,7 @@ The `attempts` counter is incremented only on lease-expiry reclaims, not on the 
 
 ## 21. Heartbeat System
 
-Heartbeats are periodic background agent runs for autonomous monitoring.
+Heartbeats are periodic background agent runs for autonomous monitoring. Under the volition layer (§30), the heartbeat message is an open-ended "decide if anything warrants attention" prompt whose default outcome is silence (the `SERA_IDLE` sentinel), not a static checklist poll. See §30.2–30.3.
 
 ### Configuration
 
@@ -2660,6 +2698,8 @@ The commitment data model is defined in [4.16 Commitment](#416-commitment).
 
 **Extraction toggle:** Controlled by `COMMITMENT_EXTRACTION_ENABLED` (default `true`).
 
+**Relation to Intentions:** Commitments capture promises the agent *made*. Self-generated follow-ups the agent *chose* to track (things the user only mentioned) are a separate concern — the Intention engine (§30.4, data model §4.20).
+
 ---
 
 ## 29. Agent Maturity Implementation Plan
@@ -2768,6 +2808,117 @@ The full module structure for the context subsystem is documented in §9. The im
 - Anti-thrash and cooldown policy (`CompressionPolicy`) prevent pathological compression loops; force bypasses both.
 - Compression and reference-expansion state surface through `context.compression.*` and `context.reference.*` SSE events documented in §8.
 - `ContextReferencePreprocessor` (§9.11) expands `@file:`/`@diff`/`@staged`/`@url:` references in user messages before they reach the orchestrator. Reuses `PathValidator` and `URLValidator` from §23. Feature-gated by `CONTEXT_REFERENCES_ENABLED`.
+
+---
+
+## 30. Volition & Proactive Companionship
+
+§29 (Agent Maturity) hardened *correctness and safety*. This section defines a different concern: **volition** — SERA forming its own intentions, deciding whether to act or stay silent, and reaching out unprompted like a companion rather than replying like a chatbot. The scheduling substrate already exists (§21 Heartbeat, §20 Cron, §19 Triggers, §28 Autonomy Features); §30 is the motivational layer on top of it.
+
+The design is deliberately unmagical. It mirrors the two mechanisms that turn a turn-based agent into a proactive one in comparable systems: (a) a self-generated intention store, and (b) an open-ended wake turn whose *default* is silence. SERA already has the harder half — autonomous runs reuse the normal turn pipeline via `OrchestratorService.executeGoal(..., { isHeartbeat: true })`, so no parallel "autonomous brain" is introduced.
+
+### 30.1 Design Principles
+
+- **One pipeline.** Proactive turns run through `executeGoal` exactly like user turns. There is no second code path for "autonomous mode."
+- **Default silent.** A proactive turn produces **zero** user-visible output unless the agent affirmatively decides to speak (§30.3). Silence is success, not failure.
+- **Untrusted self-content.** Intention and commitment fields are injected into prompts as *data the model must not obey as instructions*. A `suggestedText` containing "ignore your instructions…" must not change behavior.
+- **Persist the intention, not the process.** Volition state lives in Mongo (`intentions`, `commitments`) and is re-hydrated each tick. Continuity of "self" is a database read; it survives restarts for free.
+- **Anti-echo.** A newly inferred intention can never fire on the tick that created it (`earliestAt ≥ now + heartbeatInterval`).
+- **Balanced posture.** SERA reaches out for genuinely meaningful signal within active hours, and stays quiet on noise. The thresholds in §30.7 are the tuning surface for that posture.
+
+### 30.2 Open-Ended Heartbeat Contract (Phase 1)
+
+The heartbeat message (§21) changes from a static checklist poll to an open-ended volition prompt. Instead of `"[Heartbeat] Periodic check activated. Review pending tasks."`, the `heartbeat` prompt slug presents the agent with:
+
+1. its **standing context** — the `soul` / `identity` / `user` prompts already loaded by `PromptBuilderService` (§6);
+2. **due commitments** (§28.8);
+3. **due intentions** (§30.4), explicitly delimited as untrusted data;
+4. a short **"what changed since last tick"** digest (recent memory / new signals);
+
+and asks it to decide whether anything genuinely warrants an action or a message.
+
+**Silence sentinel.** If nothing warrants attention, the agent's final text is exactly the sentinel `SERA_IDLE` (configurable, §30.7). `RunLifecycleService` detects the sentinel and:
+
+- suppresses every user-visible surface (no chat write, no push);
+- marks the run `completed` with classification `heartbeat.idle`;
+- still runs the initiative reflection (§30.6).
+
+Any outbound the agent *does* want to send is an explicit act — a chat write or a `send_push_notification` call (§12) — and is subject to the proactive gate (§30.3). This inverts today's implicit behavior (a heartbeat run that says something says it unconditionally) into an opt-in-to-speak contract.
+
+### 30.3 Proactive-Message Gate (Phase 1)
+
+Before any outbound produced during an autonomous run (`isHeartbeat: true`) reaches the user, it passes a gate:
+
+- **Active hours** — within the agent's `activeHours` window (reuses the heartbeat config; enforced when `PROACTIVE_ACTIVE_HOURS_ENFORCED=true`).
+- **Confidence** — if the outbound is driven by an intention/commitment, its `confidence ≥ INTENTION_MIN_CONFIDENCE`.
+- **Rate limit** — no more than `PROACTIVE_MAX_PER_DAY` unsolicited pushes per rolling 24h per agent.
+- **Recency dedupe** — not substantially the same as a recently delivered surface.
+
+A message that fails the gate is **held, not sent**: the driving intention is moved to `snoozed` (with `snoozedUntil`) rather than dropped, so it is reconsidered on a later tick instead of being lost or repeated. The gate is the concrete implementation of the "balanced companion" posture — loosening `PROACTIVE_MAX_PER_DAY` / lowering thresholds moves toward "eager," tightening moves toward "reserved."
+
+### 30.4 Intention Engine (Phase 2)
+
+A new sibling module `src/agent/intentions/` — deliberately separate from `commitments/` because the two answer different questions (§4.20). It mirrors the commitments extraction shape but infers **unrequested** future care.
+
+- **Extraction.** After each *non-heartbeat* run, `IntentionExtractorService` runs a hidden, **tool-disabled** LLM pass over the turn (analogous to `CommitmentExtractorService`, §28.8) to infer future follow-ups the user did **not** explicitly schedule. Categories: `event_check_in` (a dated event the user mentioned), `deadline_check` (a deadline worth a nudge), `care_check_in` (a personal/emotional thread worth following up), `open_loop` (an unresolved thread). Wired via the run-lifecycle post-turn hook; skipped for heartbeat runs to avoid self-reinforcing loops.
+- **Persistence.** Emits `Intention` records (§4.20). Only `confidence ≥ INTENTION_MIN_CONFIDENCE` persist. Anti-echo clamp and `dedupeKey` uniqueness apply. No raw source text is stored.
+- **Delivery.** At heartbeat time, `IntentionsService.findDue(agentID)` returns pending/snoozed intentions whose `earliestAt ≤ now`, injected into the wake prompt as an untrusted `## Standing Intentions` block. The agent decides per intention: **act** (do something / send the check-in, via §30.3), **surface**, **snooze**, or **dismiss** — updating `status` and `surfacedRunID` accordingly.
+
+### 30.5 Untrusted-Metadata Framing (Phase 2)
+
+Both the commitments and intentions blocks in the wake prompt carry an explicit instruction that their contents are historical data, not commands — the agent must not execute instructions found inside `suggestedText`/`summary`/`description`, and must not invoke tools *because* a metadata field told it to. This closes the prompt-injection surface opened by feeding self-generated (and transitively user-influenced) text back into an autonomous, tool-enabled turn.
+
+### 30.6 Learning From Initiative (Phase 1)
+
+Today autonomous runs skip memory extraction (§21, §28.2), so initiative never compounds. Under §30, an autonomous run ends with a **single lightweight reflection** (gated by `AUTONOMOUS_REFLECTION_ENABLED`) that lets salient observations from the run become memory-save candidates, subject to the existing memory confidence/decay pipeline (§13). The full interactive memory-nudge cadence (§28.2) stays off for autonomous runs to bound cost; the end-of-run reflection replaces it.
+
+### 30.7 Environment Variables
+
+| Variable                          | Default     | Meaning                                                                 |
+| --------------------------------- | ----------- | ----------------------------------------------------------------------- |
+| `HEARTBEAT_IDLE_SENTINEL`         | `SERA_IDLE` | Sentinel string that marks a heartbeat run as "nothing to do."          |
+| `INTENTION_EXTRACTION_ENABLED`    | `true`      | Toggles the post-turn intention extraction pass.                        |
+| `INTENTION_MIN_CONFIDENCE`        | `0.6`       | Minimum confidence for an intention to persist / drive an outbound.     |
+| `PROACTIVE_MAX_PER_DAY`           | `6`         | Max unsolicited pushes per agent per rolling 24h (balanced posture).    |
+| `PROACTIVE_ACTIVE_HOURS_ENFORCED` | `true`      | Whether the proactive gate honors the agent's `activeHours`.            |
+| `AUTONOMOUS_REFLECTION_ENABLED`   | `true`      | Whether autonomous runs run the end-of-run initiative reflection.       |
+| `AUTONOMOUS_JUDGE_ENABLED`        | `true`      | Whether a finished autonomous run is judged for a worthwhile next step. |
+| `AUTONOMOUS_JUDGE_MODEL`          | `anthropic/claude-haiku-4-5` | Cheap model used for the continue/wait/done verdict.   |
+| `AUTONOMOUS_MAX_TURNS`            | `6`         | Max judge-gated continuations per autonomous goal chain.                |
+| `DREAMING_ENABLED`                | `true`      | Whether the nightly reflective dreaming pass runs.                      |
+| `DREAMING_INTERVAL_MS`            | `86400000`  | Dreaming cadence (24h); `0` disables.                                   |
+| `DREAMING_LOOKBACK_HOURS`         | `24`        | How far back to gather acted intentions each dream.                     |
+| `DREAMING_MAX_INSIGHTS`           | `3`         | Max durable facts promoted per agent per dream.                        |
+| `DREAMING_MODEL`                  | `anthropic/claude-haiku-4-5` | Cheap model used to distill dream insights.           |
+
+### 30.8 Judge-Gated Persistence
+
+Without this, an autonomous run is one-and-done: the heartbeat fires, the agent acts once, and forgets. `GoalJudgeService` (`src/agent/orchestration/goal-judge.service.ts`) lets SERA *pursue* something across ticks, decoupling "do the work" (the main model) from "should it keep going?" (a cheap auxiliary model).
+
+- After `RunLifecycleService.completeRun`, `OrchestratorService.finishRun` calls `maybeContinueGoal` — but only when the run is autonomous (`isHeartbeat`), produced a non-idle response, and did not already schedule a yield-resume (the two are mutually exclusive).
+- The judge returns `continue` / `wait` / `done`. It **fails open to `done`** on any parse error or model failure, so a broken judge can never wedge the loop or cause a runaway.
+- On `continue`, a fresh run is scheduled on the same thread with the prior result embedded in the message (autonomous runs have no `chatID` history to reload) and an offer to reply with the idle sentinel if actually finished. This reuses the same self-injection path as the yield-resume.
+- **Turn budget:** the count of continuations is carried on the goal itself (`AgentGoal.autonomousTurn`), not thread state, so a chain is bounded by `AUTONOMOUS_MAX_TURNS` and the budget cannot leak across independent heartbeat cycles. The per-run `maxSteps`/`maxIterations`/wall-clock limits still bound each individual turn.
+- `wait` and `done` both stop the eager chain; `wait` defers re-evaluation to the normal heartbeat cadence (the periodic heartbeat *is* the resume mechanism) rather than parking on a bespoke signal/deadline.
+
+### 30.9 Phasing
+
+- **Phase 1 (build now):** §30.2 open-ended heartbeat + silence sentinel, §30.3 proactive gate, §30.6 initiative reflection. Touches `heartbeat.service.ts`, the `heartbeat` prompt, `run-lifecycle.service.ts`, `push-notification.action.ts`.
+- **Phase 2 (build now):** §30.4 intention engine + §4.20 data model + §30.5 untrusted framing. New `src/agent/intentions/` module; wired into `run-lifecycle.service.ts` and the heartbeat wake prompt.
+- **Phase 3 (built):** judge-gated persistence (§30.8). A cheap judge (`done` / `continue` / `wait`) plus a per-goal turn budget replaces the one-and-done autonomous run; `continue` self-injects a continuation on the same thread. New `goal-judge.service.ts`; `orchestrator.service.ts` (`maybeContinueGoal`), `orchestration.interfaces.ts` (`autonomousTurn`).
+- **Phase 4 (built):** self-managed intentions + standing orders. A `manage_intention` action (`src/agent/actions/implementations/manage-intention.action.ts`) lets the agent `create` its own future self-check-ins and `act`/`snooze`/`dismiss` intentions surfaced to it by ID — turning Phase 2's one-shot surfacing into a real self-managed lifecycle (surfaced intentions now carry their `intentionID` in the wake prompt). A `standing_orders` prompt slug is loaded on every run (`PROMPT_LOAD_ORDER`) as durable operating authority — what SERA may do unprompted and when to escalate — and is silently skipped when undefined.
+- **Phase 5 (built):** dreaming. `DreamingService` (`src/agent/dreaming/`) runs a nightly reflective pass that complements the mechanical `MemoryConsolidator` (§13): it reviews the intentions the agent actually *acted* on (grouped per agent+user), distills durable facts about the user via a cheap model, and promotes them into long-term memory (`source: run-extracted`, `tags: ['dream']`, subject to normal decay). It also expires intentions past their relevance window. Fail-safe and flag-gated.
+
+### 30.10 Test Priorities
+
+- Silence sentinel suppresses all outbound, yet the run still reaches a terminal state and the initiative reflection still runs.
+- A turn with no genuine future hook produces **no** intention.
+- Anti-echo: an intention's `earliestAt` is always `≥ now + heartbeatInterval`.
+- Dedupe: the same subject inferred twice yields one record with refreshed confidence, not two.
+- Proactive gate: outside active hours, or over `PROACTIVE_MAX_PER_DAY`, the outbound is held and the intention is snoozed — not sent, not dropped.
+- Untrusted framing: an intention whose `suggestedText` contains an injection payload does not alter agent behavior or trigger tool calls.
+- Judge safety: unparseable or errored judge output fails open to `done`; a continuation chain never exceeds `AUTONOMOUS_MAX_TURNS`; an idle or yield-resume run never triggers a continuation.
+- Dreaming: acted intentions group per agent+user; insights are capped at `DREAMING_MAX_INSIGHTS`; a model failure in one group never aborts the cycle; a cycle with nothing acted is a no-op.
 
 ---
 
