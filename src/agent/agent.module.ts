@@ -15,6 +15,7 @@ import { InsightsModule } from './insights/insights.module';
 import { McpModule } from './mcp/mcp.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { ModelModule } from './model/model.module';
+import { DreamingModule } from './dreaming/dreaming.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ModelModule } from './model/model.module';
     McpModule,
     PluginsModule,
     AttachmentsModule,
+    DreamingModule,
   ],
   controllers: [AgentController],
   providers: [AgentService],
