@@ -36,6 +36,8 @@ import { AiSdkAgentRuntimeService } from './ai-sdk-agent-runtime.service';
 import { RunLifecycleService } from './run-lifecycle.service';
 import { StreamEventReducer } from './stream-event-reducer.service';
 import { LoopCircuitBreakerHandler } from './loop-circuit-breaker-handler.service';
+import { GoalJudgeService } from './goal-judge.service';
+import { isIdleSentinel } from './idle-sentinel.util';
 
 @Injectable()
 export class OrchestratorService {
@@ -63,6 +65,7 @@ export class OrchestratorService {
     private readonly streamReducer: StreamEventReducer,
     private readonly breakerHandler: LoopCircuitBreakerHandler,
     private readonly pluginLoader: PluginLoaderService,
+    private readonly goalJudge: GoalJudgeService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.subscriber = this.redis.duplicate();
@@ -186,6 +189,7 @@ export class OrchestratorService {
         runID,
         userID,
         agentID: goal.agentID,
+        isHeartbeat: goal.isHeartbeat ?? false,
         sandbox,
         delegationDepth: goal.delegationDepth ?? 0,
         abortSignal: abortController.signal,
@@ -595,7 +599,13 @@ export class OrchestratorService {
       toolCalls,
       usage,
     });
-    await this.maybeResumeYield(goal, response);
+    // A yield-resume and a judge continuation are mutually exclusive: a run
+    // that handed results back to a yielding parent must not also spawn its
+    // own autonomous continuation.
+    const resumed = await this.maybeResumeYield(goal, response);
+    if (!resumed) {
+      await this.maybeContinueGoal(goal, response);
+    }
   }
 
   /**
@@ -609,18 +619,18 @@ export class OrchestratorService {
   private async maybeResumeYield(
     goal: AgentGoal,
     response: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const parentThreadID = await this.stateService.getCustomState<string>(
         goal.threadID,
         'parentThreadID',
       );
-      if (!parentThreadID) return;
+      if (!parentThreadID) return false;
       const yielding = await this.stateService.getCustomState<boolean>(
         parentThreadID,
         'yielding',
       );
-      if (!yielding) return;
+      if (!yielding) return false;
 
       const yieldAgentID =
         (await this.stateService.getCustomState<string>(
@@ -659,8 +669,87 @@ export class OrchestratorService {
           err,
         );
       });
+      return true;
     } catch {
       // Non-critical — ignore
+      return false;
+    }
+  }
+
+  /**
+   * Judge-gated persistence (§30.8). After an autonomous run produces a real
+   * (non-idle) result, a cheap judge decides whether a concrete next step is
+   * worth taking right now. On `continue`, a fresh run is scheduled on the same
+   * thread with the prior result carried in the message (autonomous runs have
+   * no chat history to reload). Bounded by a per-goal turn budget so the loop
+   * always terminates; `wait`/`done` defer to the normal heartbeat cadence.
+   */
+  private async maybeContinueGoal(
+    goal: AgentGoal,
+    response: string,
+  ): Promise<void> {
+    try {
+      if (!goal.isHeartbeat || !response || !this.goalJudge.isEnabled()) return;
+
+      const sentinel = this.configService.get<string>(
+        'HEARTBEAT_IDLE_SENTINEL',
+        'SERA_IDLE',
+      );
+      if (isIdleSentinel(response, sentinel)) return;
+
+      const turn = goal.autonomousTurn ?? 0;
+      const maxTurns =
+        parseInt(
+          this.configService.get<string>('AUTONOMOUS_MAX_TURNS', '6'),
+          10,
+        ) || 6;
+      if (turn >= maxTurns) {
+        this.logger.debug(
+          `Autonomous turn budget (${maxTurns}) reached on thread ${goal.threadID}`,
+        );
+        return;
+      }
+
+      const verdict = await this.goalJudge.judge(goal, response);
+      if (verdict.verdict !== 'continue') {
+        if (verdict.verdict === 'wait') {
+          this.logger.debug(
+            `Goal parked (wait) on ${goal.threadID}: ${verdict.reason ?? ''}`,
+          );
+        }
+        return;
+      }
+
+      const continuationRunID = randomUUID();
+      const nextStep = verdict.nextStep || 'Continue toward your objective.';
+      const continuationMessage =
+        `[Continuing your own initiative — turn ${turn + 1}]\n` +
+        `You previously acted and produced the result below with no user present. ` +
+        `Take the next concrete step. If you are actually finished or there is nothing ` +
+        `worthwhile left to do, reply with exactly \`${sentinel}\`.\n\n` +
+        `## Your previous result\n${response}\n\n## Suggested next step\n${nextStep}`;
+
+      this.executeGoal(
+        {
+          threadID: goal.threadID,
+          runID: continuationRunID,
+          userID: goal.userID,
+          agentID: goal.agentID,
+          chatID: goal.chatID,
+          userMessage: continuationMessage,
+          conversationHistory: [],
+          isHeartbeat: true,
+          autonomousTurn: turn + 1,
+        },
+        this.getAutonomousRunConfig(),
+      ).catch((err) => {
+        this.logger.warn(
+          `Autonomous continuation failed on ${goal.threadID}:`,
+          err,
+        );
+      });
+    } catch {
+      // Non-critical — a broken continuation must never fail the finished run.
     }
   }
 

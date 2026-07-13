@@ -13,6 +13,13 @@ export interface AgentGoal {
   modelOptions?: ModelRequestOptions;
   isHeartbeat?: boolean;
   delegationDepth?: number;
+  /**
+   * How many judge-gated autonomous continuations have led to this run (§30.8).
+   * Undefined/0 on the first autonomous wake; incremented per continuation and
+   * bounded by AUTONOMOUS_MAX_TURNS. Carried on the goal (not thread state) so
+   * the budget can't leak across independent heartbeat cycles.
+   */
+  autonomousTurn?: number;
 }
 
 export interface OrchestratorConfig {

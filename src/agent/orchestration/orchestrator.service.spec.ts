@@ -102,6 +102,10 @@ describe('OrchestratorService', () => {
       pluginLoader: {
         runHooks: vi.fn().mockResolvedValue(undefined),
       },
+      goalJudge: {
+        isEnabled: vi.fn().mockReturnValue(false),
+        judge: vi.fn().mockResolvedValue({ verdict: 'done' }),
+      },
       redis: {
         duplicate: vi.fn().mockReturnValue(redisSubscriber),
         publish: vi.fn(),
@@ -130,6 +134,7 @@ describe('OrchestratorService', () => {
         deps.streamReducer as never,
         deps.breakerHandler as never,
         deps.pluginLoader as never,
+        deps.goalJudge as never,
         deps.redis as never,
       ),
       deps,
