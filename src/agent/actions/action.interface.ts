@@ -4,6 +4,9 @@ export interface ActionExecutionContext {
   threadID: string;
   runID: string;
   userID?: string;
+  agentID?: string;
+  /** True when this run was started autonomously (heartbeat/cron), not by a user message. */
+  isHeartbeat?: boolean;
   metadata?: Record<string, unknown>;
 }
 

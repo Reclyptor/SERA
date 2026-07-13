@@ -7,8 +7,10 @@ import { ChatsService } from '../../chats/chats.service';
 import { InsightsService } from '../insights/insights.service';
 import { MemoryService } from '../memory/memory.service';
 import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
+import { IntentionExtractorService } from '../intentions/intention-extractor.service';
 import { SkillReviewService } from '../skills/skill-review.service';
 import type { AgentGoal } from './orchestration.interfaces';
+import { isIdleSentinel } from './idle-sentinel.util';
 import type { ToolCallBlock } from '../../chats/chat.schema';
 import type {
   RunCompletedData,
@@ -50,6 +52,7 @@ export class RunLifecycleService {
     private readonly insightsService: InsightsService,
     private readonly memoryService: MemoryService,
     private readonly commitmentExtractor: CommitmentExtractorService,
+    private readonly intentionExtractor: IntentionExtractorService,
     private readonly skillReview: SkillReviewService,
     private readonly configService: ConfigService,
   ) {}
@@ -99,7 +102,14 @@ export class RunLifecycleService {
         });
     }
 
-    if (goal.chatID && response) {
+    const idleSentinel = this.configService.get<string>(
+      'HEARTBEAT_IDLE_SENTINEL',
+      'SERA_IDLE',
+    );
+    const idle =
+      goal.isHeartbeat === true && isIdleSentinel(response, idleSentinel);
+
+    if (goal.chatID && response && !idle) {
       try {
         await this.chatsService.appendMessage(goal.chatID, goal.userID, {
           id: randomUUID(),
@@ -132,16 +142,18 @@ export class RunLifecycleService {
             this.logger.warn('Memory extraction failed:', err);
           });
 
+        const transcript = `User: ${lastUserMsg}\n\nAssistant: ${response}`;
         this.commitmentExtractor
-          .extract(
-            `User: ${lastUserMsg}\n\nAssistant: ${response}`,
-            goal.agentID,
-            userID,
-            threadID,
-            runID,
-          )
+          .extract(transcript, goal.agentID, userID, threadID, runID)
           .catch((err) => {
             this.logger.warn('Commitment extraction failed:', err);
+          });
+
+        // §30.4 — infer self-generated follow-ups the user never asked for.
+        this.intentionExtractor
+          .extract(transcript, goal.agentID, userID, threadID, runID)
+          .catch((err) => {
+            this.logger.warn('Intention extraction failed:', err);
           });
       }
 
@@ -150,7 +162,30 @@ export class RunLifecycleService {
           this.logger.warn('Skill review trigger failed:', err);
         },
       );
+    } else if (goal.isHeartbeat && !idle && response) {
+      // §30.6 — let initiative compound: a single lightweight reflection so
+      // autonomous runs can surface durable memories instead of evaporating.
+      this.maybeReflect(goal, response);
     }
+  }
+
+  private maybeReflect(goal: AgentGoal, response: string): void {
+    const enabled =
+      this.configService.get<string>(
+        'AUTONOMOUS_REFLECTION_ENABLED',
+        'true',
+      ) === 'true';
+    if (!enabled) return;
+
+    const scope = {
+      ...(goal.agentID && { agentID: goal.agentID }),
+      ...(goal.threadID && { threadID: goal.threadID }),
+    };
+    this.memoryService
+      .extractFromRun(goal.userID, goal.userMessage, response, scope)
+      .catch((err) => {
+        this.logger.warn('Autonomous reflection failed:', err);
+      });
   }
 
   private async maybeRunSkillReview(

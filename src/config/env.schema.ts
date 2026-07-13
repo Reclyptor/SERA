@@ -123,6 +123,26 @@ const envSchema = z
       .positive()
       .default(3),
     COMMITMENT_EXTRACTION_ENABLED: z.string().default('true'),
+
+    // ── Volition & Proactive Companionship (§30) ────────────────────
+    HEARTBEAT_IDLE_SENTINEL: z.string().default('SERA_IDLE'),
+    INTENTION_EXTRACTION_ENABLED: z.string().default('true'),
+    INTENTION_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.6),
+    PROACTIVE_MAX_PER_DAY: z.coerce.number().int().nonnegative().default(6),
+    PROACTIVE_ACTIVE_HOURS_ENFORCED: z.string().default('true'),
+    AUTONOMOUS_REFLECTION_ENABLED: z.string().default('true'),
+    AUTONOMOUS_JUDGE_ENABLED: z.string().default('true'),
+    AUTONOMOUS_JUDGE_MODEL: z.string().default('anthropic/claude-haiku-4-5'),
+    AUTONOMOUS_MAX_TURNS: z.coerce.number().int().nonnegative().default(6),
+    DREAMING_ENABLED: z.string().default('true'),
+    DREAMING_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(86_400_000),
+    DREAMING_LOOKBACK_HOURS: z.coerce.number().int().positive().default(24),
+    DREAMING_MAX_INSIGHTS: z.coerce.number().int().positive().default(3),
+    DREAMING_MODEL: z.string().default('anthropic/claude-haiku-4-5'),
   })
   // Allow unknown env vars (HOME, PATH, NODE_ENV, AWS_* for object
   // storage credential chain, CI vars, etc.) through unchanged. Strict
