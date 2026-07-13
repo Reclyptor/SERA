@@ -12,6 +12,9 @@ const PROMPT_LOAD_ORDER: string[] = [
   'soul',
   'identity',
   'user',
+  // Durable operating authority (§30.9 Phase 4): what SERA may do unprompted
+  // and when to escalate. Optional — skipped when the slug is undefined.
+  'standing_orders',
   'tools',
   'heartbeat',
 ];

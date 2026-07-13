@@ -6,6 +6,8 @@ import { MemoryModule } from '../memory/memory.module';
 import { NtfyModule } from '../ntfy/ntfy.module';
 import { StateModule } from '../state/state.module';
 import { StreamingModule } from '../streaming/streaming.module';
+import { ProactiveModule } from '../proactive/proactive.module';
+import { IntentionsModule } from '../intentions/intentions.module';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { StreamingModule } from '../streaming/streaming.module';
     NtfyModule,
     StateModule,
     forwardRef(() => StreamingModule),
+    ProactiveModule,
+    IntentionsModule,
   ],
   providers: [ActionsRegistry, ActionsService, ActionsBootstrapService],
   exports: [ActionsService, ActionsRegistry],

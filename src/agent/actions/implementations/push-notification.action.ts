@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { NtfyService } from '../../ntfy/ntfy.service';
+import type { ProactiveGateService } from '../../proactive/proactive-gate.service';
 import type {
   BackendAction,
   ActionExecutionContext,
@@ -70,14 +71,34 @@ export class PushNotificationAction implements BackendAction<
     "Send a push notification to the user's device(s) via ntfy. Use for off-session alerts when the user needs attention but may not be watching the chat. Distinct from send_notification, which signals within the active chat UI. Choose priority based on urgency.";
   readonly parameters = parameters;
 
-  constructor(private readonly ntfyService: NtfyService) {}
+  constructor(
+    private readonly ntfyService: NtfyService,
+    private readonly proactiveGate: ProactiveGateService,
+  ) {}
 
   async execute(
     args: z.infer<typeof parameters>,
-    _context: ActionExecutionContext,
+    context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
+    // On an autonomous run, an unsolicited push must clear the proactive gate
+    // (§30.3). A held message is not an error the agent should retry — it
+    // should record an intention to revisit later instead.
+    const gated = context.isHeartbeat === true && !!context.agentID;
+    if (gated) {
+      const verdict = await this.proactiveGate.check(context.agentID!);
+      if (!verdict.allowed) {
+        return {
+          success: false,
+          error: `Push suppressed by proactive policy: ${verdict.reason}. The message was not delivered — record an intention to revisit it later rather than retrying now.`,
+        };
+      }
+    }
+
     try {
       const result = await this.ntfyService.publish(args);
+      if (gated) {
+        await this.proactiveGate.record(context.agentID!);
+      }
       return { success: true, result: { id: result.id } };
     } catch (err) {
       return {
