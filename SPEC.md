@@ -290,8 +290,12 @@ API responses are JSON-serialized Mongoose documents. Mongo `_id` values are exp
 | `model`     | String    | No       |         |                                         |
 | `agentID`   | String    | No       |         |                                         |
 | `messages`  | Message[] | No       | `[]`    | Text index on `messages.content`        |
+| `origin`    | Enum: `user`, `agent` | No | `user` |                             |
+| `lastReadAt`| Date      | No       |         |                                         |
 | `createdAt` | Date      | (auto)   |         |                                         |
 | `updatedAt` | Date      | (auto)   |         |                                         |
+
+`origin` distinguishes ordinary user-started chats from **agent-initiated reach-out threads** (§30.11): SERA sets `agent` when she opens a thread on her own. `lastReadAt` is the owner's last-view timestamp; a chat is **unread** when `updatedAt > lastReadAt` (or `lastReadAt` is unset and the last message is from the assistant). It is bumped by the presence ping (§30.11.2) and on thread open.
 
 `model` and `agentID` are **sticky picker selections**. When set on the chat document, they default subsequent `POST /agent/chat` requests for that chat unless `body.model` / `body.agentID` overrides them. See §6 Execution Flow.
 
@@ -626,6 +630,7 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | Field             | Type        | Required | Default      | Index  |
 | ----------------- | ----------- | -------- | ------------ | ------ |
 | `agentID`         | String      | Yes      |              | Unique |
+| `ownerUserID`     | String      | No       |              |        |
 | `enabled`         | Boolean     | No       | `false`      |        |
 | `intervalMinutes` | Number      | No       | `30` (min 1) |        |
 | `activeHours`     | ActiveHours | No       |              |        |
@@ -643,6 +648,8 @@ Attachment bytes are stored in S3-compatible object storage. MongoDB stores owne
 | `start`    | Number (0-23) |         |
 | `end`      | Number (0-23) |         |
 | `timezone` | String        | `UTC`   |
+
+A HeartbeatConfig with `enabled: true` is **required to activate the volition layer** (§30) for an agent — with none, the agent never wakes autonomously. `ownerUserID` (§30.11.1) is captured from the authenticated creator and is the user who owns the agent's reach-out chat threads and receives its proactive pushes.
 
 ### 4.13 ScheduledExecution
 
@@ -2908,6 +2915,7 @@ Without this, an autonomous run is one-and-done: the heartbeat fires, the agent 
 - **Phase 3 (built):** judge-gated persistence (§30.8). A cheap judge (`done` / `continue` / `wait`) plus a per-goal turn budget replaces the one-and-done autonomous run; `continue` self-injects a continuation on the same thread. New `goal-judge.service.ts`; `orchestrator.service.ts` (`maybeContinueGoal`), `orchestration.interfaces.ts` (`autonomousTurn`).
 - **Phase 4 (built):** self-managed intentions + standing orders. A `manage_intention` action (`src/agent/actions/implementations/manage-intention.action.ts`) lets the agent `create` its own future self-check-ins and `act`/`snooze`/`dismiss` intentions surfaced to it by ID — turning Phase 2's one-shot surfacing into a real self-managed lifecycle (surfaced intentions now carry their `intentionID` in the wake prompt). A `standing_orders` prompt slug is loaded on every run (`PROMPT_LOAD_ORDER`) as durable operating authority — what SERA may do unprompted and when to escalate — and is silently skipped when undefined.
 - **Phase 5 (built):** dreaming. `DreamingService` (`src/agent/dreaming/`) runs a nightly reflective pass that complements the mechanical `MemoryConsolidator` (§13): it reviews the intentions the agent actually *acted* on (grouped per agent+user), distills durable facts about the user via a cheap model, and promotes them into long-term memory (`source: run-extracted`, `tags: ['dream']`, subject to normal decay). It also expires intentions past their relevance window. Fail-safe and flag-gated.
+- **Phase 6 (built):** agent-initiated threads + presence-aware delivery (§30.11). A non-idle autonomous reply lands in a real, replyable `origin: 'agent'` chat (new thread per reach-out chain; continuations reuse it via thread state); an ntfy push with a `/chat/{id}` deep-link fires only when the user is not viewing that thread (behind the existing proactive gate); and the SERAUI chat list shows a live unread badge fed by a new per-user SSE channel (`GET /agent/events`) plus a presence pinger (`POST /agent/presence/:chatID`). Cross-project: SERA (`reachout/`, `presence/`, `notifications/`) + SERAUI (`useThreadPresence`, global events subscription, unread badges). Known limitation: a reach-out that lands in an already-open thread is not rendered live (appears on next open); the badge/push suppression is correct.
 
 ### 30.10 Test Priorities
 
@@ -2919,6 +2927,84 @@ Without this, an autonomous run is one-and-done: the heartbeat fires, the agent 
 - Untrusted framing: an intention whose `suggestedText` contains an injection payload does not alter agent behavior or trigger tool calls.
 - Judge safety: unparseable or errored judge output fails open to `done`; a continuation chain never exceeds `AUTONOMOUS_MAX_TURNS`; an idle or yield-resume run never triggers a continuation.
 - Dreaming: acted intentions group per agent+user; insights are capped at `DREAMING_MAX_INSIGHTS`; a model failure in one group never aborts the cycle; a cycle with nothing acted is a no-op.
+
+---
+
+## 30.11 Agent-Initiated Threads & Presence-Aware Delivery (Phase 6)
+
+Through Phase 5, SERA's only outbound was a one-way ntfy push (`send_push_notification`). Autonomous runs carry **no `chatID`**, so nothing she says lands in a chat you can reply to. Phase 6 makes a reach-out a real, two-way conversation: her reply is persisted into a chat thread, the chat list shows it live, and the ntfy push becomes a *notification of that thread message* — fired **only when you are not already looking at it**.
+
+Locked product decisions: **a new thread per reach-out**; ntfy suppressed only when you are **viewing that specific thread**; the framework **auto-delivers her run's final reply** (no new agent tool — reuses the `SERA_IDLE` silence contract); **real-time** unread badges.
+
+### 30.11.1 Reach-Out Threads
+
+- A reach-out is an autonomous run (`isHeartbeat`) that ends with a **non-idle** final response (i.e. not the `SERA_IDLE` sentinel, §30.2). That response *is* the message to the user — the open-ended heartbeat prompt already frames her reply as what the user will see.
+- On the first non-idle response of an autonomous chain, a **new `Chat`** is created (`origin: 'agent'`, §4.1) owned by the agent's user, and the response is appended as the first assistant message. Continuation turns in the same judge-gated chain (§30.8) **reuse that `chatID`** so a multi-step initiative reads as one conversation, not fragmented threads. Idle runs create nothing — no empty-chat clutter.
+- **Owner resolution (must build).** Heartbeat runs use a synthetic `userID` (`heartbeat:{agentID}`) which cannot own a chat (`ChatsService.appendMessage` filters by `{ _id, userID }` and throws `ForbiddenException` on mismatch). Ownership is an **explicit `ownerUserID` on the `HeartbeatConfig`** (§4.12), captured from the authenticated creator's session (`@CurrentUser().sub`) when the heartbeat is created/updated. (A reverse lookup on user `AgentBinding`s was considered and rejected: the deployment has **no** `user` bindings, so there is nothing to resolve against — an explicit owner is the only unambiguous source.) If `ownerUserID` is unset, the reach-out is skipped and logged (never delivered to the wrong user).
+- Implementation: a `ReachOutService` invoked from `RunLifecycleService.completeRun`'s autonomous branch. It resolves the owner, lazily creates/looks up the reach-out chat, appends the message (reusing the existing persistence path), emits the notification event (§30.11.3), and runs presence-gated delivery (§30.11.4). Continuation `chatID` is threaded through `maybeContinueGoal` (§30.8).
+
+### 30.11.2 Presence
+
+Ephemeral "is the user looking at this thread right now" signal — Redis only, no Mongo.
+
+- **Key:** `sera:presence:{userID}:{chatID}` → `1`, `EX PRESENCE_TTL_SECONDS` (default 45). Follows the established `sera:` app-key convention.
+- **Ping endpoint:** `POST /agent/presence/:chatID` (authenticated; `userID` from `@CurrentUser().sub`, so it is self-identifying — the frontend never sends a userID). SERAUI re-pings every ~15s while the thread tab is **visible and focused** (Page Visibility + focus), matching the SSE heartbeat cadence. The ping also bumps `Chat.lastReadAt` (viewing = reading).
+- **Check:** `PresenceService.isViewing(userID, chatID)` = `EXISTS` on the key.
+
+### 30.11.3 Per-User Notification Channel
+
+SERA's event transport today is strictly **per-run** (`run:{runID}:stream` Redis Streams; the SSE endpoint requires a known `runID`). A client only learns of a message if already subscribed to that run — so unread badges for a thread you are *not* viewing are impossible without a new channel.
+
+- **New per-user Redis Stream** `sera:user:{userID}:notifications`, carrying a light envelope `{ type: 'chat.updated', chatID, agentID, preview, origin, timestamp }`, `xadd`-ed whenever a reach-out message is persisted.
+- **New SSE endpoint** `GET /agent/events` (authenticated; keyed by `@CurrentUser().sub`, not a runID) that tails the user's stream. The generic "tail a Redis Stream over SSE with replay + heartbeat + reconnection" logic is **extracted from the existing per-run `RunStreamService`** into a shared helper and reused here (Stream, not Pub/Sub, so a badge is not lost across a reconnect).
+- SERAUI keeps **one always-on `EventSource`** to `/agent/events`, mounted in the app-global `ChatProvider`, independent of whichever chat is open.
+
+### 30.11.4 Presence-Aware Delivery
+
+The order when a reach-out message is persisted:
+
+1. Append the assistant message to the reach-out chat; bump `Chat.updatedAt`.
+2. Emit `chat.updated` on the user's notification stream (§30.11.3) → live badge / list surfacing.
+3. **If `!PresenceService.isViewing(userID, chatID)`**, publish an ntfy push with `click: {SERAUI_BASE_URL}/chat/{chatID}` (deep-link), gated by the existing `ProactiveGateService` (active-hours + rolling-24h cap, §30.3). If the user *is* viewing, skip ntfy — the open thread / live badge already surfaces it.
+
+Three layered gates: **active-hours + rate-cap** (existing), **presence** (new), **deep-link** (ntfy `click`, existing field + new `SERAUI_BASE_URL`).
+
+### 30.11.5 Read State & Unread Badges
+
+- `Chat.lastReadAt` (§4.1) is the persistent read marker; a chat is unread when `updatedAt > lastReadAt`. It survives reloads (the live `chat.updated` events drive the *real-time* update; `lastReadAt` drives the *on-load* truth).
+- `GET /chats` returns a derived `unread: boolean` per item. `lastReadAt` is bumped by the presence ping (§30.11.2) and on thread open.
+
+### 30.11.6 SERAUI Changes (`/home/reclyptor/Projects/javascript/SERAUI`)
+
+Next.js 16 App Router, React Context + reducer, SSE via `EventSource`, Authentik session forwarded same-origin through `proxy.ts` (so any new `/api/v1/agent/...` endpoint inherits auth for free).
+
+- **Presence pinger** — new `useThreadPresence(chatID)` hook (Page Visibility + focus/blur), mounted in the thread view (`SeraChat`). `POST /api/v1/agent/presence/{chatID}` while visible; stop on blur/hide/unmount (key expires). *(Greenfield — no visibility code exists today.)*
+- **Global notification stream** — a per-user `EventSource('/api/v1/agent/events')` mounted once in `ChatProvider` (app-global via `app/layout.tsx`), reducing `chat.updated` events. Models the existing `useAgentChat` EventSource + `reduceAgentEvent` pattern.
+- **Unread state + badge** — extend `ChatContext` with an unread set + `markRead(chatID)`; render a badge in `ChatItem` (`Sidebar`, today renders only the title); clear on select/open. `chat.updated` for an unknown thread triggers the existing `refreshChats()` so agent-initiated threads appear live.
+- **Deep link** — the route `/chat/[chatID]` already renders a thread (or redirects to `/new`); an ntfy click lands there through `proxy.ts` auth. New work is only marking the thread read on open.
+
+### 30.11.7 Configuration
+
+| Variable                | Default | Meaning                                                             |
+| ----------------------- | ------- | ------------------------------------------------------------------- |
+| `SERAUI_BASE_URL`       | —       | Public SERAUI origin used to build the ntfy `click` deep-link. Required for deep links; if unset, pushes omit `click`. |
+| `PRESENCE_TTL_SECONDS`  | `45`    | TTL of a presence key; slightly over 2× the client ping interval.   |
+
+### 30.11.8 Build Phasing (cross-project, verify each)
+
+- **6a (SERA):** owner resolution + `ReachOutService` + reach-out chat creation + message persistence + continuation `chatID` threading. Verifiable: an autonomous non-idle run creates an `origin: 'agent'` chat containing her reply.
+- **6b (SERA):** `PresenceService` + `POST /agent/presence/:chatID` + `Chat.lastReadAt` + `GET /chats` `unread`.
+- **6c (SERA):** per-user notification Stream + `GET /agent/events` (extract shared stream-SSE helper) + emit `chat.updated`; presence-gated ntfy with deep-link + `SERAUI_BASE_URL`.
+- **6d (SERAUI):** presence pinger hook; global `/agent/events` EventSource in `ChatProvider`; unread state + `ChatItem` badge; mark-read on open.
+
+### 30.11.9 Test Priorities
+
+- An autonomous idle run creates no chat and sends nothing; a non-idle run creates exactly one `origin: 'agent'` chat with the reply, and a continuation appends to the *same* chat.
+- Owner resolution failure skips the reach-out (never writes to the wrong user).
+- Presence: ntfy is suppressed when a fresh presence key exists for `(userID, chatID)`, and fires (subject to the existing gate) when it is absent/expired.
+- Deep-link `click` is `{SERAUI_BASE_URL}/chat/{chatID}`; omitted when `SERAUI_BASE_URL` is unset.
+- Unread: `GET /chats` marks a chat unread when `updatedAt > lastReadAt`; the presence ping / open clears it; a `chat.updated` event badges the list live.
+- The per-user notification stream replays missed events across an SSE reconnect (Stream, not Pub/Sub).
 
 ---
 
