@@ -143,6 +143,8 @@ const envSchema = z
     DREAMING_LOOKBACK_HOURS: z.coerce.number().int().positive().default(24),
     DREAMING_MAX_INSIGHTS: z.coerce.number().int().positive().default(3),
     DREAMING_MODEL: z.string().default('anthropic/claude-haiku-4-5'),
+    PRESENCE_TTL_SECONDS: z.coerce.number().int().positive().default(45),
+    SERAUI_BASE_URL: z.string().url().optional(),
   })
   // Allow unknown env vars (HOME, PATH, NODE_ENV, AWS_* for object
   // storage credential chain, CI vars, etc.) through unchanged. Strict

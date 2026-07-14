@@ -22,6 +22,11 @@ export class HeartbeatConfig {
   @Prop({ required: true, unique: true, index: true })
   agentID: string;
 
+  // The user who owns this agent's autonomous reach-out threads and receives
+  // its proactive pushes (§30.11.1). Captured from the authenticated creator.
+  @Prop()
+  ownerUserID?: string;
+
   @Prop({ default: false })
   enabled: boolean;
 

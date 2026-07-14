@@ -21,7 +21,7 @@ import { isWithinActiveHours } from './active-hours.util';
 const DEFAULT_HEARTBEAT_PROMPT = `You have woken on your own initiative — no one has messaged you. Review your standing context (who you are, who your user is, what you care about), anything provided below, and what has changed recently. Decide whether anything genuinely warrants doing something now or reaching out to your user. Act only on what is worth their attention; routine or low-value observations are not.`;
 
 function buildSilenceProtocol(sentinel: string): string {
-  return `\n\n## Silence Protocol\nYour default posture on an autonomous wake is silence. If nothing genuinely warrants action or a message, reply with exactly \`${sentinel}\` and nothing else. Only send a push notification (send_push_notification) when something is truly worth interrupting your user for — it is delivered off-session and is subject to quiet-hours and rate limits.`;
+  return `\n\n## Silence Protocol\nYour default posture on an autonomous wake is silence. If nothing genuinely warrants action or a message, reply with exactly \`${sentinel}\` and nothing else. Otherwise, whatever you say becomes a message delivered to your user in a chat thread they can reply to — and pushed to their device if they are away (subject to quiet-hours and rate limits). You do not need to call send_push_notification for it; reserve that tool for a separate, urgent device-only alert.`;
 }
 
 @Injectable()
@@ -259,6 +259,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
 
   async create(data: {
     agentID: string;
+    ownerUserID?: string;
     intervalMinutes?: number;
     activeHours?: { start: number; end: number; timezone?: string };
     checklist?: string[];

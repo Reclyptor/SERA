@@ -17,6 +17,7 @@ import { ContextModule } from '../context/context.module';
 import { InsightsModule } from '../insights/insights.module';
 import { CommitmentsModule } from '../commitments/commitments.module';
 import { IntentionsModule } from '../intentions/intentions.module';
+import { ReachoutModule } from '../reachout/reachout.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { PluginsModule } from '../plugins/plugins.module';
 import { AttachmentMessageResolverService } from './attachment-message-resolver.service';
@@ -44,6 +45,7 @@ import { GoalJudgeService } from './goal-judge.service';
     InsightsModule,
     CommitmentsModule,
     IntentionsModule,
+    ReachoutModule,
     AttachmentsModule,
     PluginsModule,
   ],

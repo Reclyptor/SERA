@@ -8,6 +8,7 @@ import { InsightsService } from '../insights/insights.service';
 import { MemoryService } from '../memory/memory.service';
 import { CommitmentExtractorService } from '../commitments/commitment-extractor.service';
 import { IntentionExtractorService } from '../intentions/intention-extractor.service';
+import { ReachOutService } from '../reachout/reachout.service';
 import { SkillReviewService } from '../skills/skill-review.service';
 import type { AgentGoal } from './orchestration.interfaces';
 import { isIdleSentinel } from './idle-sentinel.util';
@@ -53,6 +54,7 @@ export class RunLifecycleService {
     private readonly memoryService: MemoryService,
     private readonly commitmentExtractor: CommitmentExtractorService,
     private readonly intentionExtractor: IntentionExtractorService,
+    private readonly reachOut: ReachOutService,
     private readonly skillReview: SkillReviewService,
     private readonly configService: ConfigService,
   ) {}
@@ -166,6 +168,11 @@ export class RunLifecycleService {
       // §30.6 — let initiative compound: a single lightweight reflection so
       // autonomous runs can surface durable memories instead of evaporating.
       this.maybeReflect(goal, response);
+
+      // §30.11 — deliver her reply into a real, replyable chat thread.
+      this.reachOut.deliver(goal, response).catch((err) => {
+        this.logger.warn('Reach-out delivery failed:', err);
+      });
     }
   }
 

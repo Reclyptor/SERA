@@ -73,11 +73,36 @@ export class ChatsService {
     return chat.save();
   }
 
-  async findAllByUser(userID: string): Promise<Chat[]> {
-    return this.chatModel
+  async findAllByUser(
+    userID: string,
+  ): Promise<Array<Record<string, unknown> & { unread: boolean }>> {
+    const chats = await this.chatModel
       .find({ userID })
       .sort({ updatedAt: -1 })
       .select('-messages')
+      .lean()
+      .exec();
+    return chats.map((chat) => ({ ...chat, unread: this.computeUnread(chat) }));
+  }
+
+  /**
+   * A chat is unread when it changed after the owner last viewed it. Agent-
+   * initiated threads (§30.11) that were never opened count as unread; ordinary
+   * user chats do not until a newer message lands after `lastReadAt`.
+   */
+  private computeUnread(chat: {
+    origin?: string;
+    updatedAt?: Date;
+    lastReadAt?: Date;
+  }): boolean {
+    if (!chat.lastReadAt) return chat.origin === 'agent';
+    return (chat.updatedAt?.getTime() ?? 0) > chat.lastReadAt.getTime();
+  }
+
+  /** Marks a chat read (bumps `lastReadAt`); owner-scoped. */
+  async markRead(chatID: string, userID: string): Promise<void> {
+    await this.chatModel
+      .updateOne({ _id: chatID, userID }, { $set: { lastReadAt: new Date() } })
       .exec();
   }
 
@@ -200,6 +225,26 @@ export class ChatsService {
       .catch((err) => this.logger.error('Failed to update chat title:', err));
 
     return saved;
+  }
+
+  /**
+   * Creates an empty agent-initiated ("reach-out") chat owned by `userID`
+   * (§30.11). The assistant's message is appended afterward as the first
+   * message — no seed user message, unlike `createWithUserMessage`. Returns the
+   * saved doc; `String(chat._id)` is the new chatID.
+   */
+  async createForReachOut(
+    userID: string,
+    agentID?: string,
+  ): Promise<ChatDocument> {
+    const chat = new this.chatModel({
+      userID,
+      title: 'New Chat',
+      origin: 'agent',
+      messages: [],
+      ...(agentID && { agentID }),
+    });
+    return chat.save();
   }
 
   async appendMessage(

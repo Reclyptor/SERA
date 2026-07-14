@@ -126,6 +126,15 @@ export class Chat {
   @Prop({ type: [MessageSchema], default: [] })
   messages: Message[];
 
+  // 'agent' marks a thread SERA opened on her own initiative (§30.11). Ordinary
+  // user-started chats are 'user'.
+  @Prop({ enum: ['user', 'agent'], default: 'user' })
+  origin: string;
+
+  // Owner's last-view timestamp; a chat is unread when updatedAt > lastReadAt.
+  @Prop()
+  lastReadAt?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 }
