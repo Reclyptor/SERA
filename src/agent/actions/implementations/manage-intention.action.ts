@@ -59,12 +59,72 @@ const snoozeOp = z.object({
     .describe('Revisit this many minutes from now'),
 });
 
-const parameters = z.discriminatedUnion('operation', [
+// Internal, strict per-operation contract: enforces which fields are required
+// for each `operation` and gives `execute` a discriminated, narrowed arg type.
+const operationSchemas = z.discriminatedUnion('operation', [
   createOp,
   actOp,
   dismissOp,
   snoozeOp,
 ]);
+
+// Wire schema handed to the model. A tool's `input_schema` MUST be a single
+// object schema — a top-level discriminated union serializes to `anyOf` with
+// no `type`, which the Anthropic API rejects with
+// `input_schema.type: Field required`, failing the ENTIRE request (every tool,
+// every run). So the wire shape is one flat object with all fields optional;
+// `operationSchemas` re-validates the per-operation requirements in `execute`.
+const parameters = z.object({
+  operation: z
+    .enum(['create', 'act', 'dismiss', 'snooze'])
+    .describe(
+      "Which lifecycle action to take. 'create' schedules a new self-check-in; " +
+        "'act' / 'dismiss' / 'snooze' resolve an intention that was surfaced to you (by its ID).",
+    ),
+  kind: z
+    .enum(['event_check_in', 'deadline_check', 'care_check_in', 'open_loop'])
+    .optional()
+    .describe(
+      "[create] What kind of future follow-up this is (default 'open_loop')",
+    ),
+  suggestedText: z
+    .string()
+    .max(1000)
+    .optional()
+    .describe(
+      '[create] The check-in message to send yourself when the time comes',
+    ),
+  summary: z
+    .string()
+    .max(500)
+    .optional()
+    .describe(
+      '[create] A short private note of what you are tracking (never shown to the user)',
+    ),
+  delayMinutes: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('[create] Become relevant this many minutes from now'),
+  dueAt: z
+    .string()
+    .datetime()
+    .optional()
+    .describe(
+      '[create] ISO 8601 timestamp when this becomes relevant (overrides delayMinutes)',
+    ),
+  intentionID: z
+    .string()
+    .optional()
+    .describe('[act/dismiss/snooze] ID of the intention you are resolving'),
+  snoozeMinutes: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('[snooze] Revisit this many minutes from now'),
+});
 
 /**
  * Lets the agent curate its own standing intentions (§30.9 Phase 4): create a
@@ -81,9 +141,23 @@ export class ManageIntentionAction implements BackendAction<typeof parameters> {
   constructor(private readonly intentionsService: IntentionsService) {}
 
   async execute(
-    args: z.infer<typeof parameters>,
+    rawArgs: z.infer<typeof parameters>,
     context: ActionExecutionContext,
   ): Promise<ActionExecutionResult> {
+    const parsed = operationSchemas.safeParse(rawArgs);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map(
+            (issue) =>
+              `${issue.path.join('.') || 'arguments'}: ${issue.message}`,
+          )
+          .join('; '),
+      };
+    }
+    const args = parsed.data;
+
     switch (args.operation) {
       case 'create':
         return this.create(args, context);

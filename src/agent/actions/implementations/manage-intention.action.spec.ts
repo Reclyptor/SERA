@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { asSchema } from '@ai-sdk/provider-utils';
 import { ManageIntentionAction } from './manage-intention.action';
 import type { ActionExecutionContext } from '../action.interface';
 
@@ -22,6 +23,29 @@ const ctx: ActionExecutionContext = {
 };
 
 describe('ManageIntentionAction', () => {
+  it('exposes an object input_schema (Anthropic rejects non-object tool schemas)', () => {
+    // Regression: the wire schema was a top-level discriminated union, which
+    // serializes to `anyOf` with no `type`. Anthropic rejects that with
+    // `input_schema.type: Field required`, failing every model request.
+    const { action } = createAction();
+    const jsonSchema = asSchema(action.parameters).jsonSchema as Record<
+      string,
+      unknown
+    >;
+    expect(jsonSchema.type).toBe('object');
+    expect(jsonSchema).not.toHaveProperty('anyOf');
+  });
+
+  it('rejects an operation missing its required fields', async () => {
+    const { action, service } = createAction();
+    const res = await action.execute(
+      { operation: 'snooze', intentionID: 'int-1' },
+      ctx,
+    );
+    expect(res.success).toBe(false);
+    expect(service.snooze).not.toHaveBeenCalled();
+  });
+
   it('creates an intention with a clamped due time and confidence 1', async () => {
     const { action, service } = createAction();
     const res = await action.execute(
