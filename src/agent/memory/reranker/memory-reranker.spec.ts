@@ -102,6 +102,28 @@ describe('MemoryReranker', () => {
     expect(out.map((h) => h.record.id)).toEqual(['a']);
   });
 
+  it('passes a full provider/model spec as preferredModel', async () => {
+    // Regression: the router parses `preferredModel` as a `provider/model`
+    // spec. Passing the bare model made every rerank throw "Invalid model
+    // spec" and silently fall back to the un-reranked order.
+    const router = makeRouter('["a"]');
+    const reranker = new MemoryReranker(
+      router,
+      makeConfig({ MEMORY_RERANK_ENABLED: 'true' }),
+    );
+    const hits = [makeHit('a', 'apple', 1), makeHit('b', 'banana', 0.5)];
+    await reranker.rerank('fruit', hits, 2);
+
+    const generate = (
+      router as unknown as { generate: ReturnType<typeof vi.fn> }
+    ).generate;
+    const options = generate.mock.calls[0][0].options as {
+      preferredModel: string;
+    };
+    expect(options.preferredModel).toBe('anthropic/claude-haiku-4-5');
+    expect(options.preferredModel).toContain('/');
+  });
+
   it('caps output at topK', async () => {
     const reranker = new MemoryReranker(
       makeRouter('["a", "b", "c"]'),

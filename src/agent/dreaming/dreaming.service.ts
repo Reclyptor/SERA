@@ -154,7 +154,10 @@ export class DreamingService implements OnModuleInit, OnModuleDestroy {
         system: SYSTEM_PROMPT,
         ...(provider && modelID
           ? {
-              options: { preferredProvider: provider, preferredModel: modelID },
+              options: {
+                preferredProvider: provider,
+                preferredModel: this.model,
+              },
             }
           : {}),
         maxOutputTokens: 512,

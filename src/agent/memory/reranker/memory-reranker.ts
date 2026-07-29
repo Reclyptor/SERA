@@ -73,7 +73,7 @@ export class MemoryReranker {
       const result = await this.modelRouter.generate({
         messages: [{ role: 'user', content: userMessage }],
         system,
-        options: { preferredProvider: provider, preferredModel: modelID },
+        options: { preferredProvider: provider, preferredModel: this.model },
         maxOutputTokens: 1024,
         temperature: 0,
       });

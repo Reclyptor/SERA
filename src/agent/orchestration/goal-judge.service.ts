@@ -64,7 +64,7 @@ export class GoalJudgeService {
         system: SYSTEM_PROMPT,
         ...(provider && modelID
           ? {
-              options: { preferredProvider: provider, preferredModel: modelID },
+              options: { preferredProvider: provider, preferredModel: model },
             }
           : {}),
         maxOutputTokens: 256,
