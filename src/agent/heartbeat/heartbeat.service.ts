@@ -17,6 +17,7 @@ import { StateService } from '../state/state.service';
 import { ScheduledExecution } from '../scheduling/scheduled-execution.schema';
 import { ScheduledExecutionService } from '../scheduling/scheduled-execution.service';
 import { isWithinActiveHours } from './active-hours.util';
+import { computeNextRunAt } from './next-run.util';
 
 const DEFAULT_HEARTBEAT_PROMPT = `You have woken on your own initiative — no one has messaged you. Review your standing context (who you are, who your user is, what you care about), anything provided below, and what has changed recently. Decide whether anything genuinely warrants doing something now or reaching out to your user. Act only on what is worth their attention; routine or low-value observations are not.`;
 
@@ -98,13 +99,7 @@ export class HeartbeatService implements OnModuleInit, OnModuleDestroy {
           },
           {
             $set: {
-              // Advance from the SCHEDULED time (dueAt), not wall-clock,
-              // so a slow tick or late claim does not drift the cadence.
-              // Two-minute heartbeats stay two-minute heartbeats even on
-              // congested ticks.
-              nextRunAt: new Date(
-                dueAt.getTime() + config.intervalMinutes * 60_000,
-              ),
+              nextRunAt: computeNextRunAt(dueAt, now, config.intervalMinutes),
             },
           },
         )

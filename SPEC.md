@@ -2346,6 +2346,25 @@ Each agent can have one heartbeat configuration specifying interval, active hour
 
 Heartbeat execution uses the same horizontal-scaling guarantees as cron. If a heartbeat is due but outside active hours, no execution is created and `nextRunAt` is not advanced; the config is rechecked on the next tick.
 
+#### Advancing `nextRunAt` (no backlog replay)
+
+Because `nextRunAt` is left untouched overnight, it can be many intervals in the
+past by the time the active window reopens. `computeNextRunAt` in
+`next-run.util.ts` therefore distinguishes two cases:
+
+| Lateness              | Next slot           | Why                                                     |
+| --------------------- | ------------------- | ------------------------------------------------------- |
+| `< intervalMinutes`   | `dueAt + interval`  | Anti-drift — a congested tick must not slide the grid    |
+| `>= intervalMinutes`  | `now + interval`    | Skipped runs are not owed; do not replay them            |
+
+The second case is a fix, not a refinement. Advancing by a single interval from
+`dueAt` left `nextRunAt` still in the past after an overnight gap, so the config
+came due again on the very next tick — firing one catch-up heartbeat per minute
+until it caught up. With a 45-minute interval and an 08:00–22:00 window, a
+`nextRunAt` landing at 22:22 sat ~9.6 hours stale and produced roughly **13
+redundant runs every morning at 08:00**, each a full LLM call. Runs skipped
+because the user was asleep are not work that was missed and owed.
+
 ### Active Hours
 
 If configured, heartbeats only fire within the specified window:
