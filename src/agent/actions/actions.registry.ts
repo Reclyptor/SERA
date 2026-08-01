@@ -16,6 +16,10 @@ export class ActionsRegistry {
     return this.actions.delete(name);
   }
 
+  get size(): number {
+    return this.actions.size;
+  }
+
   get(name: string): BackendAction | undefined {
     return this.actions.get(name);
   }

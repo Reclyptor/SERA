@@ -18,6 +18,10 @@ export class ToolsService {
     this.logger.log(`Registered tool: ${tool.name}`);
   }
 
+  get toolCount(): number {
+    return this.registry.size;
+  }
+
   /**
    * Get an AI SDK-compatible ToolSet with context injected.
    */

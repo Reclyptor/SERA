@@ -215,7 +215,7 @@ export class ToolsBootstrapService implements OnModuleInit {
     this.toolsService.registerTool(new TriggerTool(this.triggersService));
 
     this.logger.log(
-      `Registered 31 core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
+      `Registered ${this.toolsService.toolCount} core tools (shell: ${shellEnabled ? 'enabled' : 'disabled'})`,
     );
   }
 

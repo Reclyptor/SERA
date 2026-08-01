@@ -68,6 +68,8 @@ export class ActionsBootstrapService implements OnModuleInit {
       new ManageIntentionAction(this.intentionsService),
     );
 
-    this.logger.log('Registered 7 core actions');
+    this.logger.log(
+      `Registered ${this.actionsService.actionCount} core actions`,
+    );
   }
 }

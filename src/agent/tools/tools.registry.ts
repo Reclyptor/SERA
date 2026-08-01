@@ -21,6 +21,10 @@ export class ToolsRegistry {
     return this.tools.delete(name);
   }
 
+  get size(): number {
+    return this.tools.size;
+  }
+
   get(name: string): Tool | undefined {
     return this.tools.get(name);
   }

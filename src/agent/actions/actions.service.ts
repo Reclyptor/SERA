@@ -18,6 +18,10 @@ export class ActionsService {
     this.logger.log(`Registered action: ${action.name}`);
   }
 
+  get actionCount(): number {
+    return this.registry.size;
+  }
+
   /**
    * Get an AI SDK-compatible ToolSet from registered actions.
    */
