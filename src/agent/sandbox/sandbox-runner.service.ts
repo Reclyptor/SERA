@@ -1,8 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { exec } from 'child_process';
+import { ConfigService } from '@nestjs/config';
 import type { SandboxContext } from '../tools/tool.interface';
-
-const MAX_OUTPUT_SIZE = 64 * 1024;
+import {
+  DEFAULT_RUNNER_PORT,
+  DEFAULT_TIMEOUT_MS,
+  type SandboxExecRequest,
+  type SandboxExecResponse,
+} from '../../sandbox-runner/protocol';
 
 export interface SandboxExecOptions {
   command: string;
@@ -19,109 +23,97 @@ export interface SandboxExecResult {
   stderr: string;
 }
 
+/**
+ * Dispatches agent-authored commands to the sandbox sidecar rather than running
+ * them in this process.
+ *
+ * This container's environment holds the model keys, the GitHub PAT, and the
+ * database URIs. `/proc/1/environ` is readable by any process running as the
+ * same uid, so a command executed here can recover all of them no matter how
+ * carefully its own environment is scrubbed. The sidecar runs with none of
+ * those variables set, and pod containers have separate PID namespaces, so a
+ * command there has nothing to read.
+ *
+ * Consequence worth keeping in mind: the sidecar sees only the shared workspace
+ * and media volumes. A command touching a path that exists solely in this
+ * container's filesystem will not find it.
+ */
 @Injectable()
 export class SandboxRunnerService implements OnModuleInit {
   private readonly logger = new Logger(SandboxRunnerService.name);
-  private unsharePid = false;
-  private unshareNet = false;
+  private readonly runnerUrl: string;
 
-  async onModuleInit() {
-    this.unsharePid = await this.probe('unshare --pid --fork true');
-    this.unshareNet = await this.probe('unshare --net true');
+  constructor(configService: ConfigService) {
+    this.runnerUrl =
+      configService.get<string>('SANDBOX_RUNNER_URL') ??
+      `http://127.0.0.1:${DEFAULT_RUNNER_PORT}`;
+  }
 
-    const caps = [
-      this.unsharePid ? 'pid' : null,
-      this.unshareNet ? 'net' : null,
-    ].filter(Boolean);
-
-    if (caps.length > 0) {
-      this.logger.log(`Sandbox namespace support: ${caps.join(', ')}`);
-    } else {
+  async onModuleInit(): Promise<void> {
+    // Probe rather than assume. A missing sidecar means every shell, exec, and
+    // code_execution call fails at request time, which is worth surfacing at
+    // boot instead of on the agent's first tool call.
+    try {
+      const res = await fetch(`${this.runnerUrl}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.logger.log(`Sandbox sidecar reachable at ${this.runnerUrl}`);
+    } catch (err) {
       this.logger.warn(
-        'No namespace isolation available — falling back to ulimit-only sandbox',
+        `Sandbox sidecar unreachable at ${this.runnerUrl} (${
+          err instanceof Error ? err.message : String(err)
+        }) — shell, exec, and code_execution will fail until it is up`,
       );
     }
   }
 
   async exec(options: SandboxExecOptions): Promise<SandboxExecResult> {
-    const { command, cwd, timeoutMs = 30000, workspaceDir, sandbox } = options;
-    const workDir = cwd ? `${workspaceDir}/${cwd}` : workspaceDir;
-    const timeoutSec = Math.ceil(timeoutMs / 1000);
-    const memKb = sandbox.memoryMb * 1024;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    const limits = [
-      `ulimit -v ${memKb} 2>/dev/null`,
-      `ulimit -t ${timeoutSec} 2>/dev/null`,
-      `ulimit -u 64 2>/dev/null`,
-      `ulimit -n 256 2>/dev/null`,
-      `ulimit -f 65536 2>/dev/null`,
-    ].join('; ');
-
-    const inner = `${limits}; exec ${command}`;
-
-    let wrapped: string;
-    const nsFlags: string[] = [];
-    if (this.unsharePid) nsFlags.push('--pid', '--fork');
-    if (this.unshareNet && !sandbox.networkEnabled) nsFlags.push('--net');
-
-    if (nsFlags.length > 0) {
-      wrapped = `unshare ${nsFlags.join(' ')} /bin/sh -c ${this.shellQuote(inner)}`;
-    } else {
-      wrapped = inner;
-    }
-
-    const sanitizedEnv: Record<string, string> = {
-      HOME: workDir,
-      PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-      TMPDIR: `${workDir}/.tmp`,
-      LANG: 'C.UTF-8',
-      ...sandbox.envVars,
+    const body: SandboxExecRequest = {
+      command: options.command,
+      cwd: options.cwd,
+      timeoutMs,
+      workspaceDir: options.workspaceDir,
+      memoryMb: options.sandbox.memoryMb,
+      networkEnabled: options.sandbox.networkEnabled,
+      envVars: options.sandbox.envVars,
     };
 
-    return new Promise((resolve) => {
-      const child = exec(
-        wrapped,
-        {
-          cwd: workDir,
-          shell: '/bin/sh',
-          timeout: timeoutMs + 2000,
-          maxBuffer: MAX_OUTPUT_SIZE,
-          env: sanitizedEnv,
-        },
-        (error, stdout, stderr) => {
-          if (error && error.killed) {
-            resolve({
-              exitCode: 137,
-              stdout: '',
-              stderr: `Timed out after ${timeoutMs}ms`,
-            });
-            return;
-          }
+    try {
+      const res = await fetch(`${this.runnerUrl}/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        // The runner enforces the real timeout and returns 137 on expiry. This
+        // is the outer bound for the round trip itself.
+        signal: AbortSignal.timeout(timeoutMs + 10_000),
+      });
 
-          const truncate = (s: string) =>
-            s.length > MAX_OUTPUT_SIZE
-              ? s.slice(0, MAX_OUTPUT_SIZE) + '\n[...truncated]'
-              : s;
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: `Sandbox runner error (HTTP ${res.status}): ${detail}`,
+        };
+      }
 
-          resolve({
-            exitCode: error ? (error.code ?? 1) : 0,
-            stdout: truncate(stdout),
-            stderr: truncate(stderr),
-          });
-        },
-      );
-
-      setTimeout(() => child.kill('SIGTERM'), timeoutMs + 3000);
-    });
-  }
-
-  private shellQuote(s: string): string {
-    return "'" + s.replace(/'/g, "'\\''") + "'";
-  }
-
-  private probe(command: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      exec(command, { timeout: 3000 }, (error) => resolve(!error));
-    });
+      const result = (await res.json()) as SandboxExecResponse;
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Sandbox exec dispatch failed: ${message}`);
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Sandbox runner unreachable: ${message}`,
+      };
+    }
   }
 }

@@ -2454,7 +2454,41 @@ Content is marked safe only if no high-severity threats are detected.
 
 ### Sandbox Execution
 
-`SandboxRunnerService` provides process isolation via Linux `unshare`:
+Agent-authored commands do not run in the agent process. `SandboxRunnerService`
+serialises each request and POSTs it to a **sandbox sidecar** — a second
+container in the same pod, running the same image under a different entrypoint
+(`dist/sandbox-runner/main.js`), configured with **none of the agent's secrets
+in its environment**.
+
+The sidecar is the boundary, and it exists because in-process sanitisation
+cannot be one. `/proc/1/environ` is readable by any process running as the
+container's uid, so a command executed inside the agent container can recover
+every variable the agent was started with regardless of what environment that
+command is handed. Containers in a pod have separate PID namespaces, so a
+command in the sidecar cannot read the agent's environment at all.
+
+| Property        | Agent container            | Sandbox sidecar                     |
+| --------------- | -------------------------- | ----------------------------------- |
+| Secrets in env  | yes (`envFrom` the Secret) | **no**                              |
+| Runs agent code | yes                        | no                                  |
+| Runs shell cmds | **no**                     | yes                                 |
+| Volumes         | workspace, media           | workspace, media (shared)           |
+| Listener        | `:3001` (cluster)          | `127.0.0.1:3002` (pod-local only)   |
+
+The sidecar entrypoint is deliberately plain Node with no Nest bootstrap:
+loading `AppModule` would run `validateEnv` and require `MONGODB_URI`, the model
+keys, and the rest — the credentials the sidecar exists in order not to hold.
+
+`SANDBOX_RUNNER_URL` overrides the default `http://127.0.0.1:3002`. If the
+sidecar is unreachable, `shell`, `exec`, and `code_execution` return a failed
+result (`exitCode: 1`) rather than throwing; the condition is also probed and
+logged at boot.
+
+Because only the shared volumes are visible to the sidecar, a command
+referencing a path that exists solely in the agent container's image will not
+find it.
+
+Within the sidecar, each command is further constrained:
 
 | Resource             | Limit                      |
 | -------------------- | -------------------------- |
@@ -2473,7 +2507,17 @@ Environment is sanitized to: `HOME`, `PATH`, `TMPDIR`, `LANG`, plus custom `envV
 
 ### Runtime Tool Environment
 
-`exec`, `shell`, `process`, and `code_execution` all apply the same `HOME` / `PATH` / `TMPDIR` / `LANG` allowlist to the child-process env even when the sandbox is OFF, via the shared `buildToolEnv()` helper in `tool-utils`. This prevents `AUTH_SECRET`, provider API keys, the Mongo URI, NTFY tokens, and other process-level secrets from leaking into user-supplied scripts. `code_execution` additionally injects `SERA_BRIDGE_URL` / `SERA_BRIDGE_SECRET` for the tool-bridge helper libraries.
+`exec`, `shell`, `process`, and `code_execution` all apply the same `HOME` / `PATH` / `TMPDIR` / `LANG` allowlist to the child-process env, via the shared `buildToolEnv()` helper in `tool-utils`. `code_execution` additionally injects `SERA_BRIDGE_URL` / `SERA_BRIDGE_SECRET` for the tool-bridge helper libraries.
+
+This allowlist is hygiene, **not** a security boundary, and must not be
+described as one. An earlier revision of this section claimed it prevented
+`AUTH_SECRET`, provider keys, and the Mongo URI from reaching user-supplied
+scripts; that was wrong. A command can read the environment of any process
+sharing its uid straight out of `/proc/<pid>/environ`, so scrubbing the
+variables handed to that command accomplishes nothing on its own. What actually
+keeps those credentials away from agent-authored code is that the code runs in
+the sidecar, in a separate PID namespace, in a container where the variables
+were never set. See [Sandbox Execution](#sandbox-execution).
 
 ---
 

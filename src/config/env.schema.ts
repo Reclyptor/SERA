@@ -89,6 +89,8 @@ const envSchema = z
       .default(60_000),
     WORKSPACE_DIR: z.string().optional(),
     ENABLE_SHELL_TOOL: z.string().default('false'),
+    // Base URL of the sandbox sidecar. Defaults to pod-local loopback.
+    SANDBOX_RUNNER_URL: z.string().optional(),
     AUTONOMOUS_WALL_CLOCK_TIMEOUT_MS: z.coerce
       .number()
       .int()
