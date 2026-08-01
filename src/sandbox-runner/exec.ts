@@ -52,7 +52,14 @@ export function buildWrappedCommand(
     `ulimit -f 65536 2>/dev/null`,
   ].join('; ');
 
-  const inner = `${limits}; exec ${command}`;
+  // The command is NOT prefixed with `exec`. Doing so replaces the shell with
+  // the first command, which silently discards everything after a `&&`, `;`,
+  // or newline — and still exits 0, so the truncation looks like success. That
+  // is fatal for the `shell` tool, whose whole purpose is multi-line scripts.
+  //
+  // Keeping the shell as the parent costs one extra process. The CPU-time
+  // ulimit still applies, because rlimits are inherited by children.
+  const inner = `${limits}\n${command}`;
 
   const nsFlags: string[] = [];
   if (ns.pid) nsFlags.push('--pid', '--fork');
