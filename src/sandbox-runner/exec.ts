@@ -31,10 +31,23 @@ export function buildWrappedCommand(
   ns: NamespaceSupport,
 ): string {
   const timeoutSec = Math.ceil(timeoutMs / 1000);
+
+  // No `ulimit -u`. RLIMIT_NPROC counts every process owned by the uid across
+  // the whole host, not within the container, so on a shared node it is
+  // already consumed by unrelated pods running as the same uid. The previous
+  // value of 64 was therefore never a fork-bomb guard — it sat far below the
+  // ambient count and made every command that needed a second process (any
+  // pipeline) fail with "can't fork", while a genuine fork bomb would be
+  // bounded by the same ambient ceiling regardless of what we set here.
+  //
+  // Bounding process count per container is the cgroup pids controller's job,
+  // reached in Kubernetes through the kubelet's podPidsLimit rather than from
+  // the pod spec. Until that is set, the sandbox container's memory limit is
+  // what contains a runaway: it OOM-kills the sidecar alone, leaving the agent
+  // container running.
   const limits = [
     `ulimit -v ${memoryMb * 1024} 2>/dev/null`,
     `ulimit -t ${timeoutSec} 2>/dev/null`,
-    `ulimit -u 64 2>/dev/null`,
     `ulimit -n 256 2>/dev/null`,
     `ulimit -f 65536 2>/dev/null`,
   ].join('; ');

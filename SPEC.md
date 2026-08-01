@@ -2494,9 +2494,19 @@ Within the sidecar, each command is further constrained:
 | -------------------- | -------------------------- |
 | Virtual memory       | `memoryMb * 1024` KB       |
 | CPU time             | `timeoutMs / 1000` seconds |
-| Max processes        | 64                         |
 | Max file descriptors | 256                        |
 | Max file size        | 65536 blocks               |
+
+There is deliberately **no `ulimit -u`**. A previous revision set it to 64 as a
+fork-bomb guard, which it never was: `RLIMIT_NPROC` is counted per-uid across
+the host rather than per-container, so on a shared node it is already consumed
+by unrelated pods running as the same uid. The practical effect was that every
+command needing a second process — any pipeline — died with `can't fork`, while
+a real fork bomb remained bounded only by that same ambient ceiling. Bounding
+process count per container belongs to the cgroup pids controller (the
+kubelet's `podPidsLimit`), which is not settable from a pod spec. Until it is
+set, containment comes from the sandbox container's **memory limit**, which
+OOM-kills the sidecar alone and leaves the agent container running.
 
 **Namespace isolation** (probed on init):
 

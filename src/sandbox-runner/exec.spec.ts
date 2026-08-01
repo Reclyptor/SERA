@@ -44,6 +44,15 @@ describe('buildWrappedCommand', () => {
       'ulimit -t 2',
     );
   });
+
+  // RLIMIT_NPROC is counted per-uid across the host, so in a container on a
+  // shared node it is already exhausted by unrelated pods. Setting it broke
+  // every pipeline ("can't fork") without bounding anything.
+  it('does not set a process limit', () => {
+    expect(
+      buildWrappedCommand('echo hi', 256, 30_000, false, NO_NS),
+    ).not.toContain('ulimit -u');
+  });
 });
 
 describe('buildEnv', () => {
