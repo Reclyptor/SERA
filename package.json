@@ -24,7 +24,6 @@
     "@ai-sdk/openai-compatible": "^2.0.41",
     "@anthropic-ai/sdk": "^0.57.0",
     "@aws-sdk/client-s3": "^3.1047.0",
-    "@kubernetes/client-node": "^1.4.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",

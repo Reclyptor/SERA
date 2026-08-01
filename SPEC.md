@@ -192,10 +192,6 @@ AppModule
 | `CONTEXT_SUMMARY_MAX_AGE_DAYS`     | `7`                                           | Days of inactivity before a persisted compaction summary is regenerated from scratch          |
 | `CONTEXT_SUMMARY_MAX_GENERATIONS`  | `10`                                          | Hard cap on iterative summary merges before regeneration from scratch                         |
 | `CONTEXT_COOLDOWN_MS`              | `600000`                                      | Cooldown applied to Tier 1 summarization after a failure                                      |
-| `KUBECONFIG`                       | _(none)_                                      | **Raw kubeconfig YAML content** (not a file path) consumed by the `kubectl` tool. Unset disables the tool. |
-| `KUBE_CONTEXT`                     | _(kubeconfig default)_                        | Optional context override for the `kubectl` tool                                              |
-| `CLUSTER_REPO`                     | _(none)_                                      | `owner/repo` of the Flux-watched cluster repo edited by the `cluster_git` tool                |
-| `CLUSTER_BRANCH`                   | `master`                                      | Branch the `cluster_git` tool writes to (Flux reconciles from this branch)                    |
 
 Object storage intentionally uses the AWS SDK credential chain. For AWS S3, set `OBJECT_STORAGE_BUCKET` and rely on `AWS_REGION` plus IAM role, profile, or standard AWS credential environment variables. For MinIO, additionally set `OBJECT_STORAGE_ENDPOINT`; the client automatically uses path-style requests whenever an endpoint is provided.
 
@@ -1738,21 +1734,23 @@ Approval gate (via `ToolApprovalService`, §29.6) fires for `toolPolicy.tools` m
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
 | `agent_management` | `operation` (create/update/get/list/delete/enable/disable), `agentID?`, `name?`, `description?`, `promptSlug?`, `modelOptions?`, `toolPolicy?`, `messagingPolicy?`, `sandboxConfig?`, `enabled?` | No       | CRUD over `AgentsService`. Approval-gated on `toolPolicy.tools` changes; cannot self-mutate or affect default. |
 
-#### Cluster Git (GitOps)
+#### Cluster Access
 
-The `cluster_git` tool is the canonical path for declarative cluster changes. It writes to the GitHub repo identified by `CLUSTER_REPO` on branch `CLUSTER_BRANCH`; FluxCD reconciles those commits into the live cluster. Writes are atomic at the GitHub Contents API (one call = one commit), so no local clone is maintained. `write_file` and `delete_file` gate through `ToolApprovalService` with a fingerprint over `(repo, branch, path, content-sha256, message)` so each commit must be approved individually.
+SERA has no cluster-facing tools. The `kubectl` tool (direct Kubernetes API access
+via `@kubernetes/client-node`) and the `cluster_git` tool (writes to the
+FluxCD-watched repo) were both removed, along with the `KUBECONFIG`,
+`KUBE_CONTEXT`, `CLUSTER_REPO`, and `CLUSTER_BRANCH` settings that configured
+them.
 
-| Tool          | Parameters                                                                                | Parallel | Description                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
-| `cluster_git` | `operation` (list_files/read_file/write_file/delete_file/list_commits), `path?`, `content?`, `message?`, `pathPrefix?`, `limit?` | No       | Read/write the Flux-watched cluster repo. Reads run immediately; writes/deletes require approval. Disabled if `CLUSTER_REPO` or `GITHUB_PAT` is unset. |
+The agent has no route to read or alter cluster state — not through the
+Kubernetes API, and not by committing manifests for Flux to reconcile. Cluster
+changes are made by an operator through the cluster repo directly. Do not
+reintroduce either tool without revisiting that decision: `kubectl` required a
+long-lived credential in the process environment, recoverable from
+`/proc/1/environ` by anything sharing the container's uid, and `cluster_git`
+offered an indirect path to the same outcome via Flux.
 
-#### Kubernetes (Direct Cluster Access)
-
-The `kubectl` tool exposes the cluster directly via the `@kubernetes/client-node` SDK. `KUBECONFIG` must contain the **raw kubeconfig YAML** (not a file path) — this matches SERA's containerized deployment model where the kubeconfig is injected from a Kubernetes Secret rather than mounted as a file. `KUBE_CONTEXT` optionally pins to a specific context within that kubeconfig. Read operations run without approval. All mutating operations gate through `ToolApprovalService` with a fingerprint over `(operation, namespace, kind, name[, command, manifest-sha256])`. In normal operation the agent should prefer `cluster_git` for declarative changes (Flux will revert `kubectl`-applied state on the next reconcile); `kubectl` mutations exist as a break-glass capability for diagnostics, emergencies, or when Flux itself is degraded. `logs` and `exec` cap output at 64KB; `exec` enforces a 30s timeout. `port-forward` is intentionally omitted (synchronous-tool mismatch).
-
-| Tool      | Parameters                                                                                                                                                  | Parallel | Description                                                                                  |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `kubectl` | `operation` (list/get/describe/logs/events/top_pods/top_nodes/apply/delete/delete_pod/scale/rollout_restart/rollout_undo/cordon/uncordon/drain_pod/exec/patch), `kind?`, `name?`, `namespace?`, `allNamespaces?`, `manifest?`, `replicas?`, `tailLines?`, `container?`, `command?`, `patch?`, `patchType?`, `gracePeriodSeconds?` | No       | Direct cluster management via `@kubernetes/client-node`. Reads run immediately; mutations require approval. |
+`GITHUB_PAT` remains in use for the prompts and skills repositories.
 
 #### MCP Tools
 
